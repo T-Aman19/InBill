@@ -28,6 +28,7 @@ export const menuItems = pgTable("menu_items", {
   basePrice: numeric("base_price", { precision: 10, scale: 2 }).notNull(),
   isVeg: boolean("is_veg").notNull().default(true),
   isAvailable: boolean("is_available").notNull().default(true),
+  hsnCode: text("hsn_code"),
   imageUrl: text("image_url"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

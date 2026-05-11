@@ -44,6 +44,7 @@ export const menuItemSchema = z.object({
   taxCategoryId: z.string().uuid().nullable().default(null),
   isVeg: z.boolean().default(true),
   isAvailable: z.boolean().default(true),
+  hsnCode: z.string().max(8).optional(),
   imageUrl: z.string().url().optional(),
   sortOrder: z.number().int().default(0),
   variants: z.array(itemVariantSchema).default([]),

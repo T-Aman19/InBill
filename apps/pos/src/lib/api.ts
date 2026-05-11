@@ -101,6 +101,15 @@ export const api = {
     create: (body: unknown) => post<unknown>("/bills", body),
     get: (id: string) => get<unknown>(`/bills/${id}`),
     addPayment: (billId: string, body: unknown) => post<unknown>(`/bills/${billId}/payments`, body),
+    applyDiscount: (billId: string, body: unknown) => patch<unknown>(`/bills/${billId}/discount`, body),
+    removeDiscount: (billId: string, lineId: string) => del<unknown>(`/bills/${billId}/discount/${lineId}`),
+  },
+  discounts: {
+    list: () => get<unknown[]>("/discounts"),
+    create: (body: unknown) => post<unknown>("/discounts", body),
+    update: (id: string, body: unknown) => patch<unknown>(`/discounts/${id}`, body),
+    delete: (id: string) => del<unknown>(`/discounts/${id}`),
+    validate: (code: string, orderTotal: number) => post<unknown>("/discounts/validate", { code, orderTotal }),
   },
   shifts: {
     getActive: () => get<unknown | null>("/shifts/active"),
@@ -126,6 +135,19 @@ export const api = {
     items: (from: string, to: string) => get<unknown[]>(`/reports/items?from=${from}&to=${to}`),
     categories: (from: string, to: string) => get<unknown[]>(`/reports/categories?from=${from}&to=${to}`),
     hourly: (date: string) => get<unknown[]>(`/reports/hourly?date=${date}`),
+    gstr1: (from: string, to: string) => get<unknown>(`/reports/gstr1?from=${from}&to=${to}`),
+    exportBillsCsv: async (from: string, to: string) => {
+      const token = localStorage.getItem("inbill_token")
+      const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      })
+      if (!res.ok) throw new ApiError(res.status, "Export failed")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url; a.download = `bills-${from}-to-${to}.csv`; a.click()
+      URL.revokeObjectURL(url)
+    },
   },
   cashEntries: {
     list: (from: string, to: string) => get<unknown[]>(`/shifts/cash-entries?from=${from}&to=${to}`),

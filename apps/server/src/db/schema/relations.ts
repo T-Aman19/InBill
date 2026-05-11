@@ -4,7 +4,7 @@ import { users } from "./users.js"
 import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs } from "./menu.js"
 import { floors, tables } from "./tables.js"
 import { orders, orderItems, orderItemModifiers, kots, customers } from "./orders.js"
-import { bills, billPayments } from "./billing.js"
+import { bills, billPayments, billDiscounts, discounts } from "./billing.js"
 import { shifts, shiftCashEntries } from "./shifts.js"
 
 export const ownersRelations = relations(owners, ({ many }) => ({
@@ -23,6 +23,7 @@ export const outletsRelations = relations(outlets, ({ one, many }) => ({
   orders: many(orders),
   bills: many(bills),
   shifts: many(shifts),
+  discounts: many(discounts),
 }))
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -99,10 +100,21 @@ export const billsRelations = relations(bills, ({ one, many }) => ({
   outlet: one(outlets, { fields: [bills.outletId], references: [outlets.id] }),
   order: one(orders, { fields: [bills.orderId], references: [orders.id] }),
   payments: many(billPayments),
+  discountLines: many(billDiscounts),
 }))
 
 export const billPaymentsRelations = relations(billPayments, ({ one }) => ({
   bill: one(bills, { fields: [billPayments.billId], references: [bills.id] }),
+}))
+
+export const discountsRelations = relations(discounts, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [discounts.outletId], references: [outlets.id] }),
+  billLines: many(billDiscounts),
+}))
+
+export const billDiscountsRelations = relations(billDiscounts, ({ one }) => ({
+  bill: one(bills, { fields: [billDiscounts.billId], references: [bills.id] }),
+  discount: one(discounts, { fields: [billDiscounts.discountId], references: [discounts.id] }),
 }))
 
 export const shiftsRelations = relations(shifts, ({ one, many }) => ({

@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useState } from "react"
 import { api } from "@/lib/api"
@@ -7,12 +7,15 @@ import { TopBar } from "@/components/ui/TopBar"
 
 type TaxLine = { name: string; rate: number; amount: number }
 type Payment = { id: string; mode: string; amount: string }
-type BillItem = { name: string; quantity: number; unitPrice: string; isVeg?: boolean }
+type DiscountLine = { id: string; discountId?: string | null; label: string; amount: string }
+type BillModifier = { name: string; price: string }
+type BillItem = { name: string; quantity: number; unitPrice: string; isVeg?: boolean; modifiers?: BillModifier[] }
 type Bill = {
   id: string; billNumber: number; subtotal: string; taxLines: TaxLine[]
-  taxTotal: string; discountAmount: string; total: string; isPaid: boolean
+  taxTotal: string; discountAmount: string; discountLines?: DiscountLine[]; total: string; isPaid: boolean
   payments: Payment[]; items?: BillItem[]
 }
+type DiscountPreset = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; isActive: boolean }
 type OutletInfo = { name: string; address: string; gstin?: string }
 
 const PAYMENT_MODES = [
@@ -36,12 +39,20 @@ function Row({ label, value, dim, big }: { label: string; value: string; dim?: b
 export default function BillingPage() {
   const { billId } = useParams({ from: "/billing/$billId" })
   const navigate   = useNavigate()
+  const qc         = useQueryClient()
   const [mode,     setMode]     = useState<"cash" | "card" | "upi">("cash")
   const [tendered, setTendered] = useState("")
+  const [showDiscounts, setShowDiscounts] = useState(false)
+  const [discountErr,   setDiscountErr]   = useState("")
 
   const { data: bill, refetch } = useQuery({
     queryKey: ["bill", billId],
     queryFn: () => api.bills.get(billId) as Promise<Bill>,
+  })
+
+  const { data: discountPresets = [] } = useQuery({
+    queryKey: ["discounts"],
+    queryFn: () => api.discounts.list() as Promise<DiscountPreset[]>,
   })
 
   const { data: outlet } = useQuery({
@@ -54,6 +65,34 @@ export default function BillingPage() {
     mutationFn: (amount: number) => api.bills.addPayment(billId, { mode, amount }),
     onSuccess: () => { refetch(); setTendered("") },
   })
+
+  const applyDiscountMutation = useMutation({
+    mutationFn: (body: { discountId?: string; label: string; amount: number }) =>
+      api.bills.applyDiscount(billId, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bill", billId] }); setShowDiscounts(false); setDiscountErr("") },
+    onError: (e: Error) => setDiscountErr(e.message),
+  })
+
+  const removeDiscountMutation = useMutation({
+    mutationFn: (lineId: string) => api.bills.removeDiscount(billId, lineId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bill", billId] }),
+  })
+
+  function calcSavings(preset: DiscountPreset, orderTotal: number): number {
+    let amount = preset.type === "percentage"
+      ? (orderTotal * Number(preset.value)) / 100
+      : Number(preset.value)
+    if (preset.maxDiscountAmount) amount = Math.min(amount, Number(preset.maxDiscountAmount))
+    return parseFloat(Math.min(amount, orderTotal).toFixed(2))
+  }
+
+  function applyDiscount(preset: DiscountPreset) {
+    if (!bill) return
+    const orderTotal = Number(bill.subtotal) + Number(bill.taxTotal)
+    const savings = calcSavings(preset, orderTotal)
+    const label = preset.code ? `${preset.name} (${preset.code})` : preset.name
+    applyDiscountMutation.mutate({ discountId: preset.id, label, amount: savings })
+  }
 
   if (!bill) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--color-bg)" }}>
@@ -94,17 +133,28 @@ export default function BillingPage() {
               <span>Item</span><span style={{ textAlign: "center" }}>Qty</span><span style={{ textAlign: "right" }}>Amt</span>
             </div>
             {bill.items.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px", padding: "6px 0", fontSize: 12, borderTop: "1px solid #ddd" }}>
-                <span>{l.name}</span>
-                <span style={{ textAlign: "center" }}>{l.quantity}</span>
-                <span style={{ textAlign: "right" }}>{formatCurrency(Number(l.unitPrice) * l.quantity)}</span>
+              <div key={i} style={{ borderTop: "1px solid #ddd", padding: "6px 0", fontSize: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px" }}>
+                  <span>{l.name}</span>
+                  <span style={{ textAlign: "center" }}>{l.quantity}</span>
+                  <span style={{ textAlign: "right" }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                </div>
+                {(l.modifiers ?? []).map((m, mi) => (
+                  <div key={mi} style={{ display: "grid", gridTemplateColumns: "1fr 80px", paddingLeft: 10, fontSize: 10, color: "#777", marginTop: 2 }}>
+                    <span>+ {m.name}</span>
+                    <span style={{ textAlign: "right" }}>{formatCurrency(Number(m.price) * l.quantity)}</span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
         )}
         <div style={{ paddingTop: 12, fontSize: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span>{formatCurrency(bill.subtotal)}</span></div>
-          {Number(bill.discountAmount) > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Discount</span><span>-{formatCurrency(bill.discountAmount)}</span></div>}
+          {(bill.discountLines ?? []).length > 0
+            ? (bill.discountLines ?? []).map((line, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span>{line.label}</span><span>-{formatCurrency(line.amount)}</span></div>)
+            : Number(bill.discountAmount) > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Discount</span><span>-{formatCurrency(bill.discountAmount)}</span></div>
+          }
           {bill.taxLines.map((line, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span>{line.name} ({line.rate}%)</span><span>{formatCurrency(line.amount)}</span></div>
           ))}
@@ -233,11 +283,21 @@ export default function BillingPage() {
                   <span /><span>Item</span><span style={{ textAlign: "center" }}>Qty</span><span style={{ textAlign: "right" }}>Amount</span>
                 </div>
                 {bill.items.map((l, i) => (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", padding: "10px 0", fontSize: 14, alignItems: "center", borderTop: "1px solid var(--color-line)" }}>
-                    <span className={`veg-dot ${l.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
-                    <span style={{ color: "var(--color-ink)" }}>{l.name}</span>
-                    <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
-                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency(Number(l.unitPrice) * l.quantity)}</span>
+                  <div key={i} style={{ borderTop: "1px solid var(--color-line)", padding: "10px 0" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 14, alignItems: "center" }}>
+                      <span className={`veg-dot ${l.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
+                      <span style={{ color: "var(--color-ink)", fontWeight: 500 }}>{l.name}</span>
+                      <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                    </div>
+                    {(l.modifiers ?? []).map((m, mi) => (
+                      <div key={mi} style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>
+                        <span />
+                        <span style={{ paddingLeft: 4 }}>+ {m.name}</span>
+                        <span />
+                        <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency(Number(m.price) * l.quantity)}</span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -246,9 +306,14 @@ export default function BillingPage() {
             {/* Totals */}
             <div style={{ paddingTop: 16 }}>
               <Row label="Subtotal" value={formatCurrency(bill.subtotal)} />
-              {Number(bill.discountAmount) > 0 && (
-                <Row label="Discount" value={"− " + formatCurrency(bill.discountAmount)} dim />
-              )}
+              {(bill.discountLines ?? []).length > 0
+                ? (bill.discountLines ?? []).map((line, i) => (
+                    <Row key={i} label={line.label} value={"− " + formatCurrency(line.amount)} dim />
+                  ))
+                : Number(bill.discountAmount) > 0 && (
+                    <Row label="Discount" value={"− " + formatCurrency(bill.discountAmount)} dim />
+                  )
+              }
               {bill.taxLines.map((line, i) => (
                 <Row key={i} label={`${line.name} (${line.rate}%)`} value={formatCurrency(line.amount)} dim />
               ))}
@@ -276,8 +341,88 @@ export default function BillingPage() {
         </div>
 
         {/* Right: payment collection */}
-        <div style={{ background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", padding: 24, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", padding: 24, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 500 }}>Collect payment</div>
+
+          {/* Applied discounts */}
+          {(bill.discountLines ?? []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(bill.discountLines ?? []).map((line) => (
+                <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--color-green-soft)", borderRadius: 8 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/></svg>
+                  <span style={{ flex: 1, fontSize: 13, color: "var(--color-green)", fontWeight: 500 }}>{line.label}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-green)", fontWeight: 600 }}>− {formatCurrency(line.amount)}</span>
+                  {bill.payments.length === 0 && (
+                    <button onClick={() => removeDiscountMutation.mutate(line.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-green)", padding: 2, display: "flex", alignItems: "center" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Discount panel — only before first payment */}
+          {bill.payments.length === 0 && discountPresets.filter((d) => d.isActive).length > 0 && (
+            <div>
+              <button onClick={() => { setShowDiscounts((v) => !v); setDiscountErr("") }} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px dashed var(--color-line-strong)", background: "transparent", color: "var(--color-ink-3)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>
+                {showDiscounts ? "Hide discounts" : `Apply discount`}
+                <span style={{ marginLeft: 2, fontSize: 11, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 20, padding: "1px 7px", color: "var(--color-ink-3)" }}>
+                  {discountPresets.filter((d) => d.isActive).length}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", transform: showDiscounts ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+
+              {showDiscounts && (() => {
+                const orderTotal = Number(bill.subtotal) + Number(bill.taxTotal)
+                const active = discountPresets.filter((d) => d.isActive)
+                const eligible = active.filter((d) => orderTotal >= Number(d.minOrderValue))
+                const ineligible = active.filter((d) => orderTotal < Number(d.minOrderValue))
+                const sorted = [...eligible, ...ineligible]
+
+                return (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {discountErr && <div style={{ fontSize: 12, color: "var(--color-red)", padding: "6px 10px", background: "var(--color-red-soft)", borderRadius: 6 }}>{discountErr}</div>}
+                    {sorted.length === 0 && <div style={{ fontSize: 13, color: "var(--color-ink-3)", textAlign: "center", padding: "12px 0" }}>No discounts available</div>}
+                    {sorted.map((preset) => {
+                      const isEligible = orderTotal >= Number(preset.minOrderValue)
+                      const savings = isEligible ? calcSavings(preset, orderTotal) : 0
+                      const shortfall = Number(preset.minOrderValue) - orderTotal
+                      return (
+                        <button key={preset.id} onClick={() => isEligible && applyDiscount(preset)} disabled={!isEligible || applyDiscountMutation.isPending}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 10, border: "1.5px solid " + (isEligible ? "var(--color-line)" : "var(--color-line)"), background: isEligible ? "var(--color-bg)" : "var(--color-surface-2)", cursor: isEligible ? "pointer" : "default", textAlign: "left", fontFamily: "inherit", opacity: isEligible ? 1 : .55, width: "100%" }}>
+                          {/* Tag icon */}
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isEligible ? "var(--color-green)" : "var(--color-ink-3)"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1" fill="currentColor"/></svg>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)" }}>{preset.name}</span>
+                              {preset.code && (
+                                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: ".06em", background: "var(--color-surface-2)", border: "1px solid var(--color-line-strong)", borderRadius: 4, padding: "1px 6px", color: "var(--color-ink-2)" }}>{preset.code}</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>
+                              {isEligible
+                                ? preset.type === "percentage"
+                                  ? `${preset.value}% off${preset.maxDiscountAmount ? ` · max ₹${preset.maxDiscountAmount}` : ""}`
+                                  : `Flat ₹${preset.value} off`
+                                : `Add ${formatCurrency(shortfall)} more to unlock`}
+                            </div>
+                          </div>
+                          {isEligible && (
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--color-green)" }}>−{formatCurrency(savings)}</div>
+                              <div style={{ fontSize: 10, color: "var(--color-green)", marginTop: 1 }}>savings</div>
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Amount due card */}
           <div style={{

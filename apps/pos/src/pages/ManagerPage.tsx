@@ -9,12 +9,14 @@ type Staff = { id: string; name: string; role: string; isActive: boolean }
 type EditRecord = { _new?: boolean; id?: string; name: string; role: string; pin: string; isActive: boolean }
 
 type Category = { id: string; name: string; sortOrder: number; isActive: boolean }
-type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string }
+type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string; hsnCode?: string; taxConfigId?: string | null }
 type ItemVariant = { id: string; itemId: string; name: string; price: string; isActive: boolean }
 type ModifierGroup = { id: string; name: string; required: boolean; multiSelect: boolean; minSelect: number; maxSelect?: number | null }
 type Modifier = { id: string; groupId: string; name: string; price: string; isActive: boolean }
 type ItemModifierGroupLink = { itemId: string; groupId: string }
-type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string }
+type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null }
+
+type DiscountRow = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; validFrom?: string | null; validTo?: string | null; usageLimit?: number | null; usageCount: number; isActive: boolean }
 
 type Floor = { id: string; name: string; sortOrder: number }
 type TableRow = { id: string; floorId: string; name: string; capacity: number; status: string }
@@ -29,7 +31,7 @@ type OutletInfo = { id: string; name: string; address: string; phone: string; gs
 const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green" }
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only" }
-type NavId = "staff" | "menu" | "tables" | "taxes" | "modifiers" | "shifts" | "customers" | "expenses" | "outlet" | "devices"
+type NavId = "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "expenses" | "outlet" | "devices"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -210,8 +212,8 @@ function StaffTab() {
 }
 
 // ── Menu tab ─────────────────────────────────────────────────────────────────
-function ItemEditPanel({ item, categories, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
-  item: EditItem; categories: Category[]
+function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
+  item: EditItem; categories: Category[]; taxConfigs: TaxConfig[]
   variants: ItemVariant[]; allModifierGroups: ModifierGroup[]; itemModifierGroupLinks: ItemModifierGroupLink[]
   onClose: () => void; onSaved: () => void
 }) {
@@ -222,6 +224,8 @@ function ItemEditPanel({ item, categories, variants, allModifierGroups, itemModi
   const [catId, setCatId] = useState(item.categoryId)
   const [isVeg, setIsVeg] = useState(item.isVeg)
   const [desc, setDesc] = useState(item.description)
+  const [hsnCode, setHsnCode] = useState(item.hsnCode ?? "")
+  const [taxConfigId, setTaxConfigId] = useState(item.taxConfigId ?? "")
   const [newVarName, setNewVarName] = useState("")
   const [newVarPrice, setNewVarPrice] = useState("")
 
@@ -231,8 +235,9 @@ function ItemEditPanel({ item, categories, variants, allModifierGroups, itemModi
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["menu"] }); onSaved() }
 
-  const createMutation = useMutation({ mutationFn: () => api.menu.createItem({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined }), onSuccess: () => { invalidate(); onClose() } })
-  const updateMutation = useMutation({ mutationFn: () => api.menu.updateItem(item.id!, { name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined }), onSuccess: () => { invalidate(); onClose() } })
+  const itemPayload = () => ({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined, hsnCode: hsnCode.trim() || undefined, taxConfigId: taxConfigId || null })
+  const createMutation = useMutation({ mutationFn: () => api.menu.createItem(itemPayload()), onSuccess: () => { invalidate(); onClose() } })
+  const updateMutation = useMutation({ mutationFn: () => api.menu.updateItem(item.id!, itemPayload()), onSuccess: () => { invalidate(); onClose() } })
   const addVariantMutation = useMutation({
     mutationFn: () => api.menu.createVariant(item.id!, { name: newVarName.trim(), price: parseFloat(newVarPrice) }),
     onSuccess: () => { invalidate(); setNewVarName(""); setNewVarPrice("") },
@@ -269,6 +274,15 @@ function ItemEditPanel({ item, categories, variants, allModifierGroups, itemModi
           </div>
         </div>
         {field("Description (optional)", <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Short description…" style={{ ...inputStyle({ height: 72, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {field("HSN code (optional)", <input value={hsnCode} onChange={(e) => setHsnCode(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="e.g. 1902" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+          {taxConfigs.length > 0 && field("Tax config", (
+            <select value={taxConfigId} onChange={(e) => setTaxConfigId(e.target.value)} style={{ ...inputStyle(), appearance: "none" }}>
+              <option value="">No tax</option>
+              {taxConfigs.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.cgstRate}% + {t.sgstRate}%)</option>)}
+            </select>
+          ))}
+        </div>
       </form>
 
       {/* Variants — only shown when editing an existing item */}
@@ -328,11 +342,12 @@ function MenuTab() {
   const [editingCatName, setEditingCatName] = useState("")
   const [hoveredCatId, setHoveredCatId] = useState<string | null>(null)
 
-  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[] }> })
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[]; taxConfigs: TaxConfig[] }> })
   const cats = menu?.categories ?? []
   const items = menu?.items ?? []
   const allModifierGroups = menu?.modifierGroups ?? []
   const itemModifierGroupLinks = menu?.itemModifierGroups ?? []
+  const taxConfigs = (menu?.taxConfigs ?? []) as TaxConfig[]
   const activeCat = selectedCatId ?? cats.find((c) => c.isActive)?.id ?? null
   const visibleItems = items.filter((i) => i.categoryId === activeCat)
 
@@ -351,7 +366,7 @@ function MenuTab() {
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Menu</h3>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>{items.length} items across {cats.filter((c) => c.isActive).length} categories</div>
         </div>
-        <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "" })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+        <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "", hsnCode: "", taxConfigId: null })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>Add item
         </button>
       </div>
@@ -408,7 +423,7 @@ function MenuTab() {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: "var(--color-ink-3)" }}>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v13a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></svg>
               <div style={{ fontSize: 14 }}>No items in this category</div>
-              <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "" })} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>Add first item</button>
+              <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "", hsnCode: "", taxConfigId: null })} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>Add first item</button>
             </div>
           ) : (
             <>
@@ -432,7 +447,7 @@ function MenuTab() {
                     </button>
                   </span>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
-                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "" })} title="Edit" />
+                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "", hsnCode: item.hsnCode ?? "", taxConfigId: item.taxConfigId ?? null })} title="Edit" />
                     <ActionBtn onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteItemMutation.mutate(item.id) }} title="Delete" danger />
                   </div>
                 </div>
@@ -441,7 +456,7 @@ function MenuTab() {
           )}
         </div>
       </div>
-      {editingItem && <ItemEditPanel item={editingItem} categories={cats} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
+      {editingItem && <ItemEditPanel item={editingItem} categories={cats} taxConfigs={taxConfigs} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
     </>
   )
 }
@@ -717,9 +732,17 @@ function ShiftsTab() {
 
   return (
     <>
-      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
-        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Reports</h3>
-        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Revenue and sales breakdown</div>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Reports</h3>
+          <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Revenue and sales breakdown</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => api.reports.exportBillsCsv(from, to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Bills CSV
+          </button>
+        </div>
       </div>
       <div className="scroll" style={{ flex: 1, padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
         {/* Date range selector */}
@@ -1163,6 +1186,114 @@ function DevicesTab() {
   )
 }
 
+// ── Discounts tab ────────────────────────────────────────────────────────────
+function DiscountsTab() {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState<Partial<DiscountRow> & { _new?: boolean } | null>(null)
+  const [err, setErr] = useState("")
+
+  const { data: rows = [] } = useQuery({ queryKey: ["discounts"], queryFn: () => api.discounts.list() as Promise<DiscountRow[]> })
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["discounts"] }); setEditing(null); setErr("") }
+
+  const createMutation = useMutation({ mutationFn: (d: object) => api.discounts.create(d), onSuccess: invalidate, onError: (e: Error) => setErr(e.message) })
+  const updateMutation = useMutation({ mutationFn: ({ id, ...d }: { id: string } & object) => api.discounts.update(id, d), onSuccess: invalidate, onError: (e: Error) => setErr(e.message) })
+  const deleteMutation = useMutation({ mutationFn: (id: string) => api.discounts.delete(id), onSuccess: invalidate, onError: (e: Error) => setErr(e.message) })
+  const toggleMutation = useMutation({ mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => api.discounts.update(id, { isActive }), onSuccess: invalidate })
+
+  function handleSave() {
+    if (!editing) return
+    const { _new, id, ...rest } = editing
+    if (!rest.name?.trim() || !rest.value) { setErr("Name and value are required"); return }
+    const payload = {
+      name: rest.name.trim(),
+      type: rest.type ?? "percentage",
+      value: parseFloat(String(rest.value)),
+      minOrderValue: parseFloat(String(rest.minOrderValue ?? 0)),
+      maxDiscountAmount: rest.maxDiscountAmount ? parseFloat(String(rest.maxDiscountAmount)) : undefined,
+      code: rest.code?.trim() || undefined,
+      validFrom: rest.validFrom || undefined,
+      validTo: rest.validTo || undefined,
+      usageLimit: rest.usageLimit ?? undefined,
+      isActive: rest.isActive ?? true,
+    }
+    if (_new) createMutation.mutate(payload)
+    else updateMutation.mutate({ id: id!, ...payload })
+  }
+
+  const isPending = createMutation.isPending || updateMutation.isPending
+  const blank: Partial<DiscountRow> & { _new?: boolean } = { _new: true, type: "percentage", value: "", minOrderValue: "0", isActive: true }
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", display: "flex", alignItems: "baseline", justifyContent: "space-between", borderBottom: "1px solid var(--color-line)" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Discounts</h3>
+          <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Bill discounts and coupon codes applied at checkout</div>
+        </div>
+        <button onClick={() => { setEditing(blank); setErr("") }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>New discount
+        </button>
+      </div>
+
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {rows.length === 0 && !editing && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: "var(--color-ink-3)" }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>
+            <div style={{ fontSize: 14 }}>No discounts yet</div>
+          </div>
+        )}
+        {rows.map((row) => (
+          <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, opacity: row.isActive ? 1 : .5 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{row.name}</div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2, display: "flex", gap: 10 }}>
+                <span>{row.type === "percentage" ? `${row.value}% off` : `₹${row.value} off`}</span>
+                {Number(row.minOrderValue) > 0 && <span>· min ₹{row.minOrderValue}</span>}
+                {row.code && <span>· code: <code style={{ fontFamily: "var(--font-mono)", background: "var(--color-surface-2)", padding: "1px 5px", borderRadius: 4 }}>{row.code}</code></span>}
+                {row.usageLimit && <span>· {row.usageCount}/{row.usageLimit} used</span>}
+              </div>
+            </div>
+            <button onClick={() => toggleMutation.mutate({ id: row.id, isActive: !row.isActive })} style={{ padding: "4px 10px", borderRadius: 20, border: "1px solid " + (row.isActive ? "var(--color-green)" : "var(--color-line)"), background: row.isActive ? "var(--color-green-soft)" : "var(--color-surface-2)", color: row.isActive ? "var(--color-green)" : "var(--color-ink-3)", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+              {row.isActive ? "Active" : "Off"}
+            </button>
+            <ActionBtn onClick={() => { setEditing({ ...row }); setErr("") }} title="Edit" />
+            <ActionBtn onClick={() => { if (confirm(`Delete "${row.name}"?`)) deleteMutation.mutate(row.id) }} title="Delete" danger />
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <SlidePanel title={editing._new ? "New discount" : `Edit "${editing.name}"`} onClose={() => setEditing(null)}
+          footer={<><CancelBtn onClose={() => setEditing(null)} /><SaveBtn onClick={handleSave} disabled={isPending} label={isPending ? "Saving…" : editing._new ? "Create" : "Save"} /></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {err && <div style={{ padding: "10px 14px", background: "var(--color-red-soft)", color: "var(--color-red)", borderRadius: 8, fontSize: 13 }}>{err}</div>}
+            {field("Discount name", <input value={editing.name ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, name: e.target.value }))} placeholder="e.g. Happy Hour, Staff Discount" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {field("Type", (
+                <select value={editing.type ?? "percentage"} onChange={(e) => setEditing((d) => ({ ...d!, type: e.target.value as "percentage" | "flat" }))} style={{ ...inputStyle(), appearance: "none" }}>
+                  <option value="percentage">Percentage (%)</option>
+                  <option value="flat">Flat amount (₹)</option>
+                </select>
+              ))}
+              {field(editing.type === "flat" ? "Amount (₹)" : "Percentage (%)", <input type="number" min="0" step="0.01" value={editing.value ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, value: e.target.value }))} placeholder={editing.type === "flat" ? "e.g. 50" : "e.g. 10"} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {field("Min order value (₹)", <input type="number" min="0" value={editing.minOrderValue ?? "0"} onChange={(e) => setEditing((d) => ({ ...d!, minOrderValue: e.target.value }))} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+              {field("Max discount cap (₹, optional)", <input type="number" min="0" value={editing.maxDiscountAmount ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, maxDiscountAmount: e.target.value || null }))} placeholder="No cap" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            </div>
+            {field("Coupon code (optional)", <input value={editing.code ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, code: e.target.value.toUpperCase() }))} placeholder="e.g. HAPPY10 — leave blank for staff-applied only" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {field("Valid from (optional)", <input type="date" value={editing.validFrom?.split("T")[0] ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, validFrom: e.target.value || null }))} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+              {field("Valid to (optional)", <input type="date" value={editing.validTo?.split("T")[0] ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, validTo: e.target.value || null }))} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            </div>
+            {field("Usage limit (optional)", <input type="number" min="1" value={editing.usageLimit ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, usageLimit: e.target.value ? parseInt(e.target.value) : null }))} placeholder="Unlimited" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+          </div>
+        </SlidePanel>
+      )}
+    </>
+  )
+}
+
 // ── Nav sidebar ──────────────────────────────────────────────────────────────
 const NAV_ITEMS: { id: NavId; label: string }[] = [
   { id: "staff",     label: "Staff & PINs" },
@@ -1170,6 +1301,7 @@ const NAV_ITEMS: { id: NavId; label: string }[] = [
   { id: "modifiers", label: "Modifiers" },
   { id: "tables",    label: "Tables" },
   { id: "taxes",     label: "Tax & Charges" },
+  { id: "discounts", label: "Discounts" },
   { id: "shifts",    label: "Shift Reports" },
   { id: "customers", label: "Customers" },
   { id: "expenses",  label: "Expenses" },
@@ -1183,6 +1315,7 @@ const NAV_ICONS: Record<NavId, React.ReactElement> = {
   modifiers: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/><circle cx="12" cy="12" r="9"/></svg>,
   tables:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>,
   taxes:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="11" rx="1.5"/><circle cx="12" cy="12.5" r="2.5"/><path d="M5 10v.01M19 15v.01"/></svg>,
+  discounts: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
   shifts:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
   customers: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
   expenses:  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
@@ -1217,6 +1350,7 @@ export default function ManagerPage() {
           {activeTab === "modifiers" && <ModifiersTab />}
           {activeTab === "tables"    && <TablesTab />}
           {activeTab === "taxes"     && <TaxTab />}
+          {activeTab === "discounts" && <DiscountsTab />}
           {activeTab === "shifts"    && <ShiftsTab />}
           {activeTab === "customers" && <CustomersTab />}
           {activeTab === "expenses"  && <ExpensesTab />}

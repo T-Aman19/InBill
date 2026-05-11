@@ -16,6 +16,7 @@ import { reportsRouter } from "./routes/reports.js"
 import { usersRouter } from "./routes/users.js"
 import { outletRouter } from "./routes/outlet.js"
 import { customersRouter } from "./routes/customers.js"
+import { discountsRouter } from "./routes/discounts.js"
 
 const app = new Hono()
 
@@ -41,6 +42,7 @@ api.route("/reports", reportsRouter)
 api.route("/users", usersRouter)
 api.route("/outlet", outletRouter)
 api.route("/customers", customersRouter)
+api.route("/discounts", discountsRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

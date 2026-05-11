@@ -99,6 +99,15 @@ export const api = {
         create: (body) => post("/bills", body),
         get: (id) => get(`/bills/${id}`),
         addPayment: (billId, body) => post(`/bills/${billId}/payments`, body),
+        applyDiscount: (billId, body) => patch(`/bills/${billId}/discount`, body),
+        removeDiscount: (billId, lineId) => del(`/bills/${billId}/discount/${lineId}`),
+    },
+    discounts: {
+        list: () => get("/discounts"),
+        create: (body) => post("/discounts", body),
+        update: (id, body) => patch(`/discounts/${id}`, body),
+        delete: (id) => del(`/discounts/${id}`),
+        validate: (code, orderTotal) => post("/discounts/validate", { code, orderTotal }),
     },
     shifts: {
         getActive: () => get("/shifts/active"),
@@ -124,6 +133,22 @@ export const api = {
         items: (from, to) => get(`/reports/items?from=${from}&to=${to}`),
         categories: (from, to) => get(`/reports/categories?from=${from}&to=${to}`),
         hourly: (date) => get(`/reports/hourly?date=${date}`),
+        gstr1: (from, to) => get(`/reports/gstr1?from=${from}&to=${to}`),
+        exportBillsCsv: async (from, to) => {
+            const token = localStorage.getItem("inbill_token");
+            const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
+                headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            });
+            if (!res.ok)
+                throw new ApiError(res.status, "Export failed");
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `bills-${from}-to-${to}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        },
     },
     cashEntries: {
         list: (from, to) => get(`/shifts/cash-entries?from=${from}&to=${to}`),

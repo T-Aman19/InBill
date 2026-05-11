@@ -1,5 +1,38 @@
 import { z } from "zod"
 
+export const discountTypeSchema = z.enum(["percentage", "flat"])
+export type DiscountType = z.infer<typeof discountTypeSchema>
+
+export const discountSchema = z.object({
+  id: z.string().uuid(),
+  outletId: z.string().uuid(),
+  name: z.string().min(1),
+  type: discountTypeSchema,
+  value: z.number().positive(),
+  minOrderValue: z.number().nonnegative().default(0),
+  maxDiscountAmount: z.number().positive().optional(),
+  code: z.string().optional(),
+  validFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/).optional(),
+  validTo: z.string().regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/).optional(),
+  usageLimit: z.number().int().positive().optional(),
+  usageCount: z.number().int().nonnegative().default(0),
+  isActive: z.boolean().default(true),
+})
+
+export const createDiscountSchema = discountSchema.omit({ id: true, outletId: true, usageCount: true })
+export const updateDiscountSchema = createDiscountSchema.partial()
+
+export const applyDiscountSchema = z.object({
+  discountId: z.string().uuid().optional(),
+  code: z.string().optional(),
+  label: z.string().min(1),
+  amount: z.number().positive(),
+}).refine((d) => d.discountId !== undefined || d.code !== undefined || true)
+
+export type Discount = z.infer<typeof discountSchema>
+export type CreateDiscount = z.infer<typeof createDiscountSchema>
+export type ApplyDiscount = z.infer<typeof applyDiscountSchema>
+
 export const paymentModeSchema = z.enum(["cash", "card", "upi", "credit"])
 export type PaymentMode = z.infer<typeof paymentModeSchema>
 
