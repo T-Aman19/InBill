@@ -1,0 +1,56 @@
+node_modules
+.turbo
+dist
+dist-ssr
+build
+.env
+.env.local
+.env.*.local
+*.db
+*.db-journal
+
+# TypeScript
+*.tsbuildinfo
+
+# Bun
+bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter
+apps/mobile/.dart_tool
+apps/mobile/build
+
+# Tauri
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test & build artifacts
+coverage/
+.cache/
+
+.claude/
+
+*.zip

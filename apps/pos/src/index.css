@@ -1,0 +1,189 @@
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
+@theme {
+  --font-sans: 'Inter Tight', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Light warm palette ── */
+  --color-bg:          oklch(98%  0.005 70);
+  --color-surface:     oklch(100% 0     0);
+  --color-surface-2:   oklch(96%  0.006 70);
+  --color-hover:       oklch(94%  0.008 70);
+
+  /* Borders */
+  --color-line:        oklch(90%  0.008 70);
+  --color-line-strong: oklch(82%  0.012 70);
+
+  /* Ink (text) */
+  --color-ink:         oklch(20%  0.010 60);
+  --color-ink-2:       oklch(38%  0.012 60);
+  --color-ink-3:       oklch(58%  0.012 60);
+  --color-ink-4:       oklch(72%  0.012 60);
+
+  /* Accent — warm amber */
+  --color-accent:      oklch(70%  0.15  55);
+  --color-accent-ink:  oklch(28%  0.06  55);
+  --color-accent-soft: oklch(94%  0.04  70);
+
+  /* Status */
+  --color-green:       oklch(62%  0.13  150);
+  --color-green-soft:  oklch(94%  0.04  150);
+  --color-amber:       oklch(74%  0.15  70);
+  --color-amber-soft:  oklch(94%  0.05  75);
+  --color-red:         oklch(60%  0.20  25);
+  --color-red-soft:    oklch(94%  0.04  25);
+  --color-blue:        oklch(60%  0.13  245);
+  --color-blue-soft:   oklch(94%  0.04  245);
+
+  /* KDS dark palette (kitchen screen) */
+  --color-kds-bg:      oklch(14%  0.010 60);
+  --color-kds-surface: oklch(20%  0.012 60);
+  --color-kds-bar:     oklch(18%  0.010 60);
+  --color-kds-line:    oklch(30%  0.012 60);
+  --color-kds-ink:     oklch(96%  0.005 70);
+  --color-kds-ink-2:   oklch(72%  0.012 70);
+  --color-kds-ink-3:   oklch(50%  0.012 70);
+}
+
+/* ─── Shadows & radii (not theme-mapped, used via var()) ─────── */
+:root {
+  --shadow-1: 0 1px 0 rgba(0,0,0,.02), 0 1px 3px rgba(0,0,0,.04);
+  --shadow-2: 0 2px 0 rgba(0,0,0,.02), 0 8px 24px rgba(0,0,0,.06);
+  --shadow-3: 0 24px 60px rgba(0,0,0,.18);
+}
+
+/* ─── Reset ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  height: 100dvh;
+  user-select: none;
+}
+
+button { font-family: inherit; cursor: pointer; }
+input  { font-family: inherit; }
+
+#root { height: 100dvh; display: flex; flex-direction: column; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+.scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+.scroll::-webkit-scrollbar { width: 6px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 4px; }
+
+/* ─── Animations ─────────────────────────────────────────────── */
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(60% 0.2 25 / .6); }
+  50%       { box-shadow: 0 0 0 8px oklch(60% 0.2 25 / 0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  0%   { transform: scale(.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: none; }
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-shake        { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
+.animate-pulse-red    { animation: pulse-red 1.6s ease-out infinite; }
+.animate-fade-in      { animation: fade-in .3s ease forwards; }
+.animate-pop          { animation: pop .4s cubic-bezier(.2,1.5,.4,1) forwards; }
+.animate-slide-right  { animation: slide-in-right .25s cubic-bezier(.2,1,.4,1) forwards; }
+.animate-overlay-in   { animation: overlay-in .2s ease forwards; }
+
+/* ─── Veg/Non-veg indicator ──────────────────────────────────── */
+.veg-dot {
+  width: 12px; height: 12px;
+  border: 1.5px solid currentColor;
+  padding: 1.5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.veg-dot::after {
+  content: ''; width: 100%; height: 100%;
+  border-radius: 50%; background: currentColor;
+}
+.veg-dot.veg    { color: oklch(58% 0.16 145); }
+.veg-dot.nonveg { color: oklch(56% 0.20 25); }
+
+/* ─── Status dot ─────────────────────────────────────────────── */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.green { background: var(--color-green); }
+.dot.amber { background: var(--color-amber); }
+.dot.red   { background: var(--color-red); }
+.dot.blue  { background: var(--color-blue); }
+.dot.gray  { background: var(--color-ink-4); }
+
+/* ─── Badge ──────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--color-surface-2); color: var(--color-ink-2);
+  border: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+.badge.green { background: var(--color-green-soft); color: var(--color-green); border-color: transparent; }
+.badge.amber { background: var(--color-amber-soft); color: oklch(45% 0.12 70);  border-color: transparent; }
+.badge.red   { background: var(--color-red-soft);   color: var(--color-red);   border-color: transparent; }
+.badge.blue  { background: var(--color-blue-soft);  color: var(--color-blue);  border-color: transparent; }
+
+/* ─── Table card top stripe by status ───────────────────────── */
+.stripe-green { background: var(--color-green); }
+.stripe-amber { background: var(--color-amber); }
+.stripe-red   { background: var(--color-red); }
+.stripe-blue  { background: var(--color-blue); }
+
+/* ─── Print receipt ──────────────────────────────────────────── */
+@media print {
+  html, body { overflow: visible !important; height: auto !important; }
+
+  body * { visibility: hidden; }
+  .print-receipt, .print-receipt * { visibility: visible; }
+
+  .print-receipt {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    padding: 0;
+    overflow: visible;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #000;
+  }
+
+  .print-receipt * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #aaa !important;
+    font-family: 'Courier New', monospace !important;
+    visibility: visible;
+  }
+
+  @page { margin: 8mm; size: 80mm auto; }
+}
