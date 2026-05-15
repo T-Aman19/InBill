@@ -220,6 +220,12 @@ export const api = {
     markOrdered: (id: string) => post<unknown>(`/purchase-orders/${id}/order`, {}),
     receive: (id: string, body: unknown) => post<unknown>(`/purchase-orders/${id}/receive`, body),
   },
+  ai: {
+    menuDescription: (body: { name: string; category?: string; dietaryType?: "veg" | "non-veg" }) =>
+      post<{ description: string }>("/ai/menu-description", body),
+    reportsQuery: (body: { question: string; from?: string; to?: string }) =>
+      post<{ answer: string }>("/ai/reports-query", body),
+  },
   owner: {
     register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),
     login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),

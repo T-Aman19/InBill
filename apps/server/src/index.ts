@@ -21,6 +21,7 @@ import { ownerRouter } from "./routes/owner.js"
 import { inventoryRouter } from "./routes/inventory.js"
 import { vendorsRouter } from "./routes/vendors.js"
 import { purchaseOrdersRouter } from "./routes/purchaseOrders.js"
+import { aiRouter } from "./routes/ai.js"
 
 const app = new Hono()
 
@@ -51,6 +52,7 @@ api.route("/owner", ownerRouter)
 api.route("/inventory", inventoryRouter)
 api.route("/vendors", vendorsRouter)
 api.route("/purchase-orders", purchaseOrdersRouter)
+api.route("/ai", aiRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

@@ -15,12 +15,13 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@inbill/shared": "workspace:*",
+    "@anthropic-ai/sdk": "^0.96.0",
     "@hono/zod-validator": "^0.4.3",
-    "hono": "^4.7.10",
+    "@inbill/shared": "workspace:*",
     "drizzle-orm": "^0.43.1",
-    "postgres": "^3.4.5",
+    "hono": "^4.7.10",
     "jose": "^5.10.0",
+    "postgres": "^3.4.5",
     "zod": "^3.24.4"
   },
   "devDependencies": {

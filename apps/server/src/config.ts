@@ -23,6 +23,10 @@ export const config = {
     syncIntervalMs: 10_000,
   },
 
+  ai: {
+    anthropicApiKey: process.env["ANTHROPIC_API_KEY"] ?? "",
+  },
+
   // Static file paths served by this server
   static: {
     pos: process.env["POS_DIST_PATH"] ?? "../pos/dist",

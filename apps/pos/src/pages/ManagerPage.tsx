@@ -228,8 +228,23 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
   const [taxConfigId, setTaxConfigId] = useState(item.taxConfigId ?? "")
   const [newVarName, setNewVarName] = useState("")
   const [newVarPrice, setNewVarPrice] = useState("")
+  const [generatingDesc, setGeneratingDesc] = useState(false)
 
   const linkedGroupIds = new Set(itemModifierGroupLinks.filter((l) => l.itemId === item.id).map((l) => l.groupId))
+
+  async function generateDescription() {
+    if (!name.trim() || generatingDesc) return
+    setGeneratingDesc(true)
+    try {
+      const cat = categories.find((c) => c.id === catId)?.name ?? ""
+      const { description } = await api.ai.menuDescription({ name: name.trim(), category: cat, dietaryType: isVeg ? "veg" : "non-veg" })
+      setDesc(description)
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setGeneratingDesc(false)
+    }
+  }
 
   const canSave = name.trim() && parseFloat(price) >= 0 && catId
 
@@ -273,7 +288,16 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
             ))}
           </div>
         </div>
-        {field("Description (optional)", <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Short description…" style={{ ...inputStyle({ height: 72, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)" }}>Description (optional)</span>
+            <button type="button" onClick={generateDescription} disabled={!name.trim() || generatingDesc} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: generatingDesc ? "var(--color-ink-3)" : "var(--color-ink)", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: !name.trim() || generatingDesc ? "not-allowed" : "pointer", opacity: !name.trim() ? 0.4 : 1 }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+              {generatingDesc ? "Generating…" : "Generate"}
+            </button>
+          </div>
+          <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Short description…" style={{ ...inputStyle({ height: 72, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+        </label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {field("HSN code (optional)", <input value={hsnCode} onChange={(e) => setHsnCode(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="e.g. 1902" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
           {taxConfigs.length > 0 && field("Tax config", (
@@ -690,6 +714,25 @@ function ShiftsTab() {
   const [to, setTo]       = useState(today)
   const [preset, setPreset] = useState(0)
   const [subTab, setSubTab] = useState<"summary" | "items" | "categories" | "hourly" | "food-cost">("summary")
+  const [aiQuestion, setAiQuestion] = useState("")
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiHistory, setAiHistory] = useState<{ q: string; a: string }[]>([])
+
+  async function askAi() {
+    const q = aiQuestion.trim()
+    if (!q || aiLoading) return
+    setAiLoading(true)
+    setAiQuestion("")
+    try {
+      const { answer } = await api.ai.reportsQuery({ question: q, from, to })
+      setAiHistory((prev) => [...prev.slice(-2), { q, a: answer }])
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to get answer"
+      setAiHistory((prev) => [...prev.slice(-2), { q, a: `Error: ${msg}` }])
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   function applyPreset(idx: number) {
     setPreset(idx)
@@ -897,6 +940,35 @@ function ShiftsTab() {
             )}
           </>
         ) : null)}
+
+        {/* AI query bar */}
+        <div style={{ marginTop: 8, padding: "20px 24px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: aiHistory.length > 0 ? 16 : 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--color-ink-3)", flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink-3)", letterSpacing: ".04em" }}>ASK YOUR DATA</span>
+          </div>
+          {aiHistory.map((item, i) => (
+            <div key={i} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 6 }}>{item.q}</div>
+              <div style={{ fontSize: 14, color: "var(--color-ink)", lineHeight: 1.6, padding: "12px 16px", background: "var(--color-bg)", border: "1px solid var(--color-line)", borderRadius: 10 }}>{item.a}</div>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              value={aiQuestion}
+              onChange={(e) => setAiQuestion(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void askAi() } }}
+              placeholder="e.g. What was my best-selling day this week?"
+              style={{ flex: 1, height: 44, padding: "0 14px", border: "1px solid var(--color-line-strong)", borderRadius: 10, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 14, outline: "none", fontFamily: "inherit" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
+            />
+            <button onClick={() => void askAi()} disabled={!aiQuestion.trim() || aiLoading} style={{ padding: "0 18px", height: 44, borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: !aiQuestion.trim() || aiLoading ? "not-allowed" : "pointer", opacity: !aiQuestion.trim() ? 0.4 : 1 }}>
+              {aiLoading ? "…" : "Ask"}
+            </button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--color-ink-3)", textAlign: "right" }}>Powered by Claude · 20 queries/day</div>
+        </div>
       </div>
     </>
   )
