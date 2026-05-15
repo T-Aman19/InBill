@@ -6,6 +6,7 @@ import { floors, tables } from "./tables.js"
 import { orders, orderItems, orderItemModifiers, kots, customers } from "./orders.js"
 import { bills, billPayments, billDiscounts, discounts } from "./billing.js"
 import { shifts, shiftCashEntries } from "./shifts.js"
+import { ingredients, recipes, recipeIngredients, stockMovements } from "./inventory.js"
 
 export const ownersRelations = relations(owners, ({ many }) => ({
   outlets: many(outlets),
@@ -24,6 +25,8 @@ export const outletsRelations = relations(outlets, ({ one, many }) => ({
   bills: many(bills),
   shifts: many(shifts),
   discounts: many(discounts),
+  ingredients: many(ingredients),
+  stockMovements: many(stockMovements),
 }))
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -41,6 +44,7 @@ export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
   taxConfig: one(taxConfigs, { fields: [menuItems.taxConfigId], references: [taxConfigs.id] }),
   variants: many(itemVariants),
   modifierGroups: many(menuItemModifierGroups),
+  recipe: one(recipes, { fields: [menuItems.id], references: [recipes.menuItemId] }),
 }))
 
 export const itemVariantsRelations = relations(itemVariants, ({ one }) => ({
@@ -126,4 +130,26 @@ export const shiftsRelations = relations(shifts, ({ one, many }) => ({
 
 export const shiftCashEntriesRelations = relations(shiftCashEntries, ({ one }) => ({
   shift: one(shifts, { fields: [shiftCashEntries.shiftId], references: [shifts.id] }),
+}))
+
+export const ingredientsRelations = relations(ingredients, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [ingredients.outletId], references: [outlets.id] }),
+  recipeIngredients: many(recipeIngredients),
+  stockMovements: many(stockMovements),
+}))
+
+export const recipesRelations = relations(recipes, ({ one, many }) => ({
+  menuItem: one(menuItems, { fields: [recipes.menuItemId], references: [menuItems.id] }),
+  recipeIngredients: many(recipeIngredients),
+}))
+
+export const recipeIngredientsRelations = relations(recipeIngredients, ({ one }) => ({
+  recipe: one(recipes, { fields: [recipeIngredients.recipeId], references: [recipes.id] }),
+  ingredient: one(ingredients, { fields: [recipeIngredients.ingredientId], references: [ingredients.id] }),
+}))
+
+export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
+  outlet: one(outlets, { fields: [stockMovements.outletId], references: [outlets.id] }),
+  ingredient: one(ingredients, { fields: [stockMovements.ingredientId], references: [ingredients.id] }),
+  recordedBy: one(users, { fields: [stockMovements.recordedById], references: [users.id] }),
 }))

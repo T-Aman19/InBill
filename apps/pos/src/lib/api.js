@@ -104,6 +104,7 @@ export const api = {
         initiateUpi: (billId) => post(`/bills/${billId}/payments/upi`, {}),
         upiStatus: (billId, paymentId) => get(`/bills/${billId}/payments/${paymentId}/status`),
         simulateUpi: (billId, paymentId) => patch(`/bills/${billId}/payments/${paymentId}/simulate`, {}),
+        cancelUpi: (billId, paymentId) => del(`/bills/${billId}/payments/${paymentId}`),
     },
     discounts: {
         list: () => get("/discounts"),
@@ -161,6 +162,27 @@ export const api = {
     outlet: {
         get: () => get("/outlet"),
         update: (body) => patch("/outlet", body),
+    },
+    inventory: {
+        // Ingredients
+        listIngredients: () => get("/inventory/ingredients"),
+        createIngredient: (body) => post("/inventory/ingredients", body),
+        updateIngredient: (id, body) => patch(`/inventory/ingredients/${id}`, body),
+        deleteIngredient: (id) => del(`/inventory/ingredients/${id}`),
+        // Recipes
+        listRecipes: () => get("/inventory/recipes"),
+        createRecipe: (body) => post("/inventory/recipes", body),
+        updateRecipe: (id, body) => patch(`/inventory/recipes/${id}`, body),
+        deleteRecipe: (id) => del(`/inventory/recipes/${id}`),
+        addRecipeIngredient: (recipeId, body) => post(`/inventory/recipes/${recipeId}/ingredients`, body),
+        updateRecipeIngredient: (recipeId, riId, body) => patch(`/inventory/recipes/${recipeId}/ingredients/${riId}`, body),
+        deleteRecipeIngredient: (recipeId, riId) => del(`/inventory/recipes/${recipeId}/ingredients/${riId}`),
+        // Movements & adjustments
+        listMovements: (limit) => get(`/inventory/movements${limit ? `?limit=${limit}` : ""}`),
+        createAdjustment: (body) => post("/inventory/adjustments", body),
+        // Reports
+        valuation: () => get("/inventory/valuation"),
+        lowStockCount: () => get("/inventory/low-stock-count"),
     },
     owner: {
         register: (body) => post("/auth/owner/register", body),

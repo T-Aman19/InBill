@@ -162,6 +162,27 @@ export const api = {
     get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
   },
+  inventory: {
+    // Ingredients
+    listIngredients: () => get<unknown[]>("/inventory/ingredients"),
+    createIngredient: (body: unknown) => post<unknown>("/inventory/ingredients", body),
+    updateIngredient: (id: string, body: unknown) => patch<unknown>(`/inventory/ingredients/${id}`, body),
+    deleteIngredient: (id: string) => del<unknown>(`/inventory/ingredients/${id}`),
+    // Recipes
+    listRecipes: () => get<unknown[]>("/inventory/recipes"),
+    createRecipe: (body: unknown) => post<unknown>("/inventory/recipes", body),
+    updateRecipe: (id: string, body: unknown) => patch<unknown>(`/inventory/recipes/${id}`, body),
+    deleteRecipe: (id: string) => del<unknown>(`/inventory/recipes/${id}`),
+    addRecipeIngredient: (recipeId: string, body: unknown) => post<unknown>(`/inventory/recipes/${recipeId}/ingredients`, body),
+    updateRecipeIngredient: (recipeId: string, riId: string, body: unknown) => patch<unknown>(`/inventory/recipes/${recipeId}/ingredients/${riId}`, body),
+    deleteRecipeIngredient: (recipeId: string, riId: string) => del<unknown>(`/inventory/recipes/${recipeId}/ingredients/${riId}`),
+    // Movements & adjustments
+    listMovements: (limit?: number) => get<unknown[]>(`/inventory/movements${limit ? `?limit=${limit}` : ""}`),
+    createAdjustment: (body: unknown) => post<unknown>("/inventory/adjustments", body),
+    // Reports
+    valuation: () => get<unknown>("/inventory/valuation"),
+    lowStockCount: () => get<{ count: number }>("/inventory/low-stock-count"),
+  },
   owner: {
     register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),
     login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),

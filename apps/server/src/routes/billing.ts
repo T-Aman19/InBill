@@ -4,13 +4,80 @@ import { eq, and, inArray } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, recipes, recipeIngredients, stockMovements } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
 export const billingRouter = new Hono<AppEnv>()
 
 billingRouter.use("*", requireAuth)
+
+// ── Inventory auto-deduction helper ──────────────────────────────────────────
+
+async function deductInventoryForBill(
+  outletId: string,
+  billId: string,
+  activeItems: { menuItemId: string | null; quantity: number }[],
+  recordedById: string,
+) {
+  const menuItemIds = [...new Set(activeItems.map((i) => i.menuItemId).filter(Boolean) as string[])]
+  if (menuItemIds.length === 0) return
+
+  const recipeRows = await db.query.recipes.findMany({
+    where: (r, { inArray }) => inArray(r.menuItemId, menuItemIds),
+    with: { recipeIngredients: { with: { ingredient: true } } },
+  })
+  if (recipeRows.length === 0) return
+
+  const recipeByItemId = new Map(recipeRows.map((r) => [r.menuItemId, r]))
+
+  // Accumulate total deduction per ingredient
+  const deductions = new Map<string, number>()
+  for (const item of activeItems) {
+    if (!item.menuItemId) continue
+    const recipe = recipeByItemId.get(item.menuItemId)
+    if (!recipe) continue
+    for (const ri of recipe.recipeIngredients) {
+      const prev = deductions.get(ri.ingredientId) ?? 0
+      deductions.set(ri.ingredientId, prev + Number(ri.quantity) * item.quantity)
+    }
+  }
+
+  for (const [ingredientId, delta] of deductions) {
+    const ingredient = await db.query.ingredients.findFirst({ where: eq(ingredients.id, ingredientId) })
+    if (!ingredient) continue
+
+    const newStock = Number(ingredient.currentStock) - delta
+    const [updated] = await db
+      .update(ingredients)
+      .set({ currentStock: String(newStock.toFixed(4)) })
+      .where(eq(ingredients.id, ingredientId))
+      .returning()
+
+    await db.insert(stockMovements).values({
+      outletId,
+      ingredientId,
+      type: "sale",
+      delta: String((-delta).toFixed(4)),
+      referenceId: billId,
+      referenceType: "bill",
+      recordedById,
+    })
+
+    if (updated && Number(updated.reorderLevel) > 0 && Number(updated.currentStock) <= Number(updated.reorderLevel)) {
+      broadcastOutlet(outletId, {
+        type: "inventory.low_stock",
+        payload: {
+          ingredientId: updated.id,
+          name: updated.name,
+          currentStock: updated.currentStock,
+          unit: updated.unit,
+          reorderLevel: updated.reorderLevel,
+        },
+      })
+    }
+  }
+}
 
 billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("json", createBillSchema), async (c) => {
   const { outletId } = c.get("user")
@@ -100,7 +167,7 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
   const existingBills = await db.query.bills.findMany({ where: eq(bills.outletId, outletId) })
   const billNumber = existingBills.length + 1
 
-  const [bill] = await db
+  const billRows = await db
     .insert(bills)
     .values({
       outletId,
@@ -114,6 +181,7 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
       total: String(total.toFixed(2)),
     })
     .returning()
+  const bill = billRows[0]!
 
   await db.update(orders).set({ status: "billed", updatedAt: new Date() }).where(eq(orders.id, orderId))
 
@@ -121,6 +189,11 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     await db.update(tables).set({ status: "billed" }).where(eq(tables.id, order.tableId))
     broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "billed", currentOrderId: orderId } })
   }
+
+  // Auto-deduct inventory (non-blocking — failures should not abort billing)
+  deductInventoryForBill(outletId, bill.id, activeItems, c.get("user").userId).catch((err) =>
+    console.error("[inventory] auto-deduct failed for bill", bill.id, err),
+  )
 
   return c.json(bill, 201)
 })

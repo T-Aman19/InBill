@@ -14,6 +14,7 @@ export const wsEventTypeSchema = z.enum([
   "item.availability",
   "sync.status",
   "payment.confirmed",
+  "inventory.low_stock",
 ])
 
 export type WsEventType = z.infer<typeof wsEventTypeSchema>
@@ -29,3 +30,4 @@ export type WsEvent =
   | { type: "item.availability"; payload: { itemId: string; isAvailable: boolean } }
   | { type: "sync.status"; payload: { status: "synced" | "pending" | "offline"; pendingCount: number } }
   | { type: "payment.confirmed"; payload: { billId: string; paymentId: string } }
+  | { type: "inventory.low_stock"; payload: { ingredientId: string; name: string; currentStock: string; unit: string; reorderLevel: string } }

@@ -1,8 +1,10 @@
 import React from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
 import { useAuthStore } from "@/stores/auth"
+import { api } from "@/lib/api"
 
-type NavId = "floor" | "kds" | "manager"
+type NavId = "floor" | "kds" | "manager" | "inventory"
 
 interface Stats { free: number; open: number; billed: number }
 
@@ -20,8 +22,20 @@ function initials(name: string) {
 export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
   const navigate = useNavigate()
   const { user, outletName, logout } = useAuthStore()
+  const isManagerOrOwner = user?.role === "manager" || user?.role === "owner"
 
-  const nav = (to: NavId) => () => navigate({ to: to === "floor" ? "/floor" : to === "kds" ? "/kds" : "/manager" })
+  const { data: lowStockData } = useQuery<{ count: number }>({
+    queryKey: ["low-stock-count"],
+    queryFn: () => api.inventory.lowStockCount(),
+    enabled: isManagerOrOwner,
+    refetchInterval: 60_000,
+  })
+  const lowStockCount = lowStockData?.count ?? 0
+
+  const nav = (to: NavId) => () => {
+    const paths: Record<NavId, string> = { floor: "/floor", kds: "/kds", manager: "/manager", inventory: "/inventory" }
+    navigate({ to: paths[to] })
+  }
 
   return (
     <div style={{
@@ -97,16 +111,18 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
           </button>
         )}
 
-        {(["floor", "kds", "manager"] as const)
-          .filter((id) => id !== "manager" || user?.role === "manager" || user?.role === "owner")
+        {(["floor", "kds", "manager", "inventory"] as const)
+          .filter((id) => id !== "manager" || isManagerOrOwner)
+          .filter((id) => id !== "inventory" || isManagerOrOwner)
           .filter((id) => id !== "floor" || user?.role !== "kitchen")
           .filter((id) => id !== "kds" || user?.role !== "kitchen")
           .map((id) => {
-            const labels: Record<NavId, string> = { floor: "Floor", kds: "Kitchen", manager: "Manager" }
+            const labels: Record<NavId, string> = { floor: "Floor", kds: "Kitchen", manager: "Manager", inventory: "Inventory" }
             const icons: Record<NavId, React.ReactElement> = {
               floor: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>,
               kds:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg>,
               manager: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z"/></svg>,
+              inventory: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M10 12h4M10 16h4M8 12v.01M8 16v.01"/></svg>,
             }
             const active = current === id
             return (
@@ -118,9 +134,13 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
                 display: "flex", alignItems: "center", gap: 7,
                 fontSize: 13, fontWeight: 500,
                 transition: "all .1s",
+                position: "relative",
               }}>
                 {icons[id]}
                 {labels[id]}
+                {id === "inventory" && lowStockCount > 0 && (
+                  <span style={{ background: "#ef4444", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 6px", lineHeight: 1.4 }}>{lowStockCount}</span>
+                )}
               </button>
             )
           })}
