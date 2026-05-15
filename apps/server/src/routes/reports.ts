@@ -4,7 +4,7 @@ import { eq, and, gte, lte } from "drizzle-orm"
 import { dateRangeSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, menuItems, categories } from "../db/schema/index.js"
+import { bills, menuItems, categories, stockMovements, ingredients } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 
 type TaxLine = { name: string; rate: number; amount: number }
@@ -240,6 +240,64 @@ reportsRouter.get("/bills/export", zValidator("query", dateRangeSchema), async (
       "Content-Type": "text/csv",
       "Content-Disposition": `attachment; filename="bills-${from}-to-${to}.csv"`,
     },
+  })
+})
+
+reportsRouter.get("/food-cost", zValidator("query", dateRangeSchema), async (c) => {
+  const { outletId } = c.get("user")
+  const { from, to } = c.req.valid("query")
+
+  const fromDate = new Date(from)
+  const toDate = new Date(to + "T23:59:59Z")
+
+  // Revenue from paid bills in the period
+  const paidBills = await db.query.bills.findMany({
+    where: and(
+      eq(bills.outletId, outletId),
+      eq(bills.isPaid, true),
+      gte(bills.createdAt, fromDate),
+      lte(bills.createdAt, toDate),
+    ),
+    columns: { total: true },
+  })
+  const revenue = paidBills.reduce((s, b) => s + Number(b.total), 0)
+
+  // Sale movements in the period (auto-deducted on billing)
+  const movements = await db.query.stockMovements.findMany({
+    where: and(
+      eq(stockMovements.outletId, outletId),
+      eq(stockMovements.type, "sale"),
+      gte(stockMovements.createdAt, fromDate),
+      lte(stockMovements.createdAt, toDate),
+    ),
+    with: { ingredient: { columns: { id: true, name: true, unit: true, costPerUnit: true } } },
+  })
+
+  // Group COGS by ingredient
+  const byIngredient = new Map<string, { name: string; unit: string; qty: number; cost: number }>()
+  let totalCogs = 0
+
+  for (const m of movements) {
+    const qty = Math.abs(Number(m.delta))
+    const costPerUnit = Number(m.ingredient?.costPerUnit ?? 0)
+    const cost = qty * costPerUnit
+    totalCogs += cost
+
+    const id = m.ingredientId
+    const prev = byIngredient.get(id) ?? { name: m.ingredient?.name ?? "Unknown", unit: m.ingredient?.unit ?? "", qty: 0, cost: 0 }
+    byIngredient.set(id, { ...prev, qty: prev.qty + qty, cost: prev.cost + cost })
+  }
+
+  const foodCostPct = revenue > 0 ? (totalCogs / revenue) * 100 : 0
+
+  return c.json({
+    from, to,
+    revenue: parseFloat(revenue.toFixed(2)),
+    cogs: parseFloat(totalCogs.toFixed(2)),
+    foodCostPct: parseFloat(foodCostPct.toFixed(1)),
+    byIngredient: Array.from(byIngredient.entries())
+      .map(([ingredientId, d]) => ({ ingredientId, ...d, cost: parseFloat(d.cost.toFixed(2)), qty: parseFloat(d.qty.toFixed(4)) }))
+      .sort((a, b) => b.cost - a.cost),
   })
 })
 

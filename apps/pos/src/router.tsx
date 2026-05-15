@@ -6,6 +6,7 @@ import BillingPage from "@/pages/BillingPage"
 import KdsPage from "@/pages/KdsPage"
 import ManagerPage from "@/pages/ManagerPage"
 import InventoryPage from "@/pages/InventoryPage"
+import PODetailPage from "@/pages/PODetailPage"
 import OwnerLoginPage from "@/pages/OwnerLoginPage"
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
 import { useAuthStore } from "@/stores/auth"
@@ -92,6 +93,13 @@ const inventoryRoute = createRoute({
   component: InventoryPage,
 })
 
+const poDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/inventory/purchase-orders/$id",
+  beforeLoad: requireManagerAccess,
+  component: PODetailPage,
+})
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -127,6 +135,7 @@ const routeTree = rootRoute.addChildren([
   kdsRoute,
   managerRoute,
   inventoryRoute,
+  poDetailRoute,
   ownerLoginRoute,
   ownerDashboardRoute,
 ])

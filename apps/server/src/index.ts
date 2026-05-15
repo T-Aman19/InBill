@@ -19,6 +19,8 @@ import { customersRouter } from "./routes/customers.js"
 import { discountsRouter } from "./routes/discounts.js"
 import { ownerRouter } from "./routes/owner.js"
 import { inventoryRouter } from "./routes/inventory.js"
+import { vendorsRouter } from "./routes/vendors.js"
+import { purchaseOrdersRouter } from "./routes/purchaseOrders.js"
 
 const app = new Hono()
 
@@ -47,6 +49,8 @@ api.route("/customers", customersRouter)
 api.route("/discounts", discountsRouter)
 api.route("/owner", ownerRouter)
 api.route("/inventory", inventoryRouter)
+api.route("/vendors", vendorsRouter)
+api.route("/purchase-orders", purchaseOrdersRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

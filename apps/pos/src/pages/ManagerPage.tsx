@@ -682,13 +682,14 @@ const PRESETS = [
 type ItemReport    = { menuItemId: string; name: string; quantity: number; revenue: number }
 type CategoryReport = { categoryId: string; name: string; quantity: number; revenue: number }
 type HourlyReport  = { hour: number; revenue: number; count: number }
+type FoodCostReport = { from: string; to: string; revenue: number; cogs: number; foodCostPct: number; byIngredient: { ingredientId: string; name: string; unit: string; qty: number; cost: number }[] }
 
 function ShiftsTab() {
   const today = new Date().toISOString().split("T")[0]!
   const [from, setFrom]   = useState(today)
   const [to, setTo]       = useState(today)
   const [preset, setPreset] = useState(0)
-  const [subTab, setSubTab] = useState<"summary" | "items" | "categories" | "hourly">("summary")
+  const [subTab, setSubTab] = useState<"summary" | "items" | "categories" | "hourly" | "food-cost">("summary")
 
   function applyPreset(idx: number) {
     setPreset(idx)
@@ -718,6 +719,12 @@ function ShiftsTab() {
     queryKey: ["report.hourly", to],
     queryFn: () => api.reports.hourly(to) as Promise<HourlyReport[]>,
     enabled: subTab === "hourly",
+  })
+
+  const { data: foodCostData, isLoading: foodCostLoading } = useQuery({
+    queryKey: ["report.food-cost", from, to],
+    queryFn: () => api.reports.foodCost(from, to) as Promise<FoodCostReport>,
+    enabled: subTab === "food-cost",
   })
 
   const statCard = (label: string, value: string, sub?: string) => (
@@ -761,9 +768,9 @@ function ShiftsTab() {
 
         {/* Sub-tab selector */}
         <div style={{ display: "flex", gap: 4, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, width: "fit-content" }}>
-          {(["summary", "items", "categories", "hourly"] as const).map((t) => (
+          {(["summary", "items", "categories", "hourly", "food-cost"] as const).map((t) => (
             <button key={t} onClick={() => setSubTab(t)} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: subTab === t ? "var(--color-surface)" : "transparent", boxShadow: subTab === t ? "var(--shadow-1)" : "none", fontSize: 13, fontWeight: subTab === t ? 600 : 400, color: subTab === t ? "var(--color-ink)" : "var(--color-ink-3)", cursor: "pointer", fontFamily: "inherit", transition: "all .1s", textTransform: "capitalize" }}>
-              {t}
+              {t === "food-cost" ? "Food Cost" : t}
             </button>
           ))}
         </div>
@@ -857,6 +864,39 @@ function ShiftsTab() {
             )}
           </>
         ))}
+
+        {/* Food Cost */}
+        {subTab === "food-cost" && (foodCostLoading ? <div style={{ color: "var(--color-ink-3)", fontSize: 14 }}>Loading…</div> : foodCostData ? (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
+              {statCard("Revenue", formatCurrency(foodCostData.revenue))}
+              {statCard("Cost of Goods (COGS)", formatCurrency(foodCostData.cogs))}
+              {statCard("Food Cost %", `${foodCostData.foodCostPct}%`, foodCostData.foodCostPct < 30 ? "Healthy" : foodCostData.foodCostPct < 40 ? "Moderate" : "High")}
+            </div>
+            {foodCostData.byIngredient.length > 0 ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Cost Breakdown by Ingredient</div>
+                <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 100px", padding: "10px 16px", borderBottom: "1px solid var(--color-line)", fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                    <span>Ingredient</span><span style={{ textAlign: "right" }}>Qty Used</span><span style={{ textAlign: "right" }}>Unit</span><span style={{ textAlign: "right" }}>Cost</span>
+                  </div>
+                  {foodCostData.byIngredient.map((row, i) => (
+                    <div key={row.ingredientId} style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 100px", padding: "11px 16px", borderBottom: i < foodCostData.byIngredient.length - 1 ? "1px solid var(--color-line)" : "none", alignItems: "center" }}>
+                      <span style={{ fontSize: 14, fontWeight: 500 }}>{row.name}</span>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)" }}>{row.qty.toFixed(3)}</span>
+                      <span style={{ textAlign: "right", fontSize: 13, color: "var(--color-ink-3)" }}>{row.unit}</span>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600 }}>{formatCurrency(row.cost)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: "var(--color-ink-3)", fontSize: 14, textAlign: "center", padding: "40px 0" }}>
+                No ingredient deductions in this period. Add recipes to menu items to track food cost.
+              </div>
+            )}
+          </>
+        ) : null)}
       </div>
     </>
   )

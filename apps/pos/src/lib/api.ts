@@ -140,6 +140,7 @@ export const api = {
     categories: (from: string, to: string) => get<unknown[]>(`/reports/categories?from=${from}&to=${to}`),
     hourly: (date: string) => get<unknown[]>(`/reports/hourly?date=${date}`),
     gstr1: (from: string, to: string) => get<unknown>(`/reports/gstr1?from=${from}&to=${to}`),
+    foodCost: (from: string, to: string) => get<unknown>(`/reports/food-cost?from=${from}&to=${to}`),
     exportBillsCsv: async (from: string, to: string) => {
       const token = localStorage.getItem("inbill_token")
       const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
@@ -182,6 +183,42 @@ export const api = {
     // Reports
     valuation: () => get<unknown>("/inventory/valuation"),
     lowStockCount: () => get<{ count: number }>("/inventory/low-stock-count"),
+    exportMovementsCsv: async (from?: string, to?: string) => {
+      const token = localStorage.getItem("inbill_token")
+      const params = new URLSearchParams()
+      if (from) params.set("from", from)
+      if (to) params.set("to", to)
+      const res = await fetch(`${BASE}/inventory/movements/export?${params}`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      })
+      if (!res.ok) throw new ApiError(res.status, "Export failed")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = from && to ? `movements-${from}-to-${to}.csv` : "movements.csv"
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+  },
+  vendors: {
+    list: () => get<unknown[]>("/vendors"),
+    create: (body: unknown) => post<unknown>("/vendors", body),
+    update: (id: string, body: unknown) => patch<unknown>(`/vendors/${id}`, body),
+    delete: (id: string) => del<unknown>(`/vendors/${id}`),
+  },
+  purchaseOrders: {
+    list: (params?: { vendorId?: string; status?: string }) => {
+      const q = new URLSearchParams()
+      if (params?.vendorId) q.set("vendorId", params.vendorId)
+      if (params?.status) q.set("status", params.status)
+      return get<unknown[]>(`/purchase-orders${q.toString() ? `?${q}` : ""}`)
+    },
+    get: (id: string) => get<unknown>(`/purchase-orders/${id}`),
+    create: (body: unknown) => post<unknown>("/purchase-orders", body),
+    update: (id: string, body: unknown) => patch<unknown>(`/purchase-orders/${id}`, body),
+    markOrdered: (id: string) => post<unknown>(`/purchase-orders/${id}/order`, {}),
+    receive: (id: string, body: unknown) => post<unknown>(`/purchase-orders/${id}/receive`, body),
   },
   owner: {
     register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),

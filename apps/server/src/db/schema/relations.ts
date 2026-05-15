@@ -6,7 +6,7 @@ import { floors, tables } from "./tables.js"
 import { orders, orderItems, orderItemModifiers, kots, customers } from "./orders.js"
 import { bills, billPayments, billDiscounts, discounts } from "./billing.js"
 import { shifts, shiftCashEntries } from "./shifts.js"
-import { ingredients, recipes, recipeIngredients, stockMovements } from "./inventory.js"
+import { ingredients, recipes, recipeIngredients, stockMovements, vendors, purchaseOrders, purchaseOrderItems } from "./inventory.js"
 
 export const ownersRelations = relations(owners, ({ many }) => ({
   outlets: many(outlets),
@@ -27,6 +27,8 @@ export const outletsRelations = relations(outlets, ({ one, many }) => ({
   discounts: many(discounts),
   ingredients: many(ingredients),
   stockMovements: many(stockMovements),
+  vendors: many(vendors),
+  purchaseOrders: many(purchaseOrders),
 }))
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -152,4 +154,21 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
   outlet: one(outlets, { fields: [stockMovements.outletId], references: [outlets.id] }),
   ingredient: one(ingredients, { fields: [stockMovements.ingredientId], references: [ingredients.id] }),
   recordedBy: one(users, { fields: [stockMovements.recordedById], references: [users.id] }),
+}))
+
+export const vendorsRelations = relations(vendors, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [vendors.outletId], references: [outlets.id] }),
+  purchaseOrders: many(purchaseOrders),
+}))
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [purchaseOrders.outletId], references: [outlets.id] }),
+  vendor: one(vendors, { fields: [purchaseOrders.vendorId], references: [vendors.id] }),
+  createdBy: one(users, { fields: [purchaseOrders.createdById], references: [users.id] }),
+  items: many(purchaseOrderItems),
+}))
+
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
+  ingredient: one(ingredients, { fields: [purchaseOrderItems.ingredientId], references: [ingredients.id] }),
 }))

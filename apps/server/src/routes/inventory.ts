@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, desc, sql } from "drizzle-orm"
+import { eq, and, desc, gte, lte } from "drizzle-orm"
 import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
@@ -289,6 +289,55 @@ inventoryRouter.get("/valuation", async (c) => {
   })
 
   return c.json({ totalValue: totalValue.toFixed(2), lowStockCount, items })
+})
+
+// ── Movements CSV export ──────────────────────────────────────────────────────
+
+inventoryRouter.get("/movements/export", async (c) => {
+  const { outletId } = c.get("user")
+  const from = c.req.query("from")
+  const to = c.req.query("to")
+
+  const fromDate = from ? new Date(from) : undefined
+  const toDate = to ? new Date(to + "T23:59:59Z") : undefined
+
+  const rows = await db.query.stockMovements.findMany({
+    where: and(
+      eq(stockMovements.outletId, outletId),
+      fromDate ? gte(stockMovements.createdAt, fromDate) : undefined,
+      toDate ? lte(stockMovements.createdAt, toDate) : undefined,
+    ),
+    with: {
+      ingredient: { columns: { name: true, unit: true, costPerUnit: true } },
+      recordedBy: { columns: { name: true } },
+    },
+    orderBy: desc(stockMovements.createdAt),
+  })
+
+  const csvRows = ["Date,Ingredient,Unit,Type,Delta,Cost/Unit,Value,Note,Recorded By"]
+  for (const m of rows) {
+    const delta = Number(m.delta)
+    const cost = Math.abs(delta) * Number(m.ingredient?.costPerUnit ?? 0)
+    csvRows.push([
+      new Date(m.createdAt).toISOString().slice(0, 19).replace("T", " "),
+      `"${(m.ingredient?.name ?? "").replace(/"/g, '""')}"`,
+      m.ingredient?.unit ?? "",
+      m.type,
+      delta.toFixed(4),
+      Number(m.ingredient?.costPerUnit ?? 0).toFixed(2),
+      cost.toFixed(2),
+      `"${(m.note ?? "").replace(/"/g, '""')}"`,
+      `"${(m.recordedBy?.name ?? "system").replace(/"/g, '""')}"`,
+    ].join(","))
+  }
+
+  const filename = from && to ? `movements-${from}-to-${to}.csv` : "movements.csv"
+  return new Response(csvRows.join("\n"), {
+    headers: {
+      "Content-Type": "text/csv",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  })
 })
 
 // ── Low-stock summary (for badge polling) ────────────────────────────────────

@@ -138,6 +138,7 @@ export const api = {
         categories: (from, to) => get(`/reports/categories?from=${from}&to=${to}`),
         hourly: (date) => get(`/reports/hourly?date=${date}`),
         gstr1: (from, to) => get(`/reports/gstr1?from=${from}&to=${to}`),
+        foodCost: (from, to) => get(`/reports/food-cost?from=${from}&to=${to}`),
         exportBillsCsv: async (from, to) => {
             const token = localStorage.getItem("inbill_token");
             const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
@@ -183,6 +184,26 @@ export const api = {
         // Reports
         valuation: () => get("/inventory/valuation"),
         lowStockCount: () => get("/inventory/low-stock-count"),
+        exportMovementsCsv: async (from, to) => {
+            const token = localStorage.getItem("inbill_token");
+            const params = new URLSearchParams();
+            if (from)
+                params.set("from", from);
+            if (to)
+                params.set("to", to);
+            const res = await fetch(`${BASE}/inventory/movements/export?${params}`, {
+                headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            });
+            if (!res.ok)
+                throw new ApiError(res.status, "Export failed");
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = from && to ? `movements-${from}-to-${to}.csv` : "movements.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+        },
     },
     owner: {
         register: (body) => post("/auth/owner/register", body),
