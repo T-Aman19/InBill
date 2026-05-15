@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
+import { useAuthStore } from "@/stores/auth"
 
 type KotModifier = { name: string; price: string }
 type KotItem = { id: string; name: string; variantName?: string | null; quantity: number; notes?: string | null; modifiers: KotModifier[] }
@@ -135,6 +136,7 @@ function KDSColumn({
 export default function KdsPage() {
   const navigate = useNavigate()
   const qc       = useQueryClient()
+  const logout   = useAuthStore((s) => s.logout)
   const [now, setNow] = useState(Date.now())
 
   // Tick every 30s so elapsed time stays fresh
@@ -206,6 +208,18 @@ export default function KdsPage() {
             {new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
+
+        <button onClick={() => { logout(); navigate({ to: "/login" }) }} style={{
+          background: "transparent",
+          border: "1px solid oklch(34% 0.012 60)",
+          borderRadius: 8, padding: "8px 12px",
+          color: "var(--color-kds-ink-2)", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8, fontSize: 13,
+          fontFamily: "inherit",
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Switch User
+        </button>
       </div>
 
       {/* Two-column KOT grid */}

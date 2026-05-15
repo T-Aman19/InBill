@@ -17,6 +17,7 @@
     "framer-motion": "^12.38.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-qr-code": "^2.0.21",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },

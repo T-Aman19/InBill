@@ -14,10 +14,18 @@ export const ownerLoginSchema = z.object({
 })
 
 export const tokenPayloadSchema = z.object({
-  userId: z.string().uuid(),
-  outletId: z.string().uuid(),
-  ownerId: z.string().uuid(),
+  userId: z.string(),
+  outletId: z.string(),
+  ownerId: z.string(),
   role: roleSchema,
 })
 
+export const ownerRegisterSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+  phone: z.string().min(10),
+})
+
 export type TokenPayload = z.infer<typeof tokenPayloadSchema>
+export type OwnerRegister = z.infer<typeof ownerRegisterSchema>

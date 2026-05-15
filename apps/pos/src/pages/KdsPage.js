@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ws } from "@/lib/ws";
+import { useAuthStore } from "@/stores/auth";
 function KDSColumn({ title, accent, kots, actionLabel, onAction, now, stage, }) {
     return (_jsxs("div", { style: {
             background: "var(--color-kds-bg)",
@@ -46,6 +47,7 @@ function KDSColumn({ title, accent, kots, actionLabel, onAction, now, stage, }) 
 export default function KdsPage() {
     const navigate = useNavigate();
     const qc = useQueryClient();
+    const logout = useAuthStore((s) => s.logout);
     const [now, setNow] = useState(Date.now());
     // Tick every 30s so elapsed time stays fresh
     useEffect(() => {
@@ -87,7 +89,14 @@ export default function KdsPage() {
                             color: "var(--color-kds-ink)", cursor: "pointer",
                             display: "flex", alignItems: "center", gap: 8, fontSize: 13,
                             fontFamily: "inherit",
-                        }, children: [_jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), "Back"] }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginLeft: 8 }, children: [_jsxs("svg", { width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "var(--color-kds-ink)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { style: { fontSize: 18, fontWeight: 600, letterSpacing: "-.01em" }, children: "Kitchen Display" })] }), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { style: { display: "flex", gap: 20, fontSize: 13, color: "var(--color-kds-ink-2)" }, children: [_jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: newKots.length }), " new"] }), _jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: progKots.length }), " in progress"] }), _jsx("span", { style: { fontFamily: "var(--font-mono)" }, children: new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) })] })] }), _jsxs("div", { style: {
+                        }, children: [_jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), "Back"] }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginLeft: 8 }, children: [_jsxs("svg", { width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "var(--color-kds-ink)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { style: { fontSize: 18, fontWeight: 600, letterSpacing: "-.01em" }, children: "Kitchen Display" })] }), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { style: { display: "flex", gap: 20, fontSize: 13, color: "var(--color-kds-ink-2)" }, children: [_jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: newKots.length }), " new"] }), _jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: progKots.length }), " in progress"] }), _jsx("span", { style: { fontFamily: "var(--font-mono)" }, children: new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) })] }), _jsxs("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, style: {
+                            background: "transparent",
+                            border: "1px solid oklch(34% 0.012 60)",
+                            borderRadius: 8, padding: "8px 12px",
+                            color: "var(--color-kds-ink-2)", cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 8, fontSize: 13,
+                            fontFamily: "inherit",
+                        }, children: [_jsxs("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }), _jsx("polyline", { points: "16 17 21 12 16 7" }), _jsx("line", { x1: "21", y1: "12", x2: "9", y2: "12" })] }), "Switch User"] })] }), _jsxs("div", { style: {
                     flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr",
                     gap: 1, background: "oklch(28% 0.012 60)",
                     overflow: "hidden",

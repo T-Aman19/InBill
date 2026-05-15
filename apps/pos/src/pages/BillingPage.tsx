@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
+import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { TopBar } from "@/components/ui/TopBar"
@@ -44,6 +45,8 @@ export default function BillingPage() {
   const [tendered, setTendered] = useState("")
   const [showDiscounts, setShowDiscounts] = useState(false)
   const [discountErr,   setDiscountErr]   = useState("")
+  const [upiPayment, setUpiPayment] = useState<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string } | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { data: bill, refetch } = useQuery({
     queryKey: ["bill", billId],
@@ -63,8 +66,38 @@ export default function BillingPage() {
 
   const payMutation = useMutation({
     mutationFn: (amount: number) => api.bills.addPayment(billId, { mode, amount }),
-    onSuccess: () => { refetch(); setTendered("") },
+    onSuccess: () => { refetch(); setTendered(""); qc.invalidateQueries({ queryKey: ["tables"] }) },
   })
+
+  const initiateUpiMutation = useMutation({
+    mutationFn: () => api.bills.initiateUpi(billId),
+    onSuccess: (res) => {
+      setUpiPayment(res)
+      pollRef.current = setInterval(async () => {
+        try {
+          const s = await api.bills.upiStatus(billId, res.paymentId)
+          if (s.status === "success" || s.isPaid) {
+            clearInterval(pollRef.current!)
+            setUpiPayment(null)
+            refetch()
+            qc.invalidateQueries({ queryKey: ["tables"] })
+          }
+        } catch { /* ignore poll errors */ }
+      }, 3000)
+    },
+  })
+
+  const simulateUpiMutation = useMutation({
+    mutationFn: (paymentId: string) => api.bills.simulateUpi(billId, paymentId),
+    onSuccess: () => {
+      clearInterval(pollRef.current!)
+      setUpiPayment(null)
+      refetch()
+      qc.invalidateQueries({ queryKey: ["tables"] })
+    },
+  })
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   const applyDiscountMutation = useMutation({
     mutationFn: (body: { discountId?: string; label: string; amount: number }) =>
@@ -108,6 +141,10 @@ export default function BillingPage() {
                            : 0
 
   function handleCollect() {
+    if (mode === "upi") {
+      initiateUpiMutation.mutate()
+      return
+    }
     const amount = Math.min(collectAmt, remaining)
     if (amount <= 0) return
     payMutation.mutate(amount)
@@ -484,7 +521,7 @@ export default function BillingPage() {
 
           <button
             onClick={handleCollect}
-            disabled={remaining <= 0 || payMutation.isPending}
+            disabled={remaining <= 0 || payMutation.isPending || initiateUpiMutation.isPending}
             style={{
               height: 56, borderRadius: 14,
               background: "var(--color-green)",
@@ -496,13 +533,59 @@ export default function BillingPage() {
               display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
             }}
           >
-            {payMutation.isPending ? "Processing…" : `Collect ${formatCurrency(Math.min(collectAmt, remaining))}`}
-            {!payMutation.isPending && (
+            {(payMutation.isPending || initiateUpiMutation.isPending) ? "Processing…" : mode === "upi" ? "Generate QR" : `Collect ${formatCurrency(Math.min(collectAmt, remaining))}`}
+            {!payMutation.isPending && !initiateUpiMutation.isPending && (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             )}
           </button>
         </div>
       </div>
+
+      {upiPayment && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+          <div style={{ background: "var(--color-bg)", borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-ink)" }}>UPI Payment</div>
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 4 }}>Ask customer to scan with any UPI app</div>
+            </div>
+
+            {upiPayment.qrData.startsWith("upi://") ? (
+              <div style={{ background: "white", padding: 16, borderRadius: 12, border: "1px solid var(--color-line)" }}>
+                <QRCode value={upiPayment.qrData} size={192} />
+              </div>
+            ) : (
+              <div style={{ width: 192, height: 192, background: "var(--color-surface-2)", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed var(--color-line-strong)" }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M14 17h3M17 14h3v3M17 20h3"/></svg>
+                <div style={{ fontSize: 11, color: "var(--color-ink-3)", textAlign: "center", padding: "0 12px" }}>Configure UPI VPA in Outlet Settings to show QR</div>
+              </div>
+            )}
+
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>{formatCurrency(upiPayment.amountDue)}</div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 4 }}>
+                {upiPayment.mode === "stub" ? "Stub mode — use simulate button" : "Waiting for payment…"}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <button
+                onClick={() => { clearInterval(pollRef.current!); api.bills.cancelUpi(billId, upiPayment.paymentId).catch(() => {}); setUpiPayment(null) }}
+                style={{ flex: 1, height: 44, borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-ink)", fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => simulateUpiMutation.mutate(upiPayment.paymentId)}
+                disabled={simulateUpiMutation.isPending}
+                style={{ flex: 1, height: 44, borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: simulateUpiMutation.isPending ? .5 : 1 }}
+              >
+                {simulateUpiMutation.isPending ? "Confirming…" : "Simulate ✓"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Expires {new Date(upiPayment.expiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

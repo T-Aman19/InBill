@@ -5,6 +5,8 @@ import OrderPage from "@/pages/OrderPage"
 import BillingPage from "@/pages/BillingPage"
 import KdsPage from "@/pages/KdsPage"
 import ManagerPage from "@/pages/ManagerPage"
+import OwnerLoginPage from "@/pages/OwnerLoginPage"
+import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
 import { useAuthStore } from "@/stores/auth"
 
 const rootRoute = createRootRoute({ component: Outlet })
@@ -93,6 +95,21 @@ const indexRoute = createRoute({
   component: () => null,
 })
 
+const ownerLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/login",
+  component: OwnerLoginPage,
+})
+
+const ownerDashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/dashboard",
+  beforeLoad: () => {
+    if (!localStorage.getItem("inbill_owner_token")) throw redirect({ to: "/owner/login" })
+  },
+  component: OwnerDashboardPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -101,6 +118,8 @@ const routeTree = rootRoute.addChildren([
   billingRoute,
   kdsRoute,
   managerRoute,
+  ownerLoginRoute,
+  ownerDashboardRoute,
 ])
 
 export const router = createRouter({ routeTree })

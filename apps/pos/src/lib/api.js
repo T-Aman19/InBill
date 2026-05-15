@@ -101,6 +101,9 @@ export const api = {
         addPayment: (billId, body) => post(`/bills/${billId}/payments`, body),
         applyDiscount: (billId, body) => patch(`/bills/${billId}/discount`, body),
         removeDiscount: (billId, lineId) => del(`/bills/${billId}/discount/${lineId}`),
+        initiateUpi: (billId) => post(`/bills/${billId}/payments/upi`, {}),
+        upiStatus: (billId, paymentId) => get(`/bills/${billId}/payments/${paymentId}/status`),
+        simulateUpi: (billId, paymentId) => patch(`/bills/${billId}/payments/${paymentId}/simulate`, {}),
     },
     discounts: {
         list: () => get("/discounts"),
@@ -158,6 +161,16 @@ export const api = {
     outlet: {
         get: () => get("/outlet"),
         update: (body) => patch("/outlet", body),
+    },
+    owner: {
+        register: (body) => post("/auth/owner/register", body),
+        login: (email, password) => post("/auth/owner/login", { email, password }),
+        me: () => get("/owner/me"),
+        outlets: () => get("/owner/outlets"),
+        createOutlet: (body) => post("/owner/outlets", body),
+        updateOutlet: (id, body) => patch(`/owner/outlets/${id}`, body),
+        outletSummary: (id, from, to) => get(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
+        switchOutlet: (id) => post(`/owner/outlets/${id}/switch`, {}),
     },
 };
 export { ApiError };

@@ -44,6 +44,8 @@ export const billPayments = pgTable("bill_payments", {
   mode: paymentModeEnum("mode").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   reference: text("reference"),
+  gatewayOrderId: text("gateway_order_id"),
+  gatewayStatus: text("gateway_status"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

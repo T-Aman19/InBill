@@ -13,6 +13,7 @@ export const wsEventTypeSchema = z.enum([
   "table.status",
   "item.availability",
   "sync.status",
+  "payment.confirmed",
 ])
 
 export type WsEventType = z.infer<typeof wsEventTypeSchema>
@@ -27,3 +28,4 @@ export type WsEvent =
   | { type: "table.status"; payload: Pick<Table, "id" | "status" | "currentOrderId"> }
   | { type: "item.availability"; payload: { itemId: string; isAvailable: boolean } }
   | { type: "sync.status"; payload: { status: "synced" | "pending" | "offline"; pendingCount: number } }
+  | { type: "payment.confirmed"; payload: { billId: string; paymentId: string } }

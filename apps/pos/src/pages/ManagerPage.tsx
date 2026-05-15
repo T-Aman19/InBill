@@ -25,7 +25,7 @@ type EditTable = { _new?: boolean; id?: string; floorId: string; name: string; c
 type TaxConfig = { id?: string; name: string; cgstRate: string; sgstRate: string; igstRate: string }
 
 type ReportSummary = { billCount: number; totalRevenue: number; totalTax: number; totalDiscount: number; byPaymentMode: Record<string, number> }
-type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string }
+type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
@@ -865,10 +865,13 @@ function ShiftsTab() {
 // ── Outlet settings tab ──────────────────────────────────────────────────────
 function OutletTab() {
   const qc = useQueryClient()
-  const [name, setName]       = useState("")
-  const [address, setAddress] = useState("")
-  const [phone, setPhone]     = useState("")
-  const [gstin, setGstin]     = useState("")
+  const [name, setName]               = useState("")
+  const [address, setAddress]         = useState("")
+  const [phone, setPhone]             = useState("")
+  const [gstin, setGstin]             = useState("")
+  const [upiVpa, setUpiVpa]           = useState("")
+  const [razorpayKeyId, setRazorpayKeyId]         = useState("")
+  const [razorpayKeySecret, setRazorpayKeySecret] = useState("")
   const [loaded, setLoaded]   = useState(false)
   const [saved, setSaved]     = useState(false)
 
@@ -882,11 +885,19 @@ function OutletTab() {
     setAddress(outlet.address)
     setPhone(outlet.phone)
     setGstin(outlet.gstin ?? "")
+    setUpiVpa(outlet.upiVpa ?? "")
+    setRazorpayKeyId(outlet.razorpayKeyId ?? "")
     setLoaded(true)
   }
 
   const saveMutation = useMutation({
-    mutationFn: () => api.outlet.update({ name, address, phone, gstin: gstin || undefined }),
+    mutationFn: () => api.outlet.update({
+      name, address, phone,
+      gstin: gstin || undefined,
+      upiVpa: upiVpa || undefined,
+      razorpayKeyId: razorpayKeyId || undefined,
+      razorpayKeySecret: razorpayKeySecret || undefined,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outlet"] })
       setSaved(true)
@@ -906,6 +917,26 @@ function OutletTab() {
           {field("Address", <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state, PIN" style={{ ...inputStyle({ height: 80, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
           {field("Phone", <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
           {field("GSTIN (optional)", <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+
+          {/* UPI / Payment section */}
+          <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 16 }}>UPI &amp; Payments</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {field("UPI VPA (e.g. outlet@upi)", (
+                <div>
+                  <input value={upiVpa} onChange={(e) => setUpiVpa(e.target.value.trim())} placeholder="merchant@ybl" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                  <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 5 }}>Used to generate UPI QR codes on the billing screen. Customers scan and pay directly.</div>
+                </div>
+              ))}
+              {field("Razorpay Key ID (optional)", (
+                <input value={razorpayKeyId} onChange={(e) => setRazorpayKeyId(e.target.value.trim())} placeholder="rzp_live_…" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+              ))}
+              {field("Razorpay Key Secret (optional)", (
+                <input type="password" value={razorpayKeySecret} onChange={(e) => setRazorpayKeySecret(e.target.value.trim())} placeholder="Leave blank to keep existing" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+              ))}
+            </div>
+          </div>
+
           <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !name.trim()} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s", opacity: !name.trim() ? .4 : 1 }}>
             {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save settings"}
           </button>

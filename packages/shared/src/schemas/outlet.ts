@@ -29,6 +29,9 @@ export const updateOutletSchema = z.object({
   phone: z.string().optional(),
   gstin: z.string().optional(),
   timezone: z.string().optional(),
+  upiVpa: z.string().optional(),
+  razorpayKeyId: z.string().optional(),
+  razorpayKeySecret: z.string().optional(),
 })
 
 export type Owner = z.infer<typeof ownerSchema>

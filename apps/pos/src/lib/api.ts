@@ -103,6 +103,10 @@ export const api = {
     addPayment: (billId: string, body: unknown) => post<unknown>(`/bills/${billId}/payments`, body),
     applyDiscount: (billId: string, body: unknown) => patch<unknown>(`/bills/${billId}/discount`, body),
     removeDiscount: (billId: string, lineId: string) => del<unknown>(`/bills/${billId}/discount/${lineId}`),
+    initiateUpi: (billId: string) => post<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string }>(`/bills/${billId}/payments/upi`, {}),
+    upiStatus: (billId: string, paymentId: string) => get<{ status: string; isPaid: boolean }>(`/bills/${billId}/payments/${paymentId}/status`),
+    simulateUpi: (billId: string, paymentId: string) => patch<{ ok: boolean; isPaid: boolean }>(`/bills/${billId}/payments/${paymentId}/simulate`, {}),
+    cancelUpi: (billId: string, paymentId: string) => del<{ ok: boolean }>(`/bills/${billId}/payments/${paymentId}`),
   },
   discounts: {
     list: () => get<unknown[]>("/discounts"),
@@ -155,8 +159,18 @@ export const api = {
     delete: (id: string) => del(`/shifts/cash-entries/${id}`),
   },
   outlet: {
-    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string }>("/outlet"),
+    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
+  },
+  owner: {
+    register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),
+    login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),
+    me: () => get<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
+    outlets: () => get<{ id: string; name: string; address: string; todayRevenue: number; todayBillCount: number; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string }[]>("/owner/outlets"),
+    createOutlet: (body: unknown) => post<unknown>("/owner/outlets", body),
+    updateOutlet: (id: string, body: unknown) => patch<unknown>(`/owner/outlets/${id}`, body),
+    outletSummary: (id: string, from: string, to: string) => get<unknown>(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
+    switchOutlet: (id: string) => post<{ token: string; outlet: { id: string; name: string } }>(`/owner/outlets/${id}/switch`, {}),
   },
 }
 

@@ -4,7 +4,7 @@ import { eq, and, inArray } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
@@ -261,5 +261,125 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
   }
 
   return c.json(payment, 201)
+})
+
+// Initiate UPI payment — returns a UPI deeplink (rendered as QR on client) or Razorpay order
+billingRouter.post("/:id/payments/upi", requireRole("owner", "manager", "cashier"), async (c) => {
+  const { outletId } = c.get("user")
+  const billId = c.req.param("id")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+
+  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  const amountDue = Math.max(0, Number(bill.total) - paidSoFar)
+  if (amountDue <= 0) return c.json({ error: "Nothing due" }, 400)
+
+  const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+  if (!outlet) return c.json({ error: "Outlet not found" }, 404)
+
+  const gatewayOrderId = `upi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  let qrData: string
+  let mode: "razorpay" | "upi_direct" | "stub" = "stub"
+
+  if (outlet.razorpayKeyId && outlet.razorpayKeySecret) {
+    // TODO: call Razorpay Payment Links API here when account is ready
+    // For now, fall through to UPI direct if VPA is available, otherwise stub
+    mode = "razorpay"
+    qrData = outlet.upiVpa
+      ? `upi://pay?pa=${outlet.upiVpa}&pn=${encodeURIComponent(outlet.name)}&am=${amountDue.toFixed(2)}&cu=INR&tr=${gatewayOrderId}`
+      : `RAZORPAY_STUB:${gatewayOrderId}:${amountDue}`
+  } else if (outlet.upiVpa) {
+    mode = "upi_direct"
+    qrData = `upi://pay?pa=${outlet.upiVpa}&pn=${encodeURIComponent(outlet.name)}&am=${amountDue.toFixed(2)}&cu=INR&tr=${gatewayOrderId}`
+  } else {
+    // No payment config — return a stub so the UI can still demonstrate the flow
+    mode = "stub"
+    qrData = `STUB:${gatewayOrderId}:${amountDue}`
+  }
+
+  const payments = await db
+    .insert(billPayments)
+    .values({ billId, mode: "upi", amount: String(amountDue.toFixed(2)), gatewayOrderId, gatewayStatus: "pending" })
+    .returning()
+  const payment = payments[0]
+  if (!payment) return c.json({ error: "Failed to create payment record" }, 500)
+
+  return c.json({ paymentId: payment.id, qrData, amountDue, mode, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() })
+})
+
+// Poll payment status
+billingRouter.get("/:id/payments/:paymentId/status", async (c) => {
+  const { outletId } = c.get("user")
+  const billId = c.req.param("id")
+  const paymentId = c.req.param("paymentId")
+
+  const bill = await db.query.bills.findFirst({ where: and(eq(bills.id, billId), eq(bills.outletId, outletId)) })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+
+  const payment = await db.query.billPayments.findFirst({ where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)) })
+  if (!payment) return c.json({ error: "Payment not found" }, 404)
+
+  return c.json({ status: payment.gatewayStatus ?? "pending", isPaid: bill.isPaid })
+})
+
+// Cancel a pending UPI payment (e.g. user dismissed the QR modal)
+billingRouter.delete("/:id/payments/:paymentId", requireRole("owner", "manager", "cashier"), async (c) => {
+  const { outletId } = c.get("user")
+  const billId    = c.req.param("id")
+  const paymentId = c.req.param("paymentId")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isPaid) return c.json({ error: "Cannot modify a paid bill" }, 400)
+
+  const payment = await db.query.billPayments.findFirst({
+    where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)),
+  })
+  if (!payment) return c.json({ error: "Payment not found" }, 404)
+  if (payment.mode !== "upi" || payment.gatewayStatus !== "pending")
+    return c.json({ error: "Can only cancel pending UPI payments" }, 400)
+
+  await db.delete(billPayments).where(eq(billPayments.id, paymentId))
+  return c.json({ ok: true })
+})
+
+// Simulate payment success (testing / stub mode)
+billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "manager", "cashier"), async (c) => {
+  const { outletId } = c.get("user")
+  const billId = c.req.param("id")
+  const paymentId = c.req.param("paymentId")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+
+  const payment = await db.query.billPayments.findFirst({ where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)) })
+  if (!payment) return c.json({ error: "Payment not found" }, 404)
+  if (payment.gatewayStatus === "success") return c.json({ error: "Already confirmed" }, 400)
+
+  await db.update(billPayments).set({ gatewayStatus: "success" }).where(eq(billPayments.id, paymentId))
+
+  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  if (paidSoFar >= Number(bill.total)) {
+    await db.update(bills).set({ isPaid: true }).where(eq(bills.id, billId))
+    const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })
+    if (order?.tableId) {
+      await db.update(tables).set({ status: "available", currentOrderId: null }).where(eq(tables.id, order.tableId))
+      broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
+    }
+    broadcastOutlet(outletId, { type: "payment.confirmed", payload: { billId, paymentId } })
+  }
+
+  return c.json({ ok: true, isPaid: paidSoFar >= Number(bill.total) })
 })
 
