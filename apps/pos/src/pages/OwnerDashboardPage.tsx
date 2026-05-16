@@ -132,14 +132,38 @@ export default function OwnerDashboardPage() {
       {/* Outlet cards */}
       <main className="p-6">
         {(outlets as OutletCard[]).length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-gray-400 text-lg mb-2">No outlets yet</p>
-            <p className="text-gray-400 text-sm mb-6">Add your first outlet to get started</p>
+          <div className="max-w-2xl mx-auto py-16 px-4">
+            {/* Welcome header */}
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600 mb-5">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z"/></svg>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome to InBill</h2>
+              <p className="text-gray-500">Set up your restaurant in 3 quick steps and you'll be taking orders in minutes.</p>
+            </div>
+
+            {/* Steps */}
+            <div className="space-y-4 mb-10">
+              {[
+                { step: 1, title: "Create your outlet", desc: "Add your restaurant's name, address, and contact details.", action: true },
+                { step: 2, title: "Set up your menu", desc: "Add categories and menu items inside the POS Manager.", action: false },
+                { step: 3, title: "Add your staff", desc: "Create PINs for managers, cashiers, captains, and kitchen staff.", action: false },
+              ].map(({ step, title, desc, action }) => (
+                <div key={step} className={`flex gap-4 p-5 rounded-xl border ${action ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-white opacity-60"}`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${action ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}>{step}</div>
+                  <div>
+                    <div className="font-semibold text-gray-900 mb-0.5">{title}</div>
+                    <div className="text-sm text-gray-500">{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             <button
               onClick={() => setShowCreate(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-base"
             >
-              Add Outlet
+              Create your first outlet →
             </button>
           </div>
         ) : (
@@ -169,6 +193,11 @@ export default function OwnerDashboardPage() {
                   </div>
                 </div>
 
+                {outlet.todayBillCount === 0 && outlet.todayRevenue === 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    Complete setup — add menu items and tables in the POS Manager.
+                  </div>
+                )}
                 <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
                   {outlet.upiVpa && (
                     <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">UPI</span>

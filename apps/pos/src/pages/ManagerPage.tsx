@@ -1437,6 +1437,48 @@ function DiscountsTab() {
   )
 }
 
+// ── Setup checklist ──────────────────────────────────────────────────────────
+function SetupChecklist({ onNavigate }: { onNavigate: (tab: NavId) => void }) {
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem("inbill_setup_dismissed") === "1")
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: unknown[]; items: unknown[] }> })
+  const { data: tables } = useQuery({ queryKey: ["tables"], queryFn: () => api.tables.getAll() as Promise<{ tables: unknown[] }> })
+  const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => api.users.getAll() as Promise<unknown[]> })
+
+  const steps: { label: string; done: boolean; tab: NavId }[] = [
+    { label: "Add menu items", done: (menu?.items?.length ?? 0) > 0, tab: "menu" },
+    { label: "Configure tables", done: (tables?.tables?.length ?? 0) > 0, tab: "tables" },
+    { label: "Add staff", done: (users?.length ?? 0) > 0, tab: "staff" },
+  ]
+  const doneCount = steps.filter((s) => s.done).length
+  const allDone = doneCount === steps.length
+
+  if (dismissed) return null
+
+  return (
+    <div style={{ margin: "12px 0 4px", padding: "14px 14px 10px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-surface-2)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)", letterSpacing: ".05em", textTransform: "uppercase" }}>
+          {allDone ? "All set!" : `Setup · ${doneCount}/${steps.length}`}
+        </div>
+        <button onClick={() => { setDismissed(true); localStorage.setItem("inbill_setup_dismissed", "1") }} style={{ background: "none", border: "none", color: "var(--color-ink-4)", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 16 }}>×</button>
+      </div>
+      {!allDone && (
+        <div style={{ height: 3, background: "var(--color-line-strong)", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${(doneCount / steps.length) * 100}%`, background: "var(--color-green)", borderRadius: 2, transition: "width .3s" }} />
+        </div>
+      )}
+      {steps.map((step) => (
+        <div key={step.label} onClick={() => !step.done && onNavigate(step.tab)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", cursor: step.done ? "default" : "pointer" }}>
+          <div style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: step.done ? "var(--color-green)" : "transparent", border: step.done ? "none" : "1.5px solid var(--color-line-strong)" }}>
+            {step.done && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          </div>
+          <span style={{ fontSize: 12, color: step.done ? "var(--color-ink-3)" : "var(--color-ink-2)", textDecoration: step.done ? "line-through" : "none", fontWeight: step.done ? 400 : 500 }}>{step.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Nav sidebar ──────────────────────────────────────────────────────────────
 const NAV_ITEMS: { id: NavId; label: string }[] = [
   { id: "staff",     label: "Staff & PINs" },
@@ -1474,18 +1516,21 @@ export default function ManagerPage() {
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
       <TopBar current="manager" />
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
-        <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", padding: 14, overflowY: "auto" }}>
-          {NAV_ITEMS.map((item) => {
-            const active = activeTab === item.id
-            return (
-              <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 2, display: "flex", alignItems: "center", gap: 10, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 500, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
-                onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
-                onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
-                {NAV_ICONS[item.id]}
-                <span style={{ flex: 1 }}>{item.label}</span>
-              </div>
-            )
-          })}
+        <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", padding: 14, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1 }}>
+            {NAV_ITEMS.map((item) => {
+              const active = activeTab === item.id
+              return (
+                <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 2, display: "flex", alignItems: "center", gap: 10, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 500, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
+                  onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
+                  onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
+                  {NAV_ICONS[item.id]}
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                </div>
+              )
+            })}
+          </div>
+          <SetupChecklist onNavigate={setActiveTab} />
         </div>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
           {activeTab === "staff"     && <StaffTab />}

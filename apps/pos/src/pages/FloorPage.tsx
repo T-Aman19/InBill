@@ -185,7 +185,19 @@ export default function FloorPage() {
         {isLoading ? (
           <div style={{ textAlign: "center", padding: 80, color: "var(--color-ink-3)" }}>Loading tables…</div>
         ) : floors.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 80, color: "var(--color-ink-3)" }}>No floors configured yet.</div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", gap: 16 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 18, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-3)" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>No tables yet</div>
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)", maxWidth: 280 }}>Set up your floor layout in Manager settings so staff can start taking orders.</div>
+            </div>
+            <a href="/manager" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 18px", borderRadius: 10, background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+              Go to Manager settings
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </a>
+          </div>
         ) : (
           floors.map((floor) => {
             const floorTables = tables.filter((t) => t.floorId === floor.id)
