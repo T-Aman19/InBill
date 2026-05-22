@@ -9,6 +9,7 @@ import InventoryPage from "@/pages/InventoryPage"
 import PODetailPage from "@/pages/PODetailPage"
 import OwnerLoginPage from "@/pages/OwnerLoginPage"
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
+import QrMenuPage from "@/pages/QrMenuPage"
 import { useAuthStore } from "@/stores/auth"
 
 const rootRoute = createRootRoute({ component: Outlet })
@@ -111,6 +112,12 @@ const indexRoute = createRoute({
   component: () => null,
 })
 
+const qrMenuRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/menu/$outletId/$tableId",
+  component: QrMenuPage,
+})
+
 const ownerLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/owner/login",
@@ -138,6 +145,7 @@ const routeTree = rootRoute.addChildren([
   poDetailRoute,
   ownerLoginRoute,
   ownerDashboardRoute,
+  qrMenuRoute,
 ])
 
 export const router = createRouter({ routeTree })

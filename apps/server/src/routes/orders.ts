@@ -4,7 +4,7 @@ import { eq, and, isNull } from "drizzle-orm"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, modifiers, kots } from "../db/schema/index.js"
+import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, modifiers, kots, voidedItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
@@ -156,13 +156,22 @@ ordersRouter.patch("/:id/items/:itemId/decrement", requireRole("owner", "manager
   })
   if (!item) return c.json({ error: "Item not found or already sent" }, 404)
 
+  const orderId = c.req.param("id")
   if (item.quantity <= 1) {
     await db.update(orderItems).set({ isVoided: true }).where(eq(orderItems.id, item.id))
+    await db.insert(voidedItems).values({
+      outletId,
+      orderId,
+      orderItemId: item.id,
+      itemName: item.name,
+      qty: 1,
+      unitPrice: item.unitPrice,
+      voidedById: c.get("user").userId,
+    })
   } else {
     await db.update(orderItems).set({ quantity: item.quantity - 1 }).where(eq(orderItems.id, item.id))
   }
 
-  const orderId = c.req.param("id")
   await db.update(orders).set({ updatedAt: new Date() }).where(eq(orders.id, orderId))
   await maybeAutoCancel(orderId, outletId)
 
@@ -171,15 +180,28 @@ ordersRouter.patch("/:id/items/:itemId/decrement", requireRole("owner", "manager
 })
 
 ordersRouter.delete("/:id/items/:itemId", requireRole("manager", "owner", "cashier"), async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, userId } = c.get("user")
   const orderId = c.req.param("id")
+  const itemId = c.req.param("itemId")
 
   const order = await db.query.orders.findFirst({
     where: and(eq(orders.id, orderId), eq(orders.outletId, outletId)),
   })
   if (!order) return c.json({ error: "Not found" }, 404)
 
-  await db.update(orderItems).set({ isVoided: true }).where(eq(orderItems.id, c.req.param("itemId")))
+  const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, itemId) })
+  await db.update(orderItems).set({ isVoided: true }).where(eq(orderItems.id, itemId))
+  if (item && !item.isVoided) {
+    await db.insert(voidedItems).values({
+      outletId,
+      orderId,
+      orderItemId: item.id,
+      itemName: item.name,
+      qty: item.quantity,
+      unitPrice: item.unitPrice,
+      voidedById: userId,
+    })
+  }
   await maybeAutoCancel(orderId, outletId)
 
   broadcastOutlet(outletId, { type: "order.updated", payload: await fetchOrderWithKotStatus(orderId) as never })

@@ -4,7 +4,7 @@ import { eq, and, gte, lte } from "drizzle-orm"
 import { dateRangeSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, menuItems, categories, stockMovements, ingredients } from "../db/schema/index.js"
+import { bills, menuItems, categories, stockMovements, ingredients, voidedItems, users } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 
 type TaxLine = { name: string; rate: number; amount: number }
@@ -324,4 +324,71 @@ reportsRouter.get("/hourly", async (c) => {
     slot.count++
   }
   return c.json(hourly.filter((h) => h.count > 0))
+})
+
+reportsRouter.get("/voids", zValidator("query", dateRangeSchema), async (c) => {
+  const { outletId } = c.get("user")
+  const { from, to } = c.req.valid("query")
+
+  const rows = await db.query.voidedItems.findMany({
+    where: and(
+      eq(voidedItems.outletId, outletId),
+      gte(voidedItems.createdAt, new Date(from)),
+      lte(voidedItems.createdAt, new Date(to + "T23:59:59Z")),
+    ),
+    orderBy: (v, { desc }) => [desc(v.createdAt)],
+  })
+
+  const staffIds = [...new Set(rows.map((r) => r.voidedById).filter(Boolean) as string[])]
+  const staffMap = new Map<string, string>()
+  if (staffIds.length > 0) {
+    const staffRows = await db.query.users.findMany({ where: (u, { inArray }) => inArray(u.id, staffIds) })
+    for (const s of staffRows) staffMap.set(s.id, s.name)
+  }
+
+  return c.json(rows.map((r) => ({
+    id: r.id,
+    orderId: r.orderId,
+    itemName: r.itemName,
+    qty: r.qty,
+    unitPrice: r.unitPrice,
+    staffName: r.voidedById ? (staffMap.get(r.voidedById) ?? "Unknown") : "Unknown",
+    createdAt: r.createdAt,
+  })))
+})
+
+reportsRouter.get("/staff-performance", zValidator("query", dateRangeSchema), async (c) => {
+  const { outletId } = c.get("user")
+  const { from, to } = c.req.valid("query")
+
+  const paidBills = await db.query.bills.findMany({
+    where: and(
+      eq(bills.outletId, outletId),
+      eq(bills.isPaid, true),
+      gte(bills.createdAt, new Date(from)),
+      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+    ),
+    columns: { id: true, total: true, createdById: true },
+  })
+
+  const staffIds = [...new Set(paidBills.map((b) => b.createdById).filter(Boolean) as string[])]
+  const staffMap = new Map<string, string>()
+  if (staffIds.length > 0) {
+    const staffRows = await db.query.users.findMany({ where: (u, { inArray }) => inArray(u.id, staffIds) })
+    for (const s of staffRows) staffMap.set(s.id, s.name)
+  }
+
+  const byStaff = new Map<string, { name: string; billCount: number; revenue: number }>()
+  for (const bill of paidBills) {
+    const staffId = bill.createdById ?? "unknown"
+    const name = staffId === "unknown" ? "Unknown" : (staffMap.get(staffId) ?? "Unknown")
+    const prev = byStaff.get(staffId) ?? { name, billCount: 0, revenue: 0 }
+    byStaff.set(staffId, { name, billCount: prev.billCount + 1, revenue: prev.revenue + Number(bill.total) })
+  }
+
+  return c.json(
+    Array.from(byStaff.entries())
+      .map(([staffId, d]) => ({ staffId, ...d, revenue: parseFloat(d.revenue.toFixed(2)) }))
+      .sort((a, b) => b.revenue - a.revenue),
+  )
 })

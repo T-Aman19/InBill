@@ -1,8 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
 import { TopBar } from "@/components/ui/TopBar"
 import { formatCurrency } from "@/lib/utils"
+import { useAuthStore } from "@/stores/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Staff = { id: string; name: string; role: string; isActive: boolean }
@@ -25,13 +28,13 @@ type EditTable = { _new?: boolean; id?: string; floorId: string; name: string; c
 type TaxConfig = { id?: string; name: string; cgstRate: string; sgstRate: string; igstRate: string }
 
 type ReportSummary = { billCount: number; totalRevenue: number; totalTax: number; totalDiscount: number; byPaymentMode: Record<string, number> }
-type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }
+type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green" }
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only" }
-type NavId = "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "expenses" | "outlet" | "devices"
+type NavId = "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -89,6 +92,8 @@ function ActionBtn({ onClick, title, danger }: { onClick: () => void; title: str
       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}>
       {title === "Edit"
         ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h4l10-10-4-4L4 16v4z"/><path d="M14 6l4 4"/></svg>
+        : title === "QR"
+        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M14 17h3M17 14h3v3M17 20h3"/></svg>
         : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
       }
     </button>
@@ -99,6 +104,7 @@ function ActionBtn({ onClick, title, danger }: { onClick: () => void; title: str
 function StaffEditPanel({ record, onClose, onSaved }: { record: EditRecord; onClose: () => void; onSaved: () => void }) {
   const isNew = !!record._new
   const qc = useQueryClient()
+  const isOwner = useAuthStore((s) => s.user?.role === "owner")
   const [name, setName] = useState(record.name)
   const [role, setRole] = useState(record.role || "captain")
   const [pin, setPin] = useState(isNew ? "" : "••••")
@@ -138,7 +144,7 @@ function StaffEditPanel({ record, onClose, onSaved }: { record: EditRecord; onCl
       <div>
         <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 8 }}>Role</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {ROLES.map((r) => (
+          {ROLES.filter((r) => isOwner || r !== "manager").map((r) => (
             <button key={r} onClick={() => setRole(r)} style={{ padding: "12px 14px", textAlign: "left", border: "1.5px solid " + (role === r ? "var(--color-ink)" : "var(--color-line)"), background: role === r ? "var(--color-surface-2)" : "var(--color-surface)", borderRadius: 10, cursor: "pointer", fontSize: 13, display: "flex", flexDirection: "column", gap: 4, fontFamily: "inherit", transition: "all .1s" }}>
               <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{r}</span>
               <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{ROLE_DESCRIPTION[r]}</span>
@@ -516,8 +522,11 @@ function TableEditPanel({ table, floors, onClose, onSaved }: { table: EditTable;
 
 function TablesTab() {
   const qc = useQueryClient()
+  const outletId = useAuthStore((s) => s.outletId)
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null)
   const [editingTable, setEditingTable] = useState<EditTable | null>(null)
+  const [qrTable, setQrTable] = useState<{ id: string; name: string } | null>(null)
+  const { data: lanData } = useQuery({ queryKey: ["lan-url"], queryFn: () => api.public.lanUrl(), enabled: !!qrTable, staleTime: 30_000 })
   const [addingFloor, setAddingFloor] = useState(false)
   const [newFloorName, setNewFloorName] = useState("")
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null)
@@ -612,6 +621,7 @@ function TablesTab() {
                 <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{t.capacity} seats · <span style={{ textTransform: "capitalize" }}>{t.status}</span></div>
                 <div style={{ display: "flex", gap: 4, marginTop: 10 }}>
                   <ActionBtn onClick={() => setEditingTable({ id: t.id, floorId: t.floorId, name: t.name, capacity: t.capacity })} title="Edit" />
+                  <ActionBtn onClick={() => setQrTable({ id: t.id, name: t.name })} title="QR" />
                   <ActionBtn onClick={() => { if (t.status !== "available") { alert("Cannot delete a table with an active order"); return; } if (confirm(`Delete table "${t.name}"?`)) deleteTableMutation.mutate(t.id) }} title="Delete" danger />
                 </div>
               </div>
@@ -620,6 +630,44 @@ function TablesTab() {
         )}
       </div>
       {editingTable && <TableEditPanel table={editingTable} floors={floors} onClose={() => setEditingTable(null)} onSaved={invalidate} />}
+
+      {qrTable && outletId && (() => {
+        const lanUrls = lanData?.urls ?? []
+        const baseUrl = lanUrls[0] ?? window.location.origin
+        const qrUrl = `${baseUrl}/menu/${outletId}/${qrTable.id}`
+        const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={() => setQrTable(null)}>
+            <div style={{ background: "var(--color-surface)", borderRadius: 20, padding: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, boxShadow: "var(--shadow-3)", minWidth: 300 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>QR — {qrTable.name}</div>
+              {isLocalhost && lanUrls.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--color-amber)", background: "rgba(245,158,11,.1)", borderRadius: 8, padding: "8px 12px", textAlign: "center", maxWidth: 240 }}>
+                  Server not reachable from other devices. Open the POS via your machine's IP address to generate a working QR.
+                </div>
+              )}
+              <div style={{ background: "#fff", padding: 14, borderRadius: 12 }}>
+                <QRCode value={qrUrl} size={200} />
+              </div>
+              {lanUrls.length > 1 && (
+                <select
+                  defaultValue={lanUrls[0]}
+                  onChange={(e) => {/* re-renders via lanUrls[0] — for multi-NIC, user sees dropdown */}}
+                  style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 12, padding: "0 8px", fontFamily: "var(--font-mono)" }}
+                >
+                  {lanUrls.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              )}
+              <div style={{ fontSize: 11, color: "var(--color-ink-3)", textAlign: "center", maxWidth: 260, wordBreak: "break-all", fontFamily: "var(--font-mono)" }}>
+                {qrUrl}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => window.print()} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", fontSize: 13, fontFamily: "inherit", cursor: "pointer", color: "var(--color-ink-2)" }}>Print</button>
+                <button onClick={() => setQrTable(null)} style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", cursor: "pointer", color: "var(--color-bg)", fontWeight: 600 }}>Close</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </>
   )
 }
@@ -627,6 +675,7 @@ function TablesTab() {
 // ── Tax & Charges tab ────────────────────────────────────────────────────────
 function TaxTab() {
   const qc = useQueryClient()
+  const isOwner = useAuthStore((s) => s.user?.role === "owner")
   const [cgst, setCgst] = useState("")
   const [sgst, setSgst] = useState("")
   const [igst, setIgst] = useState("")
@@ -664,32 +713,46 @@ function TaxTab() {
         <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Applied to all orders at billing time</div>
       </div>
       <div className="scroll" style={{ flex: 1, padding: "28px 32px" }}>
-        <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 20 }}>
-          {field("Config name", <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            {field("CGST %", <input type="number" min="0" max="50" step="0.5" value={cgst} onChange={(e) => setCgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-            {field("SGST %", <input type="number" min="0" max="50" step="0.5" value={sgst} onChange={(e) => setSgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-            {field("IGST %", <input type="number" min="0" max="50" step="0.5" value={igst} onChange={(e) => setIgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-          </div>
-
-          {/* Live preview */}
-          <div style={{ padding: 18, background: "var(--color-surface-2)", borderRadius: 12, border: "1px solid var(--color-line)" }}>
-            <div style={{ fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".05em", textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>Preview on ₹1,000 order</div>
-            {[["Subtotal", formatCurrency(subtotalExample)], ...(cgstAmt > 0 ? [[`CGST (${cgst}%)`, formatCurrency(cgstAmt)]] : []), ...(sgstAmt > 0 ? [[`SGST (${sgst}%)`, formatCurrency(sgstAmt)]] : [])].map(([label, val]) => (
-              <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--color-ink-2)", padding: "3px 0" }}>
-                <span>{label}</span><span style={{ fontFamily: "var(--font-mono)" }}>{val}</span>
+        {!isOwner ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: "var(--color-ink-3)" }}>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--color-ink-2)" }}>Owner access required</div>
+            <div style={{ fontSize: 13, textAlign: "center" }}>Tax rates can only be changed by the outlet owner.</div>
+            {config && (
+              <div style={{ marginTop: 8, padding: "14px 24px", background: "var(--color-surface-2)", borderRadius: 10, border: "1px solid var(--color-line)", fontSize: 13, color: "var(--color-ink-2)", display: "flex", gap: 24 }}>
+                <span>CGST: {config.cgstRate}%</span>
+                <span>SGST: {config.sgstRate}%</span>
+                <span>IGST: {config.igstRate}%</span>
               </div>
-            ))}
-            <div style={{ height: 1, background: "var(--color-line-strong)", margin: "10px 0" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600 }}>
-              <span>Total</span><span style={{ fontFamily: "var(--font-mono)" }}>{formatCurrency(totalAmt)}</span>
-            </div>
+            )}
           </div>
+        ) : (
+          <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 20 }}>
+            {field("Config name", <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {field("CGST %", <input type="number" min="0" max="50" step="0.5" value={cgst} onChange={(e) => setCgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+              {field("SGST %", <input type="number" min="0" max="50" step="0.5" value={sgst} onChange={(e) => setSgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+              {field("IGST %", <input type="number" min="0" max="50" step="0.5" value={igst} onChange={(e) => setIgst(e.target.value)} placeholder="0" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            </div>
 
-          <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s" }}>
-            {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save tax settings"}
-          </button>
-        </div>
+            <div style={{ padding: 18, background: "var(--color-surface-2)", borderRadius: 12, border: "1px solid var(--color-line)" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".05em", textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>Preview on ₹1,000 order</div>
+              {[["Subtotal", formatCurrency(subtotalExample)], ...(cgstAmt > 0 ? [[`CGST (${cgst}%)`, formatCurrency(cgstAmt)]] : []), ...(sgstAmt > 0 ? [[`SGST (${sgst}%)`, formatCurrency(sgstAmt)]] : [])].map(([label, val]) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--color-ink-2)", padding: "3px 0" }}>
+                  <span>{label}</span><span style={{ fontFamily: "var(--font-mono)" }}>{val}</span>
+                </div>
+              ))}
+              <div style={{ height: 1, background: "var(--color-line-strong)", margin: "10px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600 }}>
+                <span>Total</span><span style={{ fontFamily: "var(--font-mono)" }}>{formatCurrency(totalAmt)}</span>
+              </div>
+            </div>
+
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s" }}>
+              {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save tax settings"}
+            </button>
+          </div>
+        )}
       </div>
     </>
   )
@@ -707,13 +770,15 @@ type ItemReport    = { menuItemId: string; name: string; quantity: number; reven
 type CategoryReport = { categoryId: string; name: string; quantity: number; revenue: number }
 type HourlyReport  = { hour: number; revenue: number; count: number }
 type FoodCostReport = { from: string; to: string; revenue: number; cogs: number; foodCostPct: number; byIngredient: { ingredientId: string; name: string; unit: string; qty: number; cost: number }[] }
+type VoidReport    = { id: string; orderId: string; itemName: string; qty: number; unitPrice: string; staffName: string; createdAt: string }
+type StaffReport   = { staffId: string; name: string; billCount: number; revenue: number }
 
 function ShiftsTab() {
   const today = new Date().toISOString().split("T")[0]!
   const [from, setFrom]   = useState(today)
   const [to, setTo]       = useState(today)
   const [preset, setPreset] = useState(0)
-  const [subTab, setSubTab] = useState<"summary" | "items" | "categories" | "hourly" | "food-cost">("summary")
+  const [subTab, setSubTab] = useState<"summary" | "items" | "categories" | "hourly" | "food-cost" | "voids" | "staff">("summary")
   const [aiQuestion, setAiQuestion] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
   const [aiHistory, setAiHistory] = useState<{ q: string; a: string }[]>([])
@@ -770,6 +835,18 @@ function ShiftsTab() {
     enabled: subTab === "food-cost",
   })
 
+  const { data: voidsData, isLoading: voidsLoading } = useQuery({
+    queryKey: ["report.voids", from, to],
+    queryFn: () => api.reports.voids(from, to) as Promise<VoidReport[]>,
+    enabled: subTab === "voids",
+  })
+
+  const { data: staffData, isLoading: staffLoading } = useQuery({
+    queryKey: ["report.staff", from, to],
+    queryFn: () => api.reports.staffPerformance(from, to) as Promise<StaffReport[]>,
+    enabled: subTab === "staff",
+  })
+
   const statCard = (label: string, value: string, sub?: string) => (
     <div style={{ padding: "18px 20px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12 }}>
       <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 6 }}>{label}</div>
@@ -788,7 +865,11 @@ function ShiftsTab() {
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Revenue and sales breakdown</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={() => api.reports.exportBillsCsv(from, to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+          <button onClick={() => void api.reports.exportGstr1(from, to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            GST Export
+          </button>
+          <button onClick={() => void api.reports.exportBillsCsv(from, to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Bills CSV
           </button>
@@ -811,9 +892,9 @@ function ShiftsTab() {
 
         {/* Sub-tab selector */}
         <div style={{ display: "flex", gap: 4, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, width: "fit-content" }}>
-          {(["summary", "items", "categories", "hourly", "food-cost"] as const).map((t) => (
+          {(["summary", "items", "categories", "hourly", "food-cost", "voids", "staff"] as const).map((t) => (
             <button key={t} onClick={() => setSubTab(t)} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: subTab === t ? "var(--color-surface)" : "transparent", boxShadow: subTab === t ? "var(--shadow-1)" : "none", fontSize: 13, fontWeight: subTab === t ? 600 : 400, color: subTab === t ? "var(--color-ink)" : "var(--color-ink-3)", cursor: "pointer", fontFamily: "inherit", transition: "all .1s", textTransform: "capitalize" }}>
-              {t === "food-cost" ? "Food Cost" : t}
+              {t === "food-cost" ? "Food Cost" : t === "voids" ? "Void Log" : t === "staff" ? "Staff" : t}
             </button>
           ))}
         </div>
@@ -941,6 +1022,48 @@ function ShiftsTab() {
           </>
         ) : null)}
 
+        {/* Void Log */}
+        {subTab === "voids" && (voidsLoading ? <div style={{ color: "var(--color-ink-3)", fontSize: 14 }}>Loading…</div> : (
+          <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 120px 140px", padding: "10px 16px", borderBottom: "1px solid var(--color-line)", fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".05em" }}>
+              <span>Item</span><span style={{ textAlign: "right" }}>Qty</span><span style={{ textAlign: "right" }}>Price</span><span style={{ textAlign: "center" }}>Staff</span><span style={{ textAlign: "right" }}>Time</span>
+            </div>
+            {!voidsData || voidsData.length === 0 ? (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: "var(--color-ink-3)", fontSize: 14 }}>No voided items in this period</div>
+            ) : voidsData.map((row, i) => (
+              <div key={row.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 120px 140px", padding: "11px 16px", borderBottom: i < voidsData.length - 1 ? "1px solid var(--color-line)" : "none", alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{row.itemName}</span>
+                <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-red)" }}>{row.qty}</span>
+                <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)" }}>{formatCurrency(row.unitPrice)}</span>
+                <span style={{ textAlign: "center", fontSize: 12, color: "var(--color-ink-3)" }}>{row.staffName}</span>
+                <span style={{ textAlign: "right", fontSize: 11, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{new Date(row.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+
+        {/* Staff Performance */}
+        {subTab === "staff" && (staffLoading ? <div style={{ color: "var(--color-ink-3)", fontSize: 14 }}>Loading…</div> : (
+          <>
+            {!staffData || staffData.length === 0 ? (
+              <div style={{ color: "var(--color-ink-3)", fontSize: 14, textAlign: "center", padding: "40px 0" }}>No billing data in this period. Staff attribution requires bills created after this update.</div>
+            ) : (
+              <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 120px", padding: "10px 16px", borderBottom: "1px solid var(--color-line)", fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                  <span>Staff</span><span style={{ textAlign: "right" }}>Bills</span><span style={{ textAlign: "right" }}>Revenue</span>
+                </div>
+                {staffData.map((row, i) => (
+                  <div key={row.staffId} style={{ display: "grid", gridTemplateColumns: "1fr 80px 120px", padding: "12px 16px", borderBottom: i < staffData.length - 1 ? "1px solid var(--color-line)" : "none", alignItems: "center" }}>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>{row.name}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)" }}>{row.billCount}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600 }}>{formatCurrency(row.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ))}
+
         {/* AI query bar */}
         <div style={{ marginTop: 8, padding: "20px 24px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: aiHistory.length > 0 ? 16 : 0 }}>
@@ -977,10 +1100,12 @@ function ShiftsTab() {
 // ── Outlet settings tab ──────────────────────────────────────────────────────
 function OutletTab() {
   const qc = useQueryClient()
+  const isOwner = useAuthStore((s) => s.user?.role === "owner")
   const [name, setName]               = useState("")
   const [address, setAddress]         = useState("")
   const [phone, setPhone]             = useState("")
   const [gstin, setGstin]             = useState("")
+  const [fssaiNumber, setFssaiNumber] = useState("")
   const [upiVpa, setUpiVpa]           = useState("")
   const [razorpayKeyId, setRazorpayKeyId]         = useState("")
   const [razorpayKeySecret, setRazorpayKeySecret] = useState("")
@@ -997,6 +1122,7 @@ function OutletTab() {
     setAddress(outlet.address)
     setPhone(outlet.phone)
     setGstin(outlet.gstin ?? "")
+    setFssaiNumber(outlet.fssaiNumber ?? "")
     setUpiVpa(outlet.upiVpa ?? "")
     setRazorpayKeyId(outlet.razorpayKeyId ?? "")
     setLoaded(true)
@@ -1006,6 +1132,7 @@ function OutletTab() {
     mutationFn: () => api.outlet.update({
       name, address, phone,
       gstin: gstin || undefined,
+      fssaiNumber: fssaiNumber || undefined,
       upiVpa: upiVpa || undefined,
       razorpayKeyId: razorpayKeyId || undefined,
       razorpayKeySecret: razorpayKeySecret || undefined,
@@ -1024,35 +1151,50 @@ function OutletTab() {
         <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Shown on printed receipts</div>
       </div>
       <div className="scroll" style={{ flex: 1, padding: "28px 32px" }}>
-        <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 20 }}>
-          {field("Outlet name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Spice Garden" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-          {field("Address", <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state, PIN" style={{ ...inputStyle({ height: 80, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-          {field("Phone", <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-          {field("GSTIN (optional)", <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-
-          {/* UPI / Payment section */}
-          <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 16 }}>UPI &amp; Payments</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {field("UPI VPA (e.g. outlet@upi)", (
-                <div>
-                  <input value={upiVpa} onChange={(e) => setUpiVpa(e.target.value.trim())} placeholder="merchant@ybl" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-                  <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 5 }}>Used to generate UPI QR codes on the billing screen. Customers scan and pay directly.</div>
-                </div>
-              ))}
-              {field("Razorpay Key ID (optional)", (
-                <input value={razorpayKeyId} onChange={(e) => setRazorpayKeyId(e.target.value.trim())} placeholder="rzp_live_…" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-              ))}
-              {field("Razorpay Key Secret (optional)", (
-                <input type="password" value={razorpayKeySecret} onChange={(e) => setRazorpayKeySecret(e.target.value.trim())} placeholder="Leave blank to keep existing" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-              ))}
-            </div>
+        {!isOwner ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: "var(--color-ink-3)" }}>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--color-ink-2)" }}>Owner access required</div>
+            <div style={{ fontSize: 13, textAlign: "center" }}>Outlet settings can only be changed by the outlet owner.</div>
+            {outlet && (
+              <div style={{ marginTop: 8, padding: "14px 24px", background: "var(--color-surface-2)", borderRadius: 10, border: "1px solid var(--color-line)", fontSize: 13, color: "var(--color-ink-2)", display: "flex", flexDirection: "column", gap: 4, minWidth: 240 }}>
+                <span style={{ fontWeight: 600 }}>{outlet.name}</span>
+                {outlet.address && <span style={{ color: "var(--color-ink-3)" }}>{outlet.address}</span>}
+                {outlet.gstin && <span style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>GSTIN: {outlet.gstin}</span>}
+              </div>
+            )}
           </div>
+        ) : (
+          <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 20 }}>
+            {field("Outlet name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Spice Garden" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Address", <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state, PIN" style={{ ...inputStyle({ height: 80, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Phone", <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("GSTIN (optional)", <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("FSSAI licence number (optional)", <input value={fssaiNumber} onChange={(e) => setFssaiNumber(e.target.value)} placeholder="e.g. 12345678901234" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
 
-          <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !name.trim()} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s", opacity: !name.trim() ? .4 : 1 }}>
-            {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save settings"}
-          </button>
-        </div>
+            <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 16 }}>UPI &amp; Payments</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {field("UPI VPA (e.g. outlet@upi)", (
+                  <div>
+                    <input value={upiVpa} onChange={(e) => setUpiVpa(e.target.value.trim())} placeholder="merchant@ybl" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                    <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 5 }}>Used to generate UPI QR codes on the billing screen. Customers scan and pay directly.</div>
+                  </div>
+                ))}
+                {field("Razorpay Key ID (optional)", (
+                  <input value={razorpayKeyId} onChange={(e) => setRazorpayKeyId(e.target.value.trim())} placeholder="rzp_live_…" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                ))}
+                {field("Razorpay Key Secret (optional)", (
+                  <input type="password" value={razorpayKeySecret} onChange={(e) => setRazorpayKeySecret(e.target.value.trim())} placeholder="Leave blank to keep existing" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                ))}
+              </div>
+            </div>
+
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !name.trim()} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s", opacity: !name.trim() ? .4 : 1 }}>
+              {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save settings"}
+            </button>
+          </div>
+        )}
       </div>
     </>
   )
@@ -1332,6 +1474,7 @@ function DevicesTab() {
 // ── Discounts tab ────────────────────────────────────────────────────────────
 function DiscountsTab() {
   const qc = useQueryClient()
+  const isOwner = useAuthStore((s) => s.user?.role === "owner")
   const [editing, setEditing] = useState<Partial<DiscountRow> & { _new?: boolean } | null>(null)
   const [err, setErr] = useState("")
 
@@ -1373,9 +1516,11 @@ function DiscountsTab() {
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Discounts</h3>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Bill discounts and coupon codes applied at checkout</div>
         </div>
-        <button onClick={() => { setEditing(blank); setErr("") }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>New discount
-        </button>
+        {isOwner && (
+          <button onClick={() => { setEditing(blank); setErr("") }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>New discount
+          </button>
+        )}
       </div>
 
       <div className="scroll" style={{ flex: 1, padding: "20px 28px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1399,8 +1544,8 @@ function DiscountsTab() {
             <button onClick={() => toggleMutation.mutate({ id: row.id, isActive: !row.isActive })} style={{ padding: "4px 10px", borderRadius: 20, border: "1px solid " + (row.isActive ? "var(--color-green)" : "var(--color-line)"), background: row.isActive ? "var(--color-green-soft)" : "var(--color-surface-2)", color: row.isActive ? "var(--color-green)" : "var(--color-ink-3)", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
               {row.isActive ? "Active" : "Off"}
             </button>
-            <ActionBtn onClick={() => { setEditing({ ...row }); setErr("") }} title="Edit" />
-            <ActionBtn onClick={() => { if (confirm(`Delete "${row.name}"?`)) deleteMutation.mutate(row.id) }} title="Delete" danger />
+            {isOwner && <ActionBtn onClick={() => { setEditing({ ...row }); setErr("") }} title="Edit" />}
+            {isOwner && <ActionBtn onClick={() => { if (confirm(`Delete "${row.name}"?`)) deleteMutation.mutate(row.id) }} title="Delete" danger />}
           </div>
         ))}
       </div>
@@ -1439,18 +1584,24 @@ function DiscountsTab() {
 
 // ── Setup checklist ──────────────────────────────────────────────────────────
 function SetupChecklist({ onNavigate }: { onNavigate: (tab: NavId) => void }) {
+  const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(() => localStorage.getItem("inbill_setup_dismissed") === "1")
   const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: unknown[]; items: unknown[] }> })
-  const { data: tables } = useQuery({ queryKey: ["tables"], queryFn: () => api.tables.getAll() as Promise<{ tables: unknown[] }> })
+  const { data: tablesData } = useQuery({ queryKey: ["tables"], queryFn: () => api.tables.getAll() as Promise<{ tables: unknown[] }> })
   const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => api.users.getAll() as Promise<unknown[]> })
 
+  const hasMenu = (menu?.items?.length ?? 0) > 0
+  const hasTables = (tablesData?.tables?.length ?? 0) > 0
+  const hasStaff = (users?.length ?? 0) > 0
+
   const steps: { label: string; done: boolean; tab: NavId }[] = [
-    { label: "Add menu items", done: (menu?.items?.length ?? 0) > 0, tab: "menu" },
-    { label: "Configure tables", done: (tables?.tables?.length ?? 0) > 0, tab: "tables" },
-    { label: "Add staff", done: (users?.length ?? 0) > 0, tab: "staff" },
+    { label: "Configure tables", done: hasTables, tab: "tables" },
+    { label: "Add menu items", done: hasMenu, tab: "menu" },
+    { label: "Add staff", done: hasStaff, tab: "staff" },
   ]
   const doneCount = steps.filter((s) => s.done).length
   const allDone = doneCount === steps.length
+  const canStart = hasTables && hasMenu
 
   if (dismissed) return null
 
@@ -1462,11 +1613,9 @@ function SetupChecklist({ onNavigate }: { onNavigate: (tab: NavId) => void }) {
         </div>
         <button onClick={() => { setDismissed(true); localStorage.setItem("inbill_setup_dismissed", "1") }} style={{ background: "none", border: "none", color: "var(--color-ink-4)", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 16 }}>×</button>
       </div>
-      {!allDone && (
-        <div style={{ height: 3, background: "var(--color-line-strong)", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${(doneCount / steps.length) * 100}%`, background: "var(--color-green)", borderRadius: 2, transition: "width .3s" }} />
-        </div>
-      )}
+      <div style={{ height: 3, background: "var(--color-line-strong)", borderRadius: 2, marginBottom: 10, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${(doneCount / steps.length) * 100}%`, background: "var(--color-green)", borderRadius: 2, transition: "width .3s" }} />
+      </div>
       {steps.map((step) => (
         <div key={step.label} onClick={() => !step.done && onNavigate(step.tab)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", cursor: step.done ? "default" : "pointer" }}>
           <div style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: step.done ? "var(--color-green)" : "transparent", border: step.done ? "none" : "1.5px solid var(--color-line-strong)" }}>
@@ -1475,7 +1624,132 @@ function SetupChecklist({ onNavigate }: { onNavigate: (tab: NavId) => void }) {
           <span style={{ fontSize: 12, color: step.done ? "var(--color-ink-3)" : "var(--color-ink-2)", textDecoration: step.done ? "line-through" : "none", fontWeight: step.done ? 400 : 500 }}>{step.label}</span>
         </div>
       ))}
+      {canStart && (
+        <button
+          onClick={() => { localStorage.setItem("inbill_setup_dismissed", "1"); navigate({ to: "/floor" }) }}
+          style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+        >
+          Start taking orders →
+        </button>
+      )}
     </div>
+  )
+}
+
+// ── Loyalty tab ──────────────────────────────────────────────────────────────
+function LoyaltyTab() {
+  const qc = useQueryClient()
+  const [saved, setSaved] = useState(false)
+
+  type LoyaltyConfig = { id: string; pointsPerRupee: string; redeemRate: string; minRedeemPoints: number; isActive: boolean } | null
+  type TopCustomer = { id: string; customerId: string; totalPoints: number; lifetimePoints: number; tier: string; customer: { id: string; name?: string | null; phone: string } | null }
+
+  const { data: config, isLoading } = useQuery({ queryKey: ["loyalty-config"], queryFn: () => api.loyalty.getConfig() as Promise<LoyaltyConfig> })
+  const { data: topCustomers = [] } = useQuery({ queryKey: ["loyalty-top"], queryFn: () => api.loyalty.topCustomers(20) as Promise<TopCustomer[]> })
+
+  const [pointsPerRupee, setPointsPerRupee] = useState("")
+  const [redeemRate,     setRedeemRate]     = useState("")
+  const [minPoints,      setMinPoints]      = useState("")
+  const [isActive,       setIsActive]       = useState(true)
+
+  useEffect(() => {
+    if (config) {
+      setPointsPerRupee(config.pointsPerRupee)
+      setRedeemRate(config.redeemRate)
+      setMinPoints(String(config.minRedeemPoints))
+      setIsActive(config.isActive)
+    }
+  }, [config])
+
+  const saveMutation = useMutation({
+    mutationFn: () => api.loyalty.saveConfig({
+      pointsPerRupee: parseFloat(pointsPerRupee) || 1,
+      redeemRate:     parseFloat(redeemRate)     || 100,
+      minRedeemPoints: parseInt(minPoints, 10)   || 100,
+      isActive,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["loyalty-config"] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
+  })
+
+  const TIER_COLOR: Record<string, string> = { bronze: "#cd7f32", silver: "#aaa", gold: "#f59e0b" }
+
+  if (isLoading) return <div style={{ padding: 40, color: "var(--color-ink-3)" }}>Loading…</div>
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Loyalty Program</h3>
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Earn & redeem points on every bill</div>
+      </div>
+
+      <div className="scroll" style={{ flex: 1, padding: 28, display: "flex", flexDirection: "column", gap: 28 }}>
+        {/* Config card */}
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Settings</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <span style={{ fontSize: 13, color: "var(--color-ink-2)" }}>{isActive ? "Active" : "Disabled"}</span>
+              <div onClick={() => setIsActive((v) => !v)} style={{ width: 40, height: 22, borderRadius: 11, background: isActive ? "var(--color-green)" : "var(--color-line-strong)", position: "relative", cursor: "pointer", transition: "background .15s" }}>
+                <div style={{ position: "absolute", top: 3, left: isActive ? 20 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+              </div>
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            {([
+              { label: "Points per ₹1 spent", value: pointsPerRupee, set: setPointsPerRupee, hint: "e.g. 1 = earn 1 pt per ₹1" },
+              { label: "Points per ₹1 off", value: redeemRate, set: setRedeemRate, hint: "e.g. 100 = 100 pts = ₹1" },
+              { label: "Min points to redeem", value: minPoints, set: setMinPoints, hint: "Minimum before redeem allowed" },
+            ] as const).map(({ label, value, set, hint }) => (
+              <div key={label}>
+                <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", display: "block", marginBottom: 6 }}>{label}</label>
+                <input type="number" value={value} onChange={(e) => set(e.target.value)} style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid var(--color-line-strong)", padding: "0 12px", fontSize: 14, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", boxSizing: "border-box" }} />
+                <div style={{ fontSize: 11, color: "var(--color-ink-4)", marginTop: 4 }}>{hint}</div>
+              </div>
+            ))}
+          </div>
+
+          {pointsPerRupee && redeemRate && (
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)", background: "var(--color-surface-2)", borderRadius: 10, padding: "10px 14px" }}>
+              Example: ₹500 bill earns <b style={{ color: "var(--color-ink)" }}>{Math.floor(500 * parseFloat(pointsPerRupee) || 0)} pts</b> · {Math.floor(500 * parseFloat(pointsPerRupee) || 0)} pts = <b style={{ color: "var(--color-ink)" }}>₹{(Math.floor(500 * parseFloat(pointsPerRupee) || 0) / parseFloat(redeemRate)).toFixed(2)} off</b>
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: saveMutation.isPending ? .6 : 1 }}>
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </button>
+            {saved && <span style={{ fontSize: 13, color: "var(--color-green)" }}>Saved ✓</span>}
+          </div>
+        </div>
+
+        {/* Top customers */}
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>Top Customers by Lifetime Points</div>
+          {topCustomers.length === 0 ? (
+            <div style={{ color: "var(--color-ink-3)", fontSize: 13, textAlign: "center", padding: "40px 0" }}>No loyalty data yet — points are awarded automatically when bills are paid.</div>
+          ) : (
+            <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 100px 100px 80px", padding: "10px 16px", background: "var(--color-surface-2)", fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".04em" }}>
+                <span>#</span><span>Customer</span><span style={{ textAlign: "right" }}>Points</span><span style={{ textAlign: "right" }}>Lifetime</span><span style={{ textAlign: "center" }}>Tier</span>
+              </div>
+              {topCustomers.map((row, i) => (
+                <div key={row.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr 100px 100px 80px", padding: "12px 16px", borderTop: "1px solid var(--color-line)", fontSize: 13, alignItems: "center" }}>
+                  <span style={{ color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{i + 1}</span>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{row.customer?.name ?? "—"}</div>
+                    <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>{row.customer?.phone}</div>
+                  </div>
+                  <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600 }}>{row.totalPoints.toLocaleString()}</span>
+                  <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--color-ink-3)" }}>{row.lifetimePoints.toLocaleString()}</span>
+                  <span style={{ textAlign: "center", fontSize: 11, fontWeight: 700, textTransform: "capitalize", color: TIER_COLOR[row.tier] ?? "var(--color-ink-3)" }}>{row.tier}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1487,8 +1761,9 @@ const NAV_ITEMS: { id: NavId; label: string }[] = [
   { id: "tables",    label: "Tables" },
   { id: "taxes",     label: "Tax & Charges" },
   { id: "discounts", label: "Discounts" },
-  { id: "shifts",    label: "Shift Reports" },
+  { id: "shifts",    label: "Reports" },
   { id: "customers", label: "Customers" },
+  { id: "loyalty",   label: "Loyalty" },
   { id: "expenses",  label: "Expenses" },
   { id: "outlet",    label: "Outlet Settings" },
   { id: "devices",   label: "Devices" },
@@ -1503,14 +1778,20 @@ const NAV_ICONS: Record<NavId, React.ReactElement> = {
   discounts: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
   shifts:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
   customers: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+  loyalty:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   expenses:  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
   outlet:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   devices:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0114 0M8 16a6 6 0 018 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>,
 }
 
+const VALID_TABS = new Set<NavId>(["staff", "menu", "tables", "taxes", "modifiers", "discounts", "shifts", "customers", "loyalty", "expenses", "outlet", "devices"])
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ManagerPage() {
-  const [activeTab, setActiveTab] = useState<NavId>("staff")
+  const [activeTab, setActiveTab] = useState<NavId>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab") as NavId | null
+    return t && VALID_TABS.has(t) ? t : "staff"
+  })
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
@@ -1541,6 +1822,7 @@ export default function ManagerPage() {
           {activeTab === "discounts" && <DiscountsTab />}
           {activeTab === "shifts"    && <ShiftsTab />}
           {activeTab === "customers" && <CustomersTab />}
+          {activeTab === "loyalty"   && <LoyaltyTab />}
           {activeTab === "expenses"  && <ExpensesTab />}
           {activeTab === "outlet"    && <OutletTab />}
           {activeTab === "devices"   && <DevicesTab />}

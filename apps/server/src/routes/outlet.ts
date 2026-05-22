@@ -18,7 +18,7 @@ outletRouter.get("/", async (c) => {
   return c.json(outlet)
 })
 
-outletRouter.patch("/", requireRole("owner", "manager"), zValidator("json", updateOutletSchema), async (c) => {
+outletRouter.patch("/", requireRole("owner"), zValidator("json", updateOutletSchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
   const [outlet] = await db.update(outlets).set(data).where(eq(outlets.id, outletId)).returning()

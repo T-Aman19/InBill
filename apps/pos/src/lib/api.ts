@@ -36,10 +36,33 @@ const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PA
 const put  = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) })
 const del  = <T>(path: string) => request<T>(path, { method: "DELETE" })
 
+async function ownerRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("inbill_owner_token")
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(res.status, body.error ?? res.statusText)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+const oget  = <T>(path: string) => ownerRequest<T>(path, { method: "GET" })
+const opost = <T>(path: string, body: unknown) => ownerRequest<T>(path, { method: "POST", body: JSON.stringify(body) })
+const opatch = <T>(path: string, body: unknown) => ownerRequest<T>(path, { method: "PATCH", body: JSON.stringify(body) })
+
 export const api = {
   auth: {
     login: (pin: string, outletId: string) => post<{ token: string; user: { id: string; name: string; role: string } }>("/auth/login", { pin, outletId }),
     me: () => get<{ userId: string; outletId: string; role: string }>("/auth/me"),
+    resolveSetupCode: (code: string) => get<{ id: string; name: string }>(`/auth/outlet-setup/${encodeURIComponent(code)}`),
   },
   menu: {
     getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[] }>("/menu"),
@@ -141,6 +164,8 @@ export const api = {
     hourly: (date: string) => get<unknown[]>(`/reports/hourly?date=${date}`),
     gstr1: (from: string, to: string) => get<unknown>(`/reports/gstr1?from=${from}&to=${to}`),
     foodCost: (from: string, to: string) => get<unknown>(`/reports/food-cost?from=${from}&to=${to}`),
+    voids: (from: string, to: string) => get<unknown[]>(`/reports/voids?from=${from}&to=${to}`),
+    staffPerformance: (from: string, to: string) => get<unknown[]>(`/reports/staff-performance?from=${from}&to=${to}`),
     exportBillsCsv: async (from: string, to: string) => {
       const token = localStorage.getItem("inbill_token")
       const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
@@ -153,6 +178,15 @@ export const api = {
       a.href = url; a.download = `bills-${from}-to-${to}.csv`; a.click()
       URL.revokeObjectURL(url)
     },
+    exportGstr1: async (from: string, to: string) => {
+      const data = await get<{ from: string; to: string; summary: unknown[]; totalBills: number }>(`/reports/gstr1?from=${from}&to=${to}`)
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url; a.download = `gstr1-${from}-to-${to}.json`; a.click()
+      URL.revokeObjectURL(url)
+    },
   },
   cashEntries: {
     list: (from: string, to: string) => get<unknown[]>(`/shifts/cash-entries?from=${from}&to=${to}`),
@@ -160,7 +194,7 @@ export const api = {
     delete: (id: string) => del(`/shifts/cash-entries/${id}`),
   },
   outlet: {
-    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }>("/outlet"),
+    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
   },
   inventory: {
@@ -226,15 +260,29 @@ export const api = {
     reportsQuery: (body: { question: string; from?: string; to?: string }) =>
       post<{ answer: string }>("/ai/reports-query", body),
   },
+  loyalty: {
+    getConfig: () => get<{ id: string; pointsPerRupee: string; redeemRate: string; minRedeemPoints: number; isActive: boolean } | null>("/loyalty/config"),
+    saveConfig: (body: { pointsPerRupee?: number; redeemRate?: number; minRedeemPoints?: number; isActive?: boolean }) => post<unknown>("/loyalty/config", body),
+    getBillInfo: (billId: string) => get<{ customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } } | null>(`/loyalty/bill/${billId}`),
+    getCustomerByPhone: (phone: string) => get<{ customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string }>(`/loyalty/customers/${phone}`),
+    redeem: (body: { customerId: string; points: number; billId: string }) => post<{ ok: boolean; pointsDeducted: number; discountApplied: number; newBalance: number; discountLineId: string }>("/loyalty/redeem", body),
+    topCustomers: (limit = 20) => get<{ id: string; customerId: string; totalPoints: number; lifetimePoints: number; tier: string; customer: { id: string; name?: string | null; phone: string } | null }[]>(`/loyalty/top-customers?limit=${limit}`),
+  },
   owner: {
     register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),
     login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),
-    me: () => get<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
-    outlets: () => get<{ id: string; name: string; address: string; todayRevenue: number; todayBillCount: number; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string }[]>("/owner/outlets"),
-    createOutlet: (body: unknown) => post<unknown>("/owner/outlets", body),
-    updateOutlet: (id: string, body: unknown) => patch<unknown>(`/owner/outlets/${id}`, body),
-    outletSummary: (id: string, from: string, to: string) => get<unknown>(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
-    switchOutlet: (id: string) => post<{ token: string; outlet: { id: string; name: string } }>(`/owner/outlets/${id}/switch`, {}),
+    me: () => oget<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
+    outlets: (from?: string, to?: string) => {
+      const q = from && to ? `?from=${from}&to=${to}` : ""
+      return oget<{ id: string; name: string; address: string; gstin?: string; revenue: number; billCount: number; byPaymentMode: Record<string, number>; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string; tableCount: number; menuItemCount: number; staffCount: number }[]>(`/owner/outlets${q}`)
+    },
+    createOutlet: (body: unknown) => opost<unknown>("/owner/outlets", body),
+    updateOutlet: (id: string, body: unknown) => opatch<unknown>(`/owner/outlets/${id}`, body),
+    outletSummary: (id: string, from: string, to: string) => oget<unknown>(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
+    switchOutlet: (id: string) => opost<{ token: string; user: { id: string; name: string; role: string }; outlet: { id: string; name: string } }>(`/owner/outlets/${id}/switch`, {}),
+  },
+  public: {
+    lanUrl: () => get<{ urls: string[]; port: string }>("/public/lan-url"),
   },
 }
 

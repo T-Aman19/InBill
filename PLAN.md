@@ -10,10 +10,10 @@ Based on the Claude Design handoff bundle (Owner + Inventory screens).
 
 > Prerequisite for all visual work. Unblocks pixel-perfect implementation of every screen.
 
-- [ ] Copy `styles.css` from handoff bundle into `apps/pos/src/assets/design-system.css` and import in `main.tsx`
-- [ ] Register Inter Tight + JetBrains Mono fonts in `apps/pos/index.html`
-- [ ] Verify CSS vars (`--bg`, `--surface`, `--surface-2`, `--line`, `--ink` through `--ink-4`) resolve correctly in the app
-- [ ] Verify `.btn`, `.badge`, `.dot`, `.veg-dot` utility classes are available globally
+- [x] Copy `styles.css` from handoff bundle into `apps/pos/src/assets/design-system.css` and import in `main.tsx`
+- [x] Register Inter Tight + JetBrains Mono fonts in `apps/pos/index.html`
+- [x] Verify CSS vars (`--bg`, `--surface`, `--surface-2`, `--line`, `--ink` through `--ink-4`) resolve correctly in the app
+- [x] Verify `.btn`, `.badge`, `.dot`, `.veg-dot` utility classes are available globally
 
 ---
 

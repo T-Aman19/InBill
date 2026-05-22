@@ -7,6 +7,7 @@ import { users } from "./users.js"
 export const orderTypeEnum = pgEnum("order_type", ["dine_in", "takeaway", "delivery"])
 export const orderStatusEnum = pgEnum("order_status", ["open", "kot_sent", "served", "billed", "cancelled"])
 export const kotStatusEnum = pgEnum("kot_status", ["pending", "acknowledged", "done"])
+export const orderSourceEnum = pgEnum("order_source", ["pos", "qr", "waiter_app", "zomato", "swiggy", "ondc"])
 
 export const customers = pgTable("customers", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -24,6 +25,7 @@ export const orders = pgTable("orders", {
   customerId: uuid("customer_id").references(() => customers.id),
   serverId: uuid("server_id").references(() => users.id),
   type: orderTypeEnum("type").notNull(),
+  source: orderSourceEnum("source").notNull().default("pos"),
   status: orderStatusEnum("status").notNull().default("open"),
   guestCount: integer("guest_count"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

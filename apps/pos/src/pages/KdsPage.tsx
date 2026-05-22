@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/auth"
 
 type KotModifier = { name: string; price: string }
 type KotItem = { id: string; name: string; variantName?: string | null; quantity: number; notes?: string | null; modifiers: KotModifier[] }
-type Kot     = { id: string; kotNumber: number; status: string; createdAt: string; items: KotItem[] }
+type Kot     = { id: string; kotNumber: number; status: string; createdAt: string; orderSource?: string; items: KotItem[] }
 
 function KDSColumn({
   title, accent, kots, actionLabel, onAction, now, stage,
@@ -60,8 +60,13 @@ function KDSColumn({
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                 }}>
                   <div>
-                    <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: ".02em", color: "var(--color-kds-ink)" }}>
-                      KOT #{kot.kotNumber}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: ".02em", color: "var(--color-kds-ink)" }}>
+                        KOT #{kot.kotNumber}
+                      </span>
+                      {kot.orderSource === "qr" && (
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", color: "oklch(76% 0.16 240)", background: "oklch(28% 0.06 240)", padding: "2px 7px", borderRadius: 5 }}>QR</span>
+                      )}
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>

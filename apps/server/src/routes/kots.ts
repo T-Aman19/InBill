@@ -23,12 +23,26 @@ kotsRouter.get("/", async (c) => {
   if (activeKots.length === 0) return c.json([])
 
   const kotIds = activeKots.map((k) => k.id)
-  const items = await db.query.orderItems.findMany({
-    where: and(inArray(orderItems.kotId, kotIds), eq(orderItems.isVoided, false)),
-    with: { modifiers: true },
-  })
+  const orderIds = [...new Set(activeKots.map((k) => k.orderId))]
 
-  return c.json(activeKots.map((kot) => ({ ...kot, items: items.filter((i) => i.kotId === kot.id) })))
+  const [items, orderRows] = await Promise.all([
+    db.query.orderItems.findMany({
+      where: and(inArray(orderItems.kotId, kotIds), eq(orderItems.isVoided, false)),
+      with: { modifiers: true },
+    }),
+    db.query.orders.findMany({
+      where: inArray(orders.id, orderIds),
+      columns: { id: true, source: true, tableId: true },
+    }),
+  ])
+
+  const orderSourceMap = new Map(orderRows.map((o) => [o.id, o.source]))
+
+  return c.json(activeKots.map((kot) => ({
+    ...kot,
+    orderSource: orderSourceMap.get(kot.orderId) ?? "pos",
+    items: items.filter((i) => i.kotId === kot.id),
+  })))
 })
 
 kotsRouter.patch("/:id/acknowledge", async (c) => {

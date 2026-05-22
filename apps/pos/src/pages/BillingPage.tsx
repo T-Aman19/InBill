@@ -17,7 +17,8 @@ type Bill = {
   payments: Payment[]; items?: BillItem[]
 }
 type DiscountPreset = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; isActive: boolean }
-type OutletInfo = { name: string; address: string; gstin?: string }
+type OutletInfo = { name: string; address: string; gstin?: string; fssaiNumber?: string }
+type LoyaltyInfo = { customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } }
 
 const PAYMENT_MODES = [
   { id: "cash", label: "Cash",
@@ -46,6 +47,9 @@ export default function BillingPage() {
   const [showDiscounts, setShowDiscounts] = useState(false)
   const [discountErr,   setDiscountErr]   = useState("")
   const [upiPayment, setUpiPayment] = useState<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string } | null>(null)
+  const [showRedeemModal, setShowRedeemModal] = useState(false)
+  const [redeemPoints, setRedeemPoints] = useState("")
+  const [redeemErr, setRedeemErr] = useState("")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { data: bill, refetch } = useQuery({
@@ -62,6 +66,24 @@ export default function BillingPage() {
     queryKey: ["outlet"],
     queryFn: () => api.outlet.get() as Promise<OutletInfo>,
     staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: loyaltyInfo, refetch: refetchLoyalty } = useQuery({
+    queryKey: ["loyalty-bill", billId],
+    queryFn: () => api.loyalty.getBillInfo(billId) as Promise<LoyaltyInfo | null>,
+    enabled: !!billId,
+  })
+
+  const redeemMutation = useMutation({
+    mutationFn: (points: number) => api.loyalty.redeem({ customerId: loyaltyInfo!.customer.id, points, billId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bill", billId] })
+      refetchLoyalty()
+      setShowRedeemModal(false)
+      setRedeemPoints("")
+      setRedeemErr("")
+    },
+    onError: (e: Error) => setRedeemErr(e.message),
   })
 
   const payMutation = useMutation({
@@ -159,6 +181,7 @@ export default function BillingPage() {
           <div style={{ fontSize: 16, fontWeight: 600 }}>{outlet?.name ?? "InBill"}</div>
           {outlet?.address && <div style={{ fontSize: 11, marginTop: 2 }}>{outlet.address}</div>}
           {outlet?.gstin && <div style={{ fontSize: 11, marginTop: 2 }}>GSTIN {outlet.gstin}</div>}
+          {outlet?.fssaiNumber && <div style={{ fontSize: 11, marginTop: 2 }}>FSSAI {outlet.fssaiNumber}</div>}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", fontSize: 11 }}>
           <span>Bill #{bill.billNumber}</span>
@@ -461,6 +484,30 @@ export default function BillingPage() {
             </div>
           )}
 
+          {/* Loyalty chip */}
+          {loyaltyInfo && !bill.isPaid && (
+            <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: "12px 14px", background: "var(--color-surface-2)", display: "flex", alignItems: "center", gap: 10 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)" }}>
+                    {loyaltyInfo.customer.name ?? loyaltyInfo.customer.phone}
+                    <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em", marginLeft: 8, color: "var(--color-amber)", background: "rgba(245,158,11,.12)", padding: "2px 6px", borderRadius: 4 }}>{loyaltyInfo.tier}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>
+                    {loyaltyInfo.totalPoints} pts · earn +{loyaltyInfo.pointsToEarn} pts · ≈ {formatCurrency(loyaltyInfo.redeemValue)} redeemable
+                  </div>
+                </div>
+                {loyaltyInfo.totalPoints >= loyaltyInfo.program.minRedeemPoints && bill.payments.length === 0 && (
+                  <button onClick={() => { setShowRedeemModal(true); setRedeemPoints(String(loyaltyInfo.totalPoints)); setRedeemErr("") }}
+                    style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "var(--color-amber)", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+                    Redeem
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Amount due card */}
           <div style={{
             padding: 24, background: "var(--color-ink)", color: "var(--color-bg)",
@@ -541,48 +588,127 @@ export default function BillingPage() {
         </div>
       </div>
 
+      {showRedeemModal && loyaltyInfo && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={() => setShowRedeemModal(false)}>
+          <div style={{ background: "var(--color-surface)", borderRadius: 16, width: 360, padding: 24, boxShadow: "var(--shadow-3)", display: "flex", flexDirection: "column", gap: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>Redeem Points</div>
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 4 }}>
+                Balance: <b style={{ color: "var(--color-ink)" }}>{loyaltyInfo.totalPoints} pts</b> · 100 pts = ₹{(100 / Number(loyaltyInfo.program.redeemRate)).toFixed(0)}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", display: "block", marginBottom: 6 }}>Points to redeem</label>
+              <input
+                type="number"
+                value={redeemPoints}
+                onChange={(e) => setRedeemPoints(e.target.value)}
+                min={loyaltyInfo.program.minRedeemPoints}
+                max={loyaltyInfo.totalPoints}
+                style={{ width: "100%", height: 44, borderRadius: 10, border: "1px solid var(--color-line-strong)", padding: "0 14px", fontSize: 16, fontFamily: "var(--font-mono)", background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", boxSizing: "border-box" }}
+              />
+              {redeemPoints && (
+                <div style={{ fontSize: 12, color: "var(--color-green)", marginTop: 6 }}>
+                  = {formatCurrency(parseFloat(redeemPoints) / Number(loyaltyInfo.program.redeemRate))} off
+                </div>
+              )}
+              {redeemErr && <div style={{ fontSize: 12, color: "var(--color-red)", marginTop: 6 }}>{redeemErr}</div>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowRedeemModal(false)} style={{ flex: 1, height: 44, borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 14, color: "var(--color-ink-2)", fontFamily: "inherit" }}>Cancel</button>
+              <button
+                onClick={() => { const p = parseInt(redeemPoints, 10); if (!p || p < loyaltyInfo.program.minRedeemPoints) { setRedeemErr(`Minimum ${loyaltyInfo.program.minRedeemPoints} pts`); return; } redeemMutation.mutate(p) }}
+                disabled={redeemMutation.isPending}
+                style={{ flex: 2, height: 44, borderRadius: 10, border: "none", background: "var(--color-amber)", cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#fff", fontFamily: "inherit", opacity: redeemMutation.isPending ? .6 : 1 }}>
+                {redeemMutation.isPending ? "Applying…" : "Apply discount"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {upiPayment && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-          <div style={{ background: "var(--color-bg)", borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-ink)" }}>UPI Payment</div>
-              <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 4 }}>Ask customer to scan with any UPI app</div>
-            </div>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <style>{`
+            @keyframes pulse-qr { 0%, 100% { opacity: .35; transform: scale(1); } 50% { opacity: 0; transform: scale(1.04); } }
+            @keyframes pulse-dot { 0%, 100% { opacity: .4 } 50% { opacity: 1 } }
+          `}</style>
+          <div style={{ width: 340, background: "white", borderRadius: 20, boxShadow: "0 30px 80px rgba(0,0,0,.4)", padding: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
 
-            {upiPayment.qrData.startsWith("upi://") ? (
-              <div style={{ background: "white", padding: 16, borderRadius: 12, border: "1px solid var(--color-line)" }}>
-                <QRCode value={upiPayment.qrData} size={192} />
+            {/* Header row */}
+            <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4l-6 16M9 4l-2 8h6l-2 8"/></svg>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }}>UPI Payment</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>Scan to pay</div>
               </div>
-            ) : (
-              <div style={{ width: 192, height: 192, background: "var(--color-surface-2)", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed var(--color-line-strong)" }}>
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M14 17h3M17 14h3v3M17 20h3"/></svg>
-                <div style={{ fontSize: 11, color: "var(--color-ink-3)", textAlign: "center", padding: "0 12px" }}>Configure UPI VPA in Outlet Settings to show QR</div>
-              </div>
-            )}
-
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>{formatCurrency(upiPayment.amountDue)}</div>
-              <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 4 }}>
-                {upiPayment.mode === "stub" ? "Stub mode — use simulate button" : "Waiting for payment…"}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, width: "100%" }}>
               <button
                 onClick={() => { clearInterval(pollRef.current!); api.bills.cancelUpi(billId, upiPayment.paymentId).catch(() => {}); setUpiPayment(null) }}
-                style={{ flex: 1, height: 44, borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-ink)", fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}
+                style={{ width: 30, height: 30, borderRadius: 8, background: "var(--color-surface-2)", border: "none", color: "var(--color-ink-2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            {/* QR code card */}
+            <div style={{ position: "relative", padding: 14, background: "#fafaf7", borderRadius: 14, border: "1px solid var(--color-line)" }}>
+              {/* Pulsing ring */}
+              <div style={{ position: "absolute", inset: -3, borderRadius: 16, border: "2px solid var(--color-accent)", opacity: 0.35, animation: "pulse-qr 1.8s ease-out infinite" }} />
+              {upiPayment.qrData.startsWith("upi://") ? (
+                <QRCode value={upiPayment.qrData} size={192} />
+              ) : (
+                <div style={{ width: 192, height: 192, background: "var(--color-surface-2)", borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed var(--color-line-strong)" }}>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M14 17h3M17 14h3v3M17 20h3"/></svg>
+                  <div style={{ fontSize: 11, color: "var(--color-ink-3)", textAlign: "center", padding: "0 12px" }}>Configure UPI VPA in Outlet Settings to show QR</div>
+                </div>
+              )}
+              {/* Center brand chip */}
+              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 36, height: 36, borderRadius: 9, background: "white", boxShadow: "0 2px 6px rgba(0,0,0,.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 26, height: 26, borderRadius: 6, background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ color: "white", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>i</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Amount section */}
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 500 }}>Amount due</div>
+              <div style={{ fontSize: 32, fontWeight: 600, fontFamily: "var(--font-mono)", marginTop: 4, letterSpacing: "-.02em", color: "var(--color-ink)" }}>{formatCurrency(upiPayment.amountDue)}</div>
+            </div>
+
+            {/* Waiting indicator */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--color-ink-3)" }}>
+              {upiPayment.mode !== "stub" && (
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", animation: "pulse-dot 1.4s ease-in-out infinite" }} />
+              )}
+              <span>{upiPayment.mode === "stub" ? "Stub mode — use simulate button" : "Waiting for payment confirmation"}</span>
+            </div>
+
+            {/* Buttons row */}
+            <div style={{ display: "flex", gap: 8, width: "100%" }}>
+              <button
+                className="btn"
+                onClick={() => { clearInterval(pollRef.current!); api.bills.cancelUpi(billId, upiPayment.paymentId).catch(() => {}); setUpiPayment(null) }}
+                style={{ flex: 1, justifyContent: "center", height: 42 }}
               >
                 Cancel
               </button>
               <button
+                className="btn btn-primary"
                 onClick={() => simulateUpiMutation.mutate(upiPayment.paymentId)}
                 disabled={simulateUpiMutation.isPending}
-                style={{ flex: 1, height: 44, borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: simulateUpiMutation.isPending ? .5 : 1 }}
+                style={{ flex: 1, justifyContent: "center", height: 42 }}
               >
                 {simulateUpiMutation.isPending ? "Confirming…" : "Simulate ✓"}
               </button>
             </div>
-            <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Expires {new Date(upiPayment.expiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</div>
+
+            {/* Expiry footer */}
+            <div style={{ fontSize: 11, color: "var(--color-ink-4)", textAlign: "center" }}>
+              Expires <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-ink-3)" }}>{new Date(upiPayment.expiresAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
           </div>
         </div>
       )}

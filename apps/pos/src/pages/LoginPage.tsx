@@ -16,9 +16,10 @@ export default function LoginPage() {
   const [error,   setError]   = useState("")
   const [shake,   setShake]   = useState(false)
   const [loading, setLoading] = useState(false)
-  const [setup,   setSetup]   = useState(!localStorage.getItem(OUTLET_ID_KEY))
-  const [tmpId,   setTmpId]   = useState("")
-  const [tmpName, setTmpName] = useState("")
+  const [setup,      setSetup]      = useState(!localStorage.getItem(OUTLET_ID_KEY))
+  const [tmpCode,    setTmpCode]    = useState("")
+  const [setupError, setSetupError] = useState("")
+  const [saving,     setSaving]     = useState(false)
 
   // Auto-submit on 4th digit
   useEffect(() => {
@@ -62,15 +63,23 @@ export default function LoginPage() {
   function back() { setPin((p) => p.slice(0, -1)); setError("") }
   function clear() { setPin(""); setError("") }
 
-  function saveOutlet() {
-    if (!tmpId.trim()) return
-    const id   = tmpId.trim()
-    const name = tmpName.trim() || "InBill POS"
-    localStorage.setItem(OUTLET_ID_KEY, id)
-    localStorage.setItem(OUTLET_NAME_KEY, name)
-    setOutletId(id)
-    setOutletName(name)
-    setSetup(false)
+  async function saveOutlet() {
+    const code = tmpCode.trim()
+    if (!code) return
+    setSaving(true)
+    setSetupError("")
+    try {
+      const res = await api.auth.resolveSetupCode(code)
+      localStorage.setItem(OUTLET_ID_KEY, res.id)
+      localStorage.setItem(OUTLET_NAME_KEY, res.name)
+      setOutletId(res.id)
+      setOutletName(res.name)
+      setSetup(false)
+    } catch {
+      setSetupError("Invalid setup code — check with your manager")
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ── Setup screen ────────────────────────────────────────────
@@ -83,52 +92,49 @@ export default function LoginPage() {
           </div>
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }}>Setup InBill</div>
-            <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Connect to your outlet</div>
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Enter the setup code shown in your Owner Dashboard</div>
           </div>
         </div>
 
-        {[
-          { label: "Outlet Name", value: tmpName, set: setTmpName, placeholder: "e.g. Saffron Kitchen", mono: false },
-          { label: "Outlet ID",   value: tmpId,   set: setTmpId,   placeholder: "xxxxxxxx-xxxx-…",       mono: true  },
-        ].map(({ label, value, set, placeholder, mono }) => (
-          <div key={label} style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 500, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>{label}</label>
-            <input
-              value={value}
-              onChange={(e) => set(e.target.value)}
-              placeholder={placeholder}
-              style={{
-                width: "100%", height: 44, padding: "0 14px",
-                border: "1px solid var(--color-line-strong)", borderRadius: 10,
-                background: "var(--color-bg)", color: "var(--color-ink)",
-                fontSize: mono ? 12 : 14, fontFamily: mono ? "var(--font-mono)" : "inherit",
-                outline: "none",
-              }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
-              onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
-            />
-          </div>
-        ))}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 500, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>Setup Code</label>
+          <input
+            value={tmpCode}
+            onChange={(e) => { setTmpCode(e.target.value.toUpperCase()); setSetupError("") }}
+            onKeyDown={(e) => e.key === "Enter" && void saveOutlet()}
+            placeholder="e.g. CHAI4X"
+            maxLength={8}
+            style={{
+              width: "100%", height: 52, padding: "0 14px",
+              border: "1px solid var(--color-line-strong)", borderRadius: 10,
+              background: "var(--color-bg)", color: "var(--color-ink)",
+              fontSize: 22, fontFamily: "var(--font-mono)", letterSpacing: ".12em",
+              outline: "none", textAlign: "center",
+            }}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
+            onBlur={(e)  => (e.currentTarget.style.borderColor = setupError ? "var(--color-red)" : "var(--color-line-strong)")}
+          />
+        </div>
 
-        <p style={{ fontSize: 11, color: "var(--color-ink-3)", marginBottom: 20 }}>
-          Outlet ID is printed when you run <code style={{ fontFamily: "var(--font-mono)", background: "var(--color-surface-2)", padding: "1px 5px", borderRadius: 4 }}>bun run db:seed</code>
-        </p>
+        {setupError && (
+          <p style={{ fontSize: 12, color: "var(--color-red)", marginBottom: 12, textAlign: "center" }}>{setupError}</p>
+        )}
 
         <button
-          onClick={saveOutlet}
-          disabled={!tmpId.trim()}
+          onClick={() => void saveOutlet()}
+          disabled={!tmpCode.trim() || saving}
           style={{
             width: "100%", height: 48,
             background: "var(--color-ink)", border: "none",
             color: "var(--color-bg)", borderRadius: 12,
             fontSize: 14, fontWeight: 600, fontFamily: "inherit",
-            cursor: tmpId.trim() ? "pointer" : "not-allowed",
-            opacity: tmpId.trim() ? 1 : .4,
+            cursor: tmpCode.trim() && !saving ? "pointer" : "not-allowed",
+            opacity: tmpCode.trim() && !saving ? 1 : .4,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}
         >
-          Continue
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          {saving ? "Verifying…" : "Continue"}
+          {!saving && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
         </button>
       </div>
     </div>

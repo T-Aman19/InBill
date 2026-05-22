@@ -15,8 +15,9 @@ export default function LoginPage() {
     const [shake, setShake] = useState(false);
     const [loading, setLoading] = useState(false);
     const [setup, setSetup] = useState(!localStorage.getItem(OUTLET_ID_KEY));
-    const [tmpId, setTmpId] = useState("");
-    const [tmpName, setTmpName] = useState("");
+    const [tmpCode, setTmpCode] = useState("");
+    const [setupError, setSetupError] = useState("");
+    const [saving, setSaving] = useState(false);
     // Auto-submit on 4th digit
     useEffect(() => {
         if (pin.length === 4)
@@ -61,37 +62,44 @@ export default function LoginPage() {
     }
     function back() { setPin((p) => p.slice(0, -1)); setError(""); }
     function clear() { setPin(""); setError(""); }
-    function saveOutlet() {
-        if (!tmpId.trim())
+    async function saveOutlet() {
+        const code = tmpCode.trim();
+        if (!code)
             return;
-        const id = tmpId.trim();
-        const name = tmpName.trim() || "InBill POS";
-        localStorage.setItem(OUTLET_ID_KEY, id);
-        localStorage.setItem(OUTLET_NAME_KEY, name);
-        setOutletId(id);
-        setOutletName(name);
-        setSetup(false);
+        setSaving(true);
+        setSetupError("");
+        try {
+            const res = await api.auth.resolveSetupCode(code);
+            localStorage.setItem(OUTLET_ID_KEY, res.id);
+            localStorage.setItem(OUTLET_NAME_KEY, res.name);
+            setOutletId(res.id);
+            setOutletName(res.name);
+            setSetup(false);
+        }
+        catch {
+            setSetupError("Invalid setup code — check with your manager");
+        }
+        finally {
+            setSaving(false);
+        }
     }
     // ── Setup screen ────────────────────────────────────────────
     if (setup)
-        return (_jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)" }, children: _jsxs("div", { style: { width: 420, background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 32, boxShadow: "var(--shadow-2)" }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }, children: [_jsx("div", { style: { width: 36, height: 36, borderRadius: 10, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-bg)" }, children: _jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" }) }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }, children: "Setup InBill" }), _jsx("div", { style: { fontSize: 12, color: "var(--color-ink-3)" }, children: "Connect to your outlet" })] })] }), [
-                        { label: "Outlet Name", value: tmpName, set: setTmpName, placeholder: "e.g. Saffron Kitchen", mono: false },
-                        { label: "Outlet ID", value: tmpId, set: setTmpId, placeholder: "xxxxxxxx-xxxx-…", mono: true },
-                    ].map(({ label, value, set, placeholder, mono }) => (_jsxs("div", { style: { marginBottom: 16 }, children: [_jsx("label", { style: { display: "block", fontSize: 11, fontWeight: 500, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }, children: label }), _jsx("input", { value: value, onChange: (e) => set(e.target.value), placeholder: placeholder, style: {
-                                    width: "100%", height: 44, padding: "0 14px",
+        return (_jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)" }, children: _jsxs("div", { style: { width: 420, background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 32, boxShadow: "var(--shadow-2)" }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }, children: [_jsx("div", { style: { width: 36, height: 36, borderRadius: 10, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-bg)" }, children: _jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" }) }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }, children: "Setup InBill" }), _jsx("div", { style: { fontSize: 12, color: "var(--color-ink-3)" }, children: "Enter the setup code shown in your Owner Dashboard" })] })] }), _jsxs("div", { style: { marginBottom: 16 }, children: [_jsx("label", { style: { display: "block", fontSize: 11, fontWeight: 500, color: "var(--color-ink-3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }, children: "Setup Code" }), _jsx("input", { value: tmpCode, onChange: (e) => { setTmpCode(e.target.value.toUpperCase()); setSetupError(""); }, onKeyDown: (e) => e.key === "Enter" && void saveOutlet(), placeholder: "e.g. CHAI4X", maxLength: 8, style: {
+                                    width: "100%", height: 52, padding: "0 14px",
                                     border: "1px solid var(--color-line-strong)", borderRadius: 10,
                                     background: "var(--color-bg)", color: "var(--color-ink)",
-                                    fontSize: mono ? 12 : 14, fontFamily: mono ? "var(--font-mono)" : "inherit",
-                                    outline: "none",
-                                }, onFocus: (e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)"), onBlur: (e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)") })] }, label))), _jsxs("p", { style: { fontSize: 11, color: "var(--color-ink-3)", marginBottom: 20 }, children: ["Outlet ID is printed when you run ", _jsx("code", { style: { fontFamily: "var(--font-mono)", background: "var(--color-surface-2)", padding: "1px 5px", borderRadius: 4 }, children: "bun run db:seed" })] }), _jsxs("button", { onClick: saveOutlet, disabled: !tmpId.trim(), style: {
+                                    fontSize: 22, fontFamily: "var(--font-mono)", letterSpacing: ".12em",
+                                    outline: "none", textAlign: "center",
+                                }, onFocus: (e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)"), onBlur: (e) => (e.currentTarget.style.borderColor = setupError ? "var(--color-red)" : "var(--color-line-strong)") })] }), setupError && (_jsx("p", { style: { fontSize: 12, color: "var(--color-red)", marginBottom: 12, textAlign: "center" }, children: setupError })), _jsxs("button", { onClick: () => void saveOutlet(), disabled: !tmpCode.trim() || saving, style: {
                             width: "100%", height: 48,
                             background: "var(--color-ink)", border: "none",
                             color: "var(--color-bg)", borderRadius: 12,
                             fontSize: 14, fontWeight: 600, fontFamily: "inherit",
-                            cursor: tmpId.trim() ? "pointer" : "not-allowed",
-                            opacity: tmpId.trim() ? 1 : .4,
+                            cursor: tmpCode.trim() && !saving ? "pointer" : "not-allowed",
+                            opacity: tmpCode.trim() && !saving ? 1 : .4,
                             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                        }, children: ["Continue", _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] })] }) }));
+                        }, children: [saving ? "Verifying…" : "Continue", !saving && _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] })] }) }));
     // ── Main login ───────────────────────────────────────────────
     const Key = ({ d, sub }) => (_jsxs("button", { onClick: () => press(d), disabled: loading || pin.length >= 4, style: {
             height: 76,

@@ -22,6 +22,8 @@ import { inventoryRouter } from "./routes/inventory.js"
 import { vendorsRouter } from "./routes/vendors.js"
 import { purchaseOrdersRouter } from "./routes/purchaseOrders.js"
 import { aiRouter } from "./routes/ai.js"
+import { publicRouter } from "./routes/public.js"
+import { loyaltyRouter } from "./routes/loyalty.js"
 
 const app = new Hono()
 
@@ -53,6 +55,8 @@ api.route("/inventory", inventoryRouter)
 api.route("/vendors", vendorsRouter)
 api.route("/purchase-orders", purchaseOrdersRouter)
 api.route("/ai", aiRouter)
+api.route("/public", publicRouter)
+api.route("/loyalty", loyaltyRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))
@@ -61,8 +65,16 @@ app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date
 app.use("/mobile/*", serveStatic({ root: config.static.mobile }))
 app.get("/mobile", (c) => c.redirect("/mobile/index.html"))
 
-// Serve POS UI at / (must be last)
+// Serve POS UI at / — static assets first, then SPA fallback for client-side routes
 app.use("/*", serveStatic({ root: config.static.pos }))
+
+// SPA fallback: any unmatched route (e.g. /menu/:outletId/:tableId) gets index.html
+// so client-side routing works when the URL is opened directly on a device
+app.get("/*", async (c) => {
+  const indexFile = Bun.file(`${config.static.pos}/index.html`)
+  if (!(await indexFile.exists())) return c.notFound()
+  return c.html(await indexFile.text())
+})
 
 // Global error handler
 app.onError((err, c) => {
@@ -73,6 +85,7 @@ app.onError((err, c) => {
 
 const server = Bun.serve({
   port: config.port,
+  hostname: '0.0.0.0',
 
   fetch(req, srv) {
     const url = new URL(req.url)

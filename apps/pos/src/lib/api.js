@@ -34,10 +34,32 @@ const post = (path, body) => request(path, { method: "POST", body: JSON.stringif
 const patch = (path, body) => request(path, { method: "PATCH", body: JSON.stringify(body) });
 const put = (path, body) => request(path, { method: "PUT", body: JSON.stringify(body) });
 const del = (path) => request(path, { method: "DELETE" });
+async function ownerRequest(path, init) {
+    const token = localStorage.getItem("inbill_owner_token");
+    const res = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...init?.headers,
+        },
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new ApiError(res.status, body.error ?? res.statusText);
+    }
+    if (res.status === 204)
+        return undefined;
+    return res.json();
+}
+const oget = (path) => ownerRequest(path, { method: "GET" });
+const opost = (path, body) => ownerRequest(path, { method: "POST", body: JSON.stringify(body) });
+const opatch = (path, body) => ownerRequest(path, { method: "PATCH", body: JSON.stringify(body) });
 export const api = {
     auth: {
         login: (pin, outletId) => post("/auth/login", { pin, outletId }),
         me: () => get("/auth/me"),
+        resolveSetupCode: (code) => get(`/auth/outlet-setup/${encodeURIComponent(code)}`),
     },
     menu: {
         getAll: () => get("/menu"),
@@ -139,6 +161,8 @@ export const api = {
         hourly: (date) => get(`/reports/hourly?date=${date}`),
         gstr1: (from, to) => get(`/reports/gstr1?from=${from}&to=${to}`),
         foodCost: (from, to) => get(`/reports/food-cost?from=${from}&to=${to}`),
+        voids: (from, to) => get(`/reports/voids?from=${from}&to=${to}`),
+        staffPerformance: (from, to) => get(`/reports/staff-performance?from=${from}&to=${to}`),
         exportBillsCsv: async (from, to) => {
             const token = localStorage.getItem("inbill_token");
             const res = await fetch(`${BASE}/reports/bills/export?from=${from}&to=${to}`, {
@@ -151,6 +175,17 @@ export const api = {
             const a = document.createElement("a");
             a.href = url;
             a.download = `bills-${from}-to-${to}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+        exportGstr1: async (from, to) => {
+            const data = await get(`/reports/gstr1?from=${from}&to=${to}`);
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `gstr1-${from}-to-${to}.json`;
             a.click();
             URL.revokeObjectURL(url);
         },
@@ -205,15 +240,54 @@ export const api = {
             URL.revokeObjectURL(url);
         },
     },
+    vendors: {
+        list: () => get("/vendors"),
+        create: (body) => post("/vendors", body),
+        update: (id, body) => patch(`/vendors/${id}`, body),
+        delete: (id) => del(`/vendors/${id}`),
+    },
+    purchaseOrders: {
+        list: (params) => {
+            const q = new URLSearchParams();
+            if (params?.vendorId)
+                q.set("vendorId", params.vendorId);
+            if (params?.status)
+                q.set("status", params.status);
+            return get(`/purchase-orders${q.toString() ? `?${q}` : ""}`);
+        },
+        get: (id) => get(`/purchase-orders/${id}`),
+        create: (body) => post("/purchase-orders", body),
+        update: (id, body) => patch(`/purchase-orders/${id}`, body),
+        markOrdered: (id) => post(`/purchase-orders/${id}/order`, {}),
+        receive: (id, body) => post(`/purchase-orders/${id}/receive`, body),
+    },
+    ai: {
+        menuDescription: (body) => post("/ai/menu-description", body),
+        reportsQuery: (body) => post("/ai/reports-query", body),
+    },
+    loyalty: {
+        getConfig: () => get("/loyalty/config"),
+        saveConfig: (body) => post("/loyalty/config", body),
+        getBillInfo: (billId) => get(`/loyalty/bill/${billId}`),
+        getCustomerByPhone: (phone) => get(`/loyalty/customers/${phone}`),
+        redeem: (body) => post("/loyalty/redeem", body),
+        topCustomers: (limit = 20) => get(`/loyalty/top-customers?limit=${limit}`),
+    },
     owner: {
         register: (body) => post("/auth/owner/register", body),
         login: (email, password) => post("/auth/owner/login", { email, password }),
-        me: () => get("/owner/me"),
-        outlets: () => get("/owner/outlets"),
-        createOutlet: (body) => post("/owner/outlets", body),
-        updateOutlet: (id, body) => patch(`/owner/outlets/${id}`, body),
-        outletSummary: (id, from, to) => get(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
-        switchOutlet: (id) => post(`/owner/outlets/${id}/switch`, {}),
+        me: () => oget("/owner/me"),
+        outlets: (from, to) => {
+            const q = from && to ? `?from=${from}&to=${to}` : "";
+            return oget(`/owner/outlets${q}`);
+        },
+        createOutlet: (body) => opost("/owner/outlets", body),
+        updateOutlet: (id, body) => opatch(`/owner/outlets/${id}`, body),
+        outletSummary: (id, from, to) => oget(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
+        switchOutlet: (id) => opost(`/owner/outlets/${id}/switch`, {}),
+    },
+    public: {
+        lanUrl: () => get("/public/lan-url"),
     },
 };
 export { ApiError };

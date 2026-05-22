@@ -6,8 +6,10 @@ import BillingPage from "@/pages/BillingPage";
 import KdsPage from "@/pages/KdsPage";
 import ManagerPage from "@/pages/ManagerPage";
 import InventoryPage from "@/pages/InventoryPage";
+import PODetailPage from "@/pages/PODetailPage";
 import OwnerLoginPage from "@/pages/OwnerLoginPage";
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage";
+import QrMenuPage from "@/pages/QrMenuPage";
 import { useAuthStore } from "@/stores/auth";
 const rootRoute = createRootRoute({ component: Outlet });
 const loginRoute = createRoute({
@@ -82,6 +84,12 @@ const inventoryRoute = createRoute({
     beforeLoad: requireManagerAccess,
     component: InventoryPage,
 });
+const poDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/inventory/purchase-orders/$id",
+    beforeLoad: requireManagerAccess,
+    component: PODetailPage,
+});
 const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
@@ -92,6 +100,11 @@ const indexRoute = createRoute({
         throw redirect({ to: getRole() === "kitchen" ? "/kds" : "/floor" });
     },
     component: () => null,
+});
+const qrMenuRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/menu/$outletId/$tableId",
+    component: QrMenuPage,
 });
 const ownerLoginRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -116,7 +129,9 @@ const routeTree = rootRoute.addChildren([
     kdsRoute,
     managerRoute,
     inventoryRoute,
+    poDetailRoute,
     ownerLoginRoute,
     ownerDashboardRoute,
+    qrMenuRoute,
 ]);
 export const router = createRouter({ routeTree });

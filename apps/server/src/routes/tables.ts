@@ -20,7 +20,7 @@ tablesRouter.get("/", async (c) => {
 
   const orderIds = tableList.map((t) => t.currentOrderId).filter((id): id is string => id !== null)
 
-  type OrderInfo = { status: string; openedAt: string; items: number; total: number }
+  type OrderInfo = { status: string; source: string; openedAt: string; items: number; total: number }
   let orderMap: Record<string, OrderInfo> = {}
 
   if (orderIds.length > 0) {
@@ -32,6 +32,7 @@ tablesRouter.get("/", async (c) => {
       const active = order.items.filter((i) => !i.isVoided)
       orderMap[order.id] = {
         status: order.status,
+        source: order.source,
         openedAt: order.createdAt.toISOString(),
         items: active.reduce((s, i) => s + i.quantity, 0),
         total: active.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0),
@@ -51,7 +52,7 @@ tablesRouter.get("/", async (c) => {
       ...t,
       status: effectiveStatus,
       currentOrderId: orderInfo ? t.currentOrderId : null,
-      ...(orderInfo ? { openedAt: orderInfo.openedAt, items: orderInfo.items, total: orderInfo.total } : {}),
+      ...(orderInfo ? { source: orderInfo.source, openedAt: orderInfo.openedAt, items: orderInfo.items, total: orderInfo.total } : {}),
     }
   })
 

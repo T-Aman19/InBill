@@ -21,13 +21,14 @@ export const outletSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
-export const createOutletSchema = outletSchema.omit({ id: true, createdAt: true })
+export const createOutletSchema = outletSchema.omit({ id: true, createdAt: true, ownerId: true })
 
 export const updateOutletSchema = z.object({
   name: z.string().min(1).optional(),
   address: z.string().optional(),
   phone: z.string().optional(),
   gstin: z.string().optional(),
+  fssaiNumber: z.string().optional(),
   timezone: z.string().optional(),
   upiVpa: z.string().optional(),
   razorpayKeyId: z.string().optional(),

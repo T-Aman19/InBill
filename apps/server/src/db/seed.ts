@@ -28,6 +28,7 @@ const [outlet] = await db
     address: "123 MG Road, Bengaluru",
     phone: "9888888888",
     gstin: "29ABCDE1234F1Z5",
+    setupCode: "DEMO01",
   })
   .returning()
 console.log("Outlet:", outlet!.name)

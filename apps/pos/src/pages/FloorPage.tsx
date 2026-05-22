@@ -9,7 +9,7 @@ import { TopBar } from "@/components/ui/TopBar"
 type Customer = { id: string; name?: string | null; phone: string; loyaltyPoints: number }
 
 type TableStatus = "available" | "occupied" | "reserved" | "billed"
-type Table = { id: string; name: string; capacity: number; status: TableStatus; currentOrderId: string | null; floorId: string; openedAt?: string; total?: number; items?: number }
+type Table = { id: string; name: string; capacity: number; status: TableStatus; currentOrderId: string | null; floorId: string; source?: string; openedAt?: string; total?: number; items?: number }
 type Floor = { id: string; name: string; sortOrder: number }
 
 function elapsed(iso: string) {
@@ -70,9 +70,14 @@ function TableCard({ table, onClick }: { table: Table; onClick: () => void }) {
               {table.capacity} seats
             </div>
           </div>
-          <span className={`badge ${tone}`}>
-            <span className={`dot ${tone}`} /> {LABEL[table.status]}
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <span className={`badge ${tone}`}>
+              <span className={`dot ${tone}`} /> {LABEL[table.status]}
+            </span>
+            {table.source === "qr" && (isOpen || isBilled) && (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", color: "var(--color-blue)", background: "rgba(59,130,246,.1)", padding: "2px 6px", borderRadius: 5 }}>QR</span>
+            )}
+          </div>
         </div>
 
         {/* Footer */}

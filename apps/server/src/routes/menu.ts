@@ -200,7 +200,7 @@ menuRouter.get("/tax", async (c) => {
   return c.json(config ?? null)
 })
 
-menuRouter.put("/tax", requireRole("manager", "owner"), zValidator("json", taxConfigSchema), async (c) => {
+menuRouter.put("/tax", requireRole("owner"), zValidator("json", taxConfigSchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
   const existing = await db.query.taxConfigs.findFirst({ where: eq(taxConfigs.outletId, outletId) })

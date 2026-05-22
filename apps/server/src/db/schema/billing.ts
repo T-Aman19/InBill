@@ -1,6 +1,7 @@
 import { pgTable, uuid, integer, numeric, boolean, text, timestamp, jsonb, pgEnum } from "drizzle-orm/pg-core"
 import { outlets } from "./owners.js"
-import { orders } from "./orders.js"
+import { orders, orderItems } from "./orders.js"
+import { users } from "./users.js"
 
 export const paymentModeEnum = pgEnum("payment_mode", ["cash", "card", "upi", "credit"])
 export const discountTypeEnum = pgEnum("discount_type", ["percentage", "flat"])
@@ -35,6 +36,7 @@ export const bills = pgTable("bills", {
   discountNote: text("discount_note"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   isPaid: boolean("is_paid").notNull().default(false),
+  createdById: uuid("created_by_id").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -55,5 +57,17 @@ export const billDiscounts = pgTable("bill_discounts", {
   discountId: uuid("discount_id").references(() => discounts.id),
   label: text("label").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const voidedItems = pgTable("voided_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  outletId: uuid("outlet_id").notNull().references(() => outlets.id),
+  orderId: uuid("order_id").notNull().references(() => orders.id),
+  orderItemId: uuid("order_item_id").references(() => orderItems.id),
+  itemName: text("item_name").notNull(),
+  qty: integer("qty").notNull().default(1),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  voidedById: uuid("voided_by_id").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

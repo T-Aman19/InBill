@@ -157,6 +157,25 @@ input  { font-family: inherit; }
 .stripe-red   { background: var(--color-red); }
 .stripe-blue  { background: var(--color-blue); }
 
+/* ─── Button ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1;
+  padding: 0 14px; height: 34px; border-radius: 8px; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap; transition: opacity .15s, box-shadow .15s;
+  background: var(--color-surface-2); color: var(--color-ink-2);
+  border-color: var(--color-line);
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:not(:disabled):hover { opacity: .85; }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 6px; }
+.btn.lg { height: 40px; padding: 0 18px; font-size: 14px; }
+.btn.primary { background: var(--color-accent); color: var(--color-accent-ink); border-color: transparent; }
+.btn.green   { background: var(--color-green);  color: #fff;                   border-color: transparent; }
+.btn.red     { background: var(--color-red);    color: #fff;                   border-color: transparent; }
+.btn.ghost   { background: transparent; color: var(--color-ink-2); border-color: var(--color-line); }
+.btn.ghost:not(:disabled):hover { background: var(--color-surface-2); opacity: 1; }
+
 /* ─── Print receipt ──────────────────────────────────────────── */
 @media print {
   html, body { overflow: visible !important; height: auto !important; }

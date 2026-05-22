@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and } from "drizzle-orm"
+import { eq, and, ne } from "drizzle-orm"
 import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
@@ -33,7 +33,7 @@ const changeSelfPinSchema = z.object({
 usersRouter.get("/", requireRole("manager", "owner"), async (c) => {
   const { outletId } = c.get("user")
   const staff = await db.query.users.findMany({
-    where: eq(users.outletId, outletId),
+    where: and(eq(users.outletId, outletId), ne(users.role, "owner")),
     columns: { pin: false },
   })
   return c.json(staff)
@@ -41,8 +41,12 @@ usersRouter.get("/", requireRole("manager", "owner"), async (c) => {
 
 // Create new staff member
 usersRouter.post("/", requireRole("manager", "owner"), zValidator("json", createUserSchema), async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, role: callerRole } = c.get("user")
   const data = c.req.valid("json")
+
+  if (data.role === "manager" && callerRole !== "owner") {
+    return c.json({ error: "Only the owner can create manager accounts" }, 403)
+  }
 
   const existing = await db.query.users.findFirst({
     where: and(eq(users.outletId, outletId), eq(users.pin, data.pin)),
@@ -63,8 +67,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 usersRouter.patch("/:id", requireRole("manager", "owner"), zValidator("json", updateUserSchema), async (c) => {
   const id = c.req.param("id")
   if (!UUID_RE.test(id)) return c.json({ error: "Invalid staff ID" }, 400)
-  const { outletId } = c.get("user")
+  const { outletId, role: callerRole } = c.get("user")
   const data = c.req.valid("json")
+
+  if (data.role === "manager" && callerRole !== "owner") {
+    return c.json({ error: "Only the owner can assign the manager role" }, 403)
+  }
 
   if (data.pin) {
     const conflict = await db.query.users.findFirst({

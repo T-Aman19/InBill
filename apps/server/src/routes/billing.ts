@@ -4,11 +4,52 @@ import { eq, and, inArray } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, recipes, recipeIngredients, stockMovements } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, recipes, recipeIngredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
 export const billingRouter = new Hono<AppEnv>()
+
+async function awardLoyaltyPoints(outletId: string, billId: string, billTotal: number, orderId: string) {
+  const program = await db.query.loyaltyPrograms.findFirst({
+    where: and(eq(loyaltyPrograms.outletId, outletId), eq(loyaltyPrograms.isActive, true)),
+  })
+  if (!program) return
+
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId), columns: { customerId: true } })
+  if (!order?.customerId) return
+
+  const points = Math.floor(billTotal * Number(program.pointsPerRupee))
+  if (points <= 0) return
+
+  const existing = await db.query.customerPoints.findFirst({
+    where: and(eq(customerPoints.outletId, outletId), eq(customerPoints.customerId, order.customerId)),
+  })
+
+  if (existing) {
+    const newTotal    = existing.totalPoints    + points
+    const newLifetime = existing.lifetimePoints + points
+    const tier = newLifetime >= 10000 ? "gold" : newLifetime >= 3000 ? "silver" : "bronze"
+    await db.update(customerPoints)
+      .set({ totalPoints: newTotal, lifetimePoints: newLifetime, tier, updatedAt: new Date() })
+      .where(eq(customerPoints.id, existing.id))
+  } else {
+    const tier = points >= 10000 ? "gold" : points >= 3000 ? "silver" : "bronze"
+    await db.insert(customerPoints).values({
+      outletId, customerId: order.customerId,
+      totalPoints: points, lifetimePoints: points, tier,
+    })
+  }
+
+  await db.insert(pointTransactions).values({
+    outletId,
+    customerId: order.customerId,
+    delta: points,
+    type: "earn",
+    billId,
+    note: `Earned ${points} pts on ₹${billTotal.toFixed(2)} bill`,
+  })
+}
 
 billingRouter.use("*", requireAuth)
 
@@ -179,6 +220,7 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
       discountAmount: String(Number(discountAmount).toFixed(2)),
       discountNote,
       total: String(total.toFixed(2)),
+      createdById: c.get("user").userId,
     })
     .returning()
   const bill = billRows[0]!
@@ -331,6 +373,10 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
       await db.update(tables).set({ status: "available", currentOrderId: null }).where(eq(tables.id, order.tableId))
       broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
     }
+
+    awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
+      console.error("[loyalty] award failed for bill", billId, err),
+    )
   }
 
   return c.json(payment, 201)
@@ -451,6 +497,9 @@ billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "m
       broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
     }
     broadcastOutlet(outletId, { type: "payment.confirmed", payload: { billId, paymentId } })
+    awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
+      console.error("[loyalty] award failed for bill", billId, err),
+    )
   }
 
   return c.json({ ok: true, isPaid: paidSoFar >= Number(bill.total) })

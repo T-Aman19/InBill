@@ -22,6 +22,8 @@ export const outlets = pgTable("outlets", {
   upiVpa: text("upi_vpa"),
   razorpayKeyId: text("razorpay_key_id"),
   razorpayKeySecret: text("razorpay_key_secret"),
+  setupCode: text("setup_code").notNull().unique(),
+  fssaiNumber: text("fssai_number"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

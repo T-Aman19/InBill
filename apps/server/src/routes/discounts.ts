@@ -21,7 +21,7 @@ discountsRouter.get("/", async (c) => {
   return c.json(rows)
 })
 
-discountsRouter.post("/", requireRole("owner", "manager"), zValidator("json", createDiscountSchema), async (c) => {
+discountsRouter.post("/", requireRole("owner"), zValidator("json", createDiscountSchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
 
@@ -44,7 +44,7 @@ discountsRouter.post("/", requireRole("owner", "manager"), zValidator("json", cr
   return c.json(row, 201)
 })
 
-discountsRouter.patch("/:id", requireRole("owner", "manager"), zValidator("json", updateDiscountSchema), async (c) => {
+discountsRouter.patch("/:id", requireRole("owner"), zValidator("json", updateDiscountSchema), async (c) => {
   const { outletId } = c.get("user")
   const id = c.req.param("id")
   const data = c.req.valid("json")
@@ -68,7 +68,7 @@ discountsRouter.patch("/:id", requireRole("owner", "manager"), zValidator("json"
   return c.json(updated)
 })
 
-discountsRouter.delete("/:id", requireRole("owner", "manager"), async (c) => {
+discountsRouter.delete("/:id", requireRole("owner"), async (c) => {
   const { outletId } = c.get("user")
   const id = c.req.param("id")
 
