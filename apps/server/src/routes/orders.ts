@@ -208,6 +208,21 @@ ordersRouter.delete("/:id/items/:itemId", requireRole("manager", "owner", "cashi
   return c.body(null, 204)
 })
 
+// Link a customer to an existing order (used when customer details are collected at billing time)
+ordersRouter.patch("/:id/customer", requireRole("owner", "manager", "cashier", "captain"), async (c) => {
+  const { outletId } = c.get("user")
+  const orderId = c.req.param("id")
+  const { customerId } = await c.req.json() as { customerId: string }
+
+  const order = await db.query.orders.findFirst({
+    where: and(eq(orders.id, orderId), eq(orders.outletId, outletId)),
+  })
+  if (!order) return c.json({ error: "Not found" }, 404)
+
+  await db.update(orders).set({ customerId, updatedAt: new Date() }).where(eq(orders.id, orderId))
+  return c.json({ ok: true })
+})
+
 // Transfer order to a different table
 ordersRouter.patch("/:id/transfer", requireRole("owner", "manager", "cashier"), async (c) => {
   const { outletId } = c.get("user")

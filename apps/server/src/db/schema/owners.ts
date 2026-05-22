@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, boolean } from "drizzle-orm/pg-core"
+import { pgTable, text, uuid, timestamp, boolean, jsonb } from "drizzle-orm/pg-core"
 
 export const owners = pgTable("owners", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -24,6 +24,7 @@ export const outlets = pgTable("outlets", {
   razorpayKeySecret: text("razorpay_key_secret"),
   setupCode: text("setup_code").notNull().unique(),
   fssaiNumber: text("fssai_number"),
+  settings: jsonb("settings").notNull().default("{}"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

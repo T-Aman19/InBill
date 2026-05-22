@@ -12,9 +12,9 @@ type DiscountLine = { id: string; discountId?: string | null; label: string; amo
 type BillModifier = { name: string; price: string }
 type BillItem = { name: string; quantity: number; unitPrice: string; isVeg?: boolean; modifiers?: BillModifier[] }
 type Bill = {
-  id: string; billNumber: number; subtotal: string; taxLines: TaxLine[]
+  id: string; orderId: string; billNumber: number; subtotal: string; taxLines: TaxLine[]
   taxTotal: string; discountAmount: string; discountLines?: DiscountLine[]; total: string; isPaid: boolean
-  payments: Payment[]; items?: BillItem[]
+  payments: Payment[]; items?: BillItem[]; orderType?: string | null
 }
 type DiscountPreset = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; isActive: boolean }
 type OutletInfo = { name: string; address: string; gstin?: string; fssaiNumber?: string }
@@ -51,6 +51,26 @@ export default function BillingPage() {
   const [redeemPoints, setRedeemPoints] = useState("")
   const [redeemErr, setRedeemErr] = useState("")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const [custPhone, setCustPhone]   = useState("")
+  const [custName,  setCustName]    = useState("")
+  const [custLinking, setCustLinking] = useState(false)
+  const [custErr, setCustErr]       = useState("")
+
+  async function handleLinkCustomer() {
+    if (!custPhone.trim() || !bill) return
+    setCustLinking(true)
+    setCustErr("")
+    try {
+      const cust = await api.customers.upsert({ phone: custPhone.trim(), name: custName.trim() || undefined }) as { id: string }
+      await api.orders.linkCustomer(bill.orderId, cust.id)
+      refetchLoyalty()
+    } catch {
+      setCustErr("Could not link customer")
+    } finally {
+      setCustLinking(false)
+    }
+  }
 
   const { data: bill, refetch } = useQuery({
     queryKey: ["bill", billId],
@@ -403,6 +423,42 @@ export default function BillingPage() {
         {/* Right: payment collection */}
         <div style={{ background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", padding: 24, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 500 }}>Collect payment</div>
+
+          {/* Customer lookup — takeaway/delivery only, before payment starts, no customer yet */}
+          {(bill.orderType === "takeaway" || bill.orderType === "delivery") && !loyaltyInfo && !bill.isPaid && (
+            <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)" }}>
+                Customer <span style={{ fontWeight: 400, color: "var(--color-ink-3)" }}>(optional · for loyalty)</span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={custPhone}
+                  onChange={(e) => setCustPhone(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLinkCustomer()}
+                  placeholder="Phone number"
+                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
+                  onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
+                />
+                <input
+                  value={custName}
+                  onChange={(e) => setCustName(e.target.value)}
+                  placeholder="Name"
+                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
+                  onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
+                />
+              </div>
+              {custErr && <div style={{ fontSize: 12, color: "var(--color-red)" }}>{custErr}</div>}
+              <button
+                onClick={handleLinkCustomer}
+                disabled={!custPhone.trim() || custLinking}
+                style={{ height: 34, borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface-2)", color: "var(--color-ink-2)", fontSize: 13, fontFamily: "inherit", cursor: custPhone.trim() ? "pointer" : "not-allowed", opacity: custPhone.trim() ? 1 : .5 }}
+              >
+                {custLinking ? "Linking…" : "Add customer"}
+              </button>
+            </div>
+          )}
 
           {/* Applied discounts */}
           {(bill.discountLines ?? []).length > 0 && (

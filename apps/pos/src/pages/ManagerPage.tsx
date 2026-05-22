@@ -28,7 +28,7 @@ type EditTable = { _new?: boolean; id?: string; floorId: string; name: string; c
 type TaxConfig = { id?: string; name: string; cgstRate: string; sgstRate: string; igstRate: string }
 
 type ReportSummary = { billCount: number; totalRevenue: number; totalTax: number; totalDiscount: number; byPaymentMode: Record<string, number> }
-type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }
+type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean } }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
@@ -1109,6 +1109,7 @@ function OutletTab() {
   const [upiVpa, setUpiVpa]           = useState("")
   const [razorpayKeyId, setRazorpayKeyId]         = useState("")
   const [razorpayKeySecret, setRazorpayKeySecret] = useState("")
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false)
   const [loaded, setLoaded]   = useState(false)
   const [saved, setSaved]     = useState(false)
 
@@ -1125,6 +1126,7 @@ function OutletTab() {
     setFssaiNumber(outlet.fssaiNumber ?? "")
     setUpiVpa(outlet.upiVpa ?? "")
     setRazorpayKeyId(outlet.razorpayKeyId ?? "")
+    setDeliveryEnabled(outlet.settings?.deliveryEnabled ?? false)
     setLoaded(true)
   }
 
@@ -1136,6 +1138,7 @@ function OutletTab() {
       upiVpa: upiVpa || undefined,
       razorpayKeyId: razorpayKeyId || undefined,
       razorpayKeySecret: razorpayKeySecret || undefined,
+      settings: { deliveryEnabled },
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outlet"] })
@@ -1187,6 +1190,25 @@ function OutletTab() {
                 {field("Razorpay Key Secret (optional)", (
                   <input type="password" value={razorpayKeySecret} onChange={(e) => setRazorpayKeySecret(e.target.value.trim())} placeholder="Leave blank to keep existing" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
                 ))}
+              </div>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 4 }}>Preferences</div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 16 }}>Configure how this outlet operates</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "var(--color-surface-2)", borderRadius: 10, border: "1px solid var(--color-line)", cursor: "pointer" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-ink)" }}>Enable delivery orders</div>
+                    <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>Shows a Delivery button on the floor page for in-house delivery tracking</div>
+                  </div>
+                  <div
+                    onClick={() => setDeliveryEnabled((v) => !v)}
+                    style={{ width: 44, height: 24, borderRadius: 12, background: deliveryEnabled ? "var(--color-green)" : "var(--color-line-strong)", position: "relative", flexShrink: 0, marginLeft: 16, cursor: "pointer", transition: "background .15s" }}
+                  >
+                    <div style={{ position: "absolute", top: 3, left: deliveryEnabled ? 22 : 3, width: 18, height: 18, borderRadius: "50%", background: "white", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+                  </div>
+                </label>
               </div>
             </div>
 

@@ -108,6 +108,7 @@ export const api = {
         addItem: (orderId, body) => post(`/orders/${orderId}/items`, body),
         decrementItem: (orderId, itemId) => patch(`/orders/${orderId}/items/${itemId}/decrement`, {}),
         voidItem: (orderId, itemId) => del(`/orders/${orderId}/items/${itemId}`),
+        linkCustomer: (orderId, customerId) => patch(`/orders/${orderId}/customer`, { customerId }),
         transfer: (orderId, newTableId) => patch(`/orders/${orderId}/transfer`, { newTableId }),
         merge: (targetOrderId, sourceOrderId) => post(`/orders/${targetOrderId}/merge`, { sourceOrderId }),
     },

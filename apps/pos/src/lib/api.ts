@@ -111,6 +111,7 @@ export const api = {
     addItem: (orderId: string, body: unknown) => post<unknown>(`/orders/${orderId}/items`, body),
     decrementItem: (orderId: string, itemId: string) => patch(`/orders/${orderId}/items/${itemId}/decrement`, {}),
     voidItem: (orderId: string, itemId: string) => del(`/orders/${orderId}/items/${itemId}`),
+    linkCustomer: (orderId: string, customerId: string) => patch<unknown>(`/orders/${orderId}/customer`, { customerId }),
     transfer: (orderId: string, newTableId: string) => patch<unknown>(`/orders/${orderId}/transfer`, { newTableId }),
     merge: (targetOrderId: string, sourceOrderId: string) => post<unknown>(`/orders/${targetOrderId}/merge`, { sourceOrderId }),
   },
@@ -194,7 +195,7 @@ export const api = {
     delete: (id: string) => del(`/shifts/cash-entries/${id}`),
   },
   outlet: {
-    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string }>("/outlet"),
+    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean } }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
   },
   inventory: {

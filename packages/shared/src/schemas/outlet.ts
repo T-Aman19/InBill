@@ -23,6 +23,10 @@ export const outletSchema = z.object({
 
 export const createOutletSchema = outletSchema.omit({ id: true, createdAt: true, ownerId: true })
 
+export const outletSettingsSchema = z.object({
+  deliveryEnabled: z.boolean().optional(),
+})
+
 export const updateOutletSchema = z.object({
   name: z.string().min(1).optional(),
   address: z.string().optional(),
@@ -33,7 +37,10 @@ export const updateOutletSchema = z.object({
   upiVpa: z.string().optional(),
   razorpayKeyId: z.string().optional(),
   razorpayKeySecret: z.string().optional(),
+  settings: outletSettingsSchema.optional(),
 })
+
+export type OutletSettings = z.infer<typeof outletSettingsSchema>
 
 export type Owner = z.infer<typeof ownerSchema>
 export type Outlet = z.infer<typeof outletSchema>

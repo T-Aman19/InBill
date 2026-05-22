@@ -147,8 +147,12 @@ menuRouter.patch("/modifier-groups/:id", requireRole("manager", "owner"), zValid
 
 menuRouter.delete("/modifier-groups/:id", requireRole("manager", "owner"), async (c) => {
   const { outletId } = c.get("user")
-  await db.delete(modifierGroups)
-    .where(and(eq(modifierGroups.id, c.req.param("id")), eq(modifierGroups.outletId, outletId)))
+  const groupId = c.req.param("id")
+  await db.transaction(async (tx) => {
+    await tx.delete(modifiers).where(eq(modifiers.groupId, groupId))
+    await tx.delete(modifierGroups)
+      .where(and(eq(modifierGroups.id, groupId), eq(modifierGroups.outletId, outletId)))
+  })
   return c.body(null, 204)
 })
 

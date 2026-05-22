@@ -256,7 +256,7 @@ billingRouter.get("/:id", async (c) => {
       modifiers: i.modifiers.map((m) => ({ name: m.name, price: m.price })),
     }))
   const { order: _, ...rest } = bill
-  return c.json({ ...rest, items })
+  return c.json({ ...rest, items, orderType: bill.order?.type ?? null })
 })
 
 // Apply a discount to an unpaid bill that has no payments yet

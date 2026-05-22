@@ -1,12 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { TopBar } from "@/components/ui/TopBar"
-
-type Customer = { id: string; name?: string | null; phone: string; loyaltyPoints: number }
 
 type TableStatus = "available" | "occupied" | "reserved" | "billed"
 type Table = { id: string; name: string; capacity: number; status: TableStatus; currentOrderId: string | null; floorId: string; source?: string; openedAt?: string; total?: number; items?: number }
@@ -105,47 +103,13 @@ function TableCard({ table, onClick }: { table: Table; onClick: () => void }) {
 export default function FloorPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const [creating, setCreating] = useState(false)
 
-  // Customer lookup modal for takeaway/delivery
-  const [orderModal, setOrderModal]       = useState<"takeaway" | "delivery" | null>(null)
-  const [phone, setPhone]                 = useState("")
-  const [custName, setCustName]           = useState("")
-  const [foundCustomer, setFoundCustomer] = useState<Customer | null | undefined>(undefined) // undefined = not searched yet
-  const [searching, setSearching]         = useState(false)
-  const [creating, setCreating]           = useState(false)
-  const phoneRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (orderModal) {
-      setPhone(""); setCustName(""); setFoundCustomer(undefined)
-      setTimeout(() => phoneRef.current?.focus(), 50)
-    }
-  }, [orderModal])
-
-  async function searchCustomer() {
-    if (!phone.trim()) return
-    setSearching(true)
-    try {
-      const results = await api.customers.search(phone.trim()) as Customer[]
-      const exact = results.find((c) => c.phone === phone.trim())
-      setFoundCustomer(exact ?? null)
-      if (exact) setCustName(exact.name ?? "")
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  async function confirmOrder() {
-    if (!orderModal) return
+  async function startOrder(type: "takeaway" | "delivery") {
+    if (creating) return
     setCreating(true)
     try {
-      let customerId: string | undefined
-      if (phone.trim()) {
-        const cust = await api.customers.upsert({ phone: phone.trim(), name: custName.trim() || undefined }) as Customer
-        customerId = cust.id
-      }
-      const order = await api.orders.create({ type: orderModal, customerId }) as { id: string }
-      setOrderModal(null)
+      const order = await api.orders.create({ type }) as { id: string }
       navigate({ to: "/order/$orderId", params: { orderId: order.id }, search: { tableId: undefined } })
     } finally {
       setCreating(false)
@@ -155,6 +119,12 @@ export default function FloorPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["tables"],
     queryFn: () => api.tables.getAll() as Promise<{ floors: Floor[]; tables: Table[] }>,
+  })
+
+  const { data: outlet } = useQuery({
+    queryKey: ["outlet"],
+    queryFn: () => api.outlet.get(),
+    staleTime: 5 * 60 * 1000,
   })
 
   useEffect(() => {
@@ -184,7 +154,7 @@ export default function FloorPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)", position: "relative" }}>
-      <TopBar current="floor" stats={stats} onTakeaway={() => setOrderModal("takeaway")} onDelivery={() => setOrderModal("delivery")} />
+      <TopBar current="floor" stats={stats} onTakeaway={() => startOrder("takeaway")} onDelivery={outlet?.settings?.deliveryEnabled ? () => startOrder("delivery") : undefined} />
 
       <div className="scroll" style={{ flex: 1, padding: "20px 24px" }}>
         {isLoading ? (
@@ -228,65 +198,6 @@ export default function FloorPage() {
         )}
       </div>
 
-      {/* ── Takeaway / Delivery customer modal ──────────────────────────────── */}
-      {orderModal && (
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-          <div style={{ background: "var(--color-surface)", borderRadius: 16, width: 420, boxShadow: "var(--shadow-3)" }}>
-            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--color-line)" }}>
-              <div style={{ fontSize: 16, fontWeight: 600, textTransform: "capitalize" }}>New {orderModal} Order</div>
-              <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 2 }}>Look up or add a customer (optional)</div>
-            </div>
-
-            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Phone search */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", display: "block", marginBottom: 6 }}>Phone number</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input ref={phoneRef} value={phone} onChange={(e) => { setPhone(e.target.value); setFoundCustomer(undefined) }}
-                    onKeyDown={(e) => e.key === "Enter" && searchCustomer()}
-                    placeholder="e.g. 9876543210"
-                    style={{ flex: 1, height: 40, borderRadius: 10, border: "1px solid var(--color-line)", padding: "0 12px", fontSize: 14, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none" }} />
-                  <button onClick={searchCustomer} disabled={searching || !phone.trim()} style={{ height: 40, padding: "0 16px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-surface-2)", cursor: "pointer", fontSize: 13, color: "var(--color-ink-2)", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-                    {searching ? "…" : "Search"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Customer result */}
-              {foundCustomer === null && (
-                <div style={{ fontSize: 13, color: "var(--color-ink-3)", background: "var(--color-surface-2)", borderRadius: 10, padding: "10px 14px" }}>
-                  No customer found — will create new
-                </div>
-              )}
-              {foundCustomer && (
-                <div style={{ background: "var(--color-surface-2)", borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>{foundCustomer.name ?? "—"}</div>
-                    <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>{foundCustomer.phone} · {foundCustomer.loyaltyPoints} pts</div>
-                  </div>
-                  <span style={{ fontSize: 11, background: "var(--color-green-soft)", color: "var(--color-green)", padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>Found</span>
-                </div>
-              )}
-
-              {/* Name field (shown for new customers or when phone is empty) */}
-              {(foundCustomer === null || foundCustomer === undefined) && (
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", display: "block", marginBottom: 6 }}>Name <span style={{ color: "var(--color-ink-4)", fontWeight: 400 }}>(optional)</span></label>
-                  <input value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Customer name"
-                    style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid var(--color-line)", padding: "0 12px", fontSize: 14, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", boxSizing: "border-box" }} />
-                </div>
-              )}
-            </div>
-
-            <div style={{ padding: "0 20px 20px", display: "flex", gap: 8 }}>
-              <button onClick={() => setOrderModal(null)} style={{ flex: 1, height: 44, borderRadius: 12, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 14, color: "var(--color-ink-2)", fontFamily: "inherit" }}>Cancel</button>
-              <button onClick={confirmOrder} disabled={creating} style={{ flex: 2, height: 44, borderRadius: 12, border: "none", background: "var(--color-ink)", cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--color-bg)", fontFamily: "inherit", opacity: creating ? .6 : 1 }}>
-                {creating ? "Creating…" : `Start ${orderModal}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
