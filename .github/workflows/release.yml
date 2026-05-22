@@ -5,14 +5,20 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14       # Apple Silicon (aarch64)
+          - platform: macos-14        # Apple Silicon
             target: aarch64-apple-darwin
+            bundles: dmg
+          - platform: macos-13        # Intel Mac
+            target: x86_64-apple-darwin
             bundles: dmg
           - platform: windows-latest  # x86_64 Windows
             target: x86_64-pc-windows-msvc
@@ -35,24 +41,20 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workdir: apps/desktop/src-tauri
-
-      - name: Install macOS dependencies
-        if: matrix.platform == 'macos-14'
-        run: brew install create-dmg
+          workspaces: apps/desktop/src-tauri -> target
 
       - name: Install frontend dependencies
         run: bun install
 
       - name: Build server sidecar (macOS)
-        if: matrix.platform == 'macos-14'
+        if: runner.os == 'macOS'
         run: |
           cd apps/server
           bun build src/index.ts --compile \
             --outfile "../desktop/src-tauri/binaries/inbill-server-${{ matrix.target }}"
 
       - name: Build server sidecar (Windows)
-        if: matrix.platform == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           cd apps/server
@@ -65,8 +67,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
-          tauriScript: bunx tauri
-          args: --bundles ${{ matrix.bundles }} --target ${{ matrix.target }}
+          tauriScript: bun x tauri
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
           tagName: ${{ github.ref_name }}
           releaseName: InBill ${{ github.ref_name }}
           releaseBody: |
