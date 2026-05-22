@@ -4,7 +4,7 @@ import { eq, and, gte, lte } from "drizzle-orm"
 import { dateRangeSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, menuItems, categories, stockMovements, ingredients, voidedItems, users } from "../db/schema/index.js"
+import { bills, menuItems, categories, stockMovements, voidedItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 
 type TaxLine = { name: string; rate: number; amount: number }

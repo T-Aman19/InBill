@@ -4,7 +4,7 @@ import { eq, and, inArray } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, recipes, recipeIngredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
@@ -255,8 +255,8 @@ billingRouter.get("/:id", async (c) => {
       unitPrice: i.unitPrice,
       modifiers: i.modifiers.map((m) => ({ name: m.name, price: m.price })),
     }))
-  const { order: _, ...rest } = bill
-  return c.json({ ...rest, items, orderType: bill.order?.type ?? null })
+  const { order, ...rest } = bill
+  return c.json({ ...rest, items, orderType: order?.type ?? null })
 })
 
 // Apply a discount to an unpaid bill that has no payments yet

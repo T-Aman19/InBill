@@ -6,6 +6,36 @@ import { useAuthStore } from "@/stores/auth"
 const OUTLET_ID_KEY   = "inbill_outlet_id"
 const OUTLET_NAME_KEY = "inbill_outlet_name"
 
+function Key({ d, sub, onPress, disabled }: { d: string; sub?: string; onPress: (k: string) => void; disabled: boolean }) {
+  return (
+    <button
+      onClick={() => onPress(d)}
+      disabled={disabled}
+      style={{
+        height: 76,
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-line)",
+        borderRadius: 16,
+        fontFamily: "var(--font-mono)",
+        fontSize: 28, fontWeight: 500,
+        color: "var(--color-ink)",
+        cursor: "pointer",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        boxShadow: "var(--shadow-1)",
+        transition: "all .08s",
+        userSelect: "none",
+      }}
+      onMouseDown={(e)  => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(1px)" }}
+      onMouseUp={(e)    => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface)"; (e.currentTarget as HTMLButtonElement).style.transform = "" }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface)"; (e.currentTarget as HTMLButtonElement).style.transform = "" }}
+    >
+      {d}
+      {sub && <span style={{ fontSize: 9, color: "var(--color-ink-4)", fontFamily: "var(--font-sans)", letterSpacing: ".1em", marginTop: 2 }}>{sub}</span>}
+    </button>
+  )
+}
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const login    = useAuthStore((s) => s.login)
@@ -141,33 +171,6 @@ export default function LoginPage() {
   )
 
   // ── Main login ───────────────────────────────────────────────
-  const Key = ({ d, sub }: { d: string; sub?: string }) => (
-    <button
-      onClick={() => press(d)}
-      disabled={loading || pin.length >= 4}
-      style={{
-        height: 76,
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-line)",
-        borderRadius: 16,
-        fontFamily: "var(--font-mono)",
-        fontSize: 28, fontWeight: 500,
-        color: "var(--color-ink)",
-        cursor: "pointer",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-        boxShadow: "var(--shadow-1)",
-        transition: "all .08s",
-        userSelect: "none",
-      }}
-      onMouseDown={(e)  => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.transform = "translateY(1px)"; }}
-      onMouseUp={(e)    => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface)"; (e.currentTarget as HTMLButtonElement).style.transform = ""; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface)"; (e.currentTarget as HTMLButtonElement).style.transform = ""; }}
-    >
-      {d}
-      {sub && <span style={{ fontSize: 9, color: "var(--color-ink-4)", fontFamily: "var(--font-sans)", letterSpacing: ".1em", marginTop: 2 }}>{sub}</span>}
-    </button>
-  )
 
   return (
     <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.1fr 1fr", overflow: "hidden" }}>
@@ -233,7 +236,7 @@ export default function LoginPage() {
 
           {/* Numpad */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", marginTop: 16 }}>
-            {["1","2","3","4","5","6","7","8","9"].map((d) => <Key key={d} d={d} />)}
+            {["1","2","3","4","5","6","7","8","9"].map((d) => <Key key={d} d={d} onPress={press} disabled={loading || pin.length >= 4} />)}
 
             {/* Clear */}
             <button onClick={clear} style={{
@@ -244,7 +247,7 @@ export default function LoginPage() {
               fontFamily: "var(--font-sans)",
             }}>CLEAR</button>
 
-            <Key d="0" />
+            <Key d="0" onPress={press} disabled={loading || pin.length >= 4} />
 
             {/* Backspace */}
             <button onClick={back} style={{

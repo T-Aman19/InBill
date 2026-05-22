@@ -131,7 +131,7 @@ function StaffEditPanel({ record, onClose, onSaved }: { record: EditRecord; onCl
   })
 
   const isPending = createMutation.isPending || updateMutation.isPending
-  const doSave = () => { if (!canSave || isPending) return; setError(null); isNew ? createMutation.mutate() : updateMutation.mutate() }
+  const doSave = () => { if (!canSave || isPending) return; setError(null); if (isNew) createMutation.mutate(); else updateMutation.mutate() }
 
   return (
     <SlidePanel title={isNew ? "Add staff member" : `Edit ${record.name}`} onClose={onClose}
@@ -268,7 +268,7 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
   const unlinkGroupMutation = useMutation({ mutationFn: (groupId: string) => api.menu.unlinkModifierGroup(item.id!, groupId), onSuccess: invalidate })
 
   const isPending = createMutation.isPending || updateMutation.isPending
-  const doSave = () => { if (!canSave || isPending) return; isNew ? createMutation.mutate() : updateMutation.mutate() }
+  const doSave = () => { if (!canSave || isPending) return; if (isNew) createMutation.mutate(); else updateMutation.mutate() }
 
   return (
     <SlidePanel title={isNew ? "Add item" : `Edit "${item.name}"`} onClose={onClose}
@@ -501,7 +501,7 @@ function TableEditPanel({ table, floors, onClose, onSaved }: { table: EditTable;
   const createMutation = useMutation({ mutationFn: () => api.tables.createTable({ name, capacity: parseInt(capacity), floorId }), onSuccess: () => { onSaved(); onClose() } })
   const updateMutation = useMutation({ mutationFn: () => api.tables.updateTable(table.id!, { name, capacity: parseInt(capacity), floorId }), onSuccess: () => { onSaved(); onClose() } })
   const isPending = createMutation.isPending || updateMutation.isPending
-  const doSave = () => { if (!canSave || isPending) return; isNew ? createMutation.mutate() : updateMutation.mutate() }
+  const doSave = () => { if (!canSave || isPending) return; if (isNew) createMutation.mutate(); else updateMutation.mutate() }
   return (
     <SlidePanel title={isNew ? "Add table" : `Edit ${table.name}`} onClose={onClose} footer={<><CancelBtn onClose={onClose} /><SaveBtn onClick={doSave} disabled={!canSave || isPending} label={isPending ? "Saving…" : isNew ? "Add table" : "Save"} /></>}>
       <form onSubmit={(e) => { e.preventDefault(); doSave() }} style={{ display: "contents" }}>
@@ -651,7 +651,7 @@ function TablesTab() {
               {lanUrls.length > 1 && (
                 <select
                   defaultValue={lanUrls[0]}
-                  onChange={(e) => {/* re-renders via lanUrls[0] — for multi-NIC, user sees dropdown */}}
+                  onChange={() => {/* re-renders via lanUrls[0] — for multi-NIC, user sees dropdown */}}
                   style={{ width: "100%", height: 36, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 12, padding: "0 8px", fontFamily: "var(--font-mono)" }}
                 >
                   {lanUrls.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -1676,10 +1676,12 @@ function LoyaltyTab() {
 
   useEffect(() => {
     if (config) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setPointsPerRupee(config.pointsPerRupee)
       setRedeemRate(config.redeemRate)
       setMinPoints(String(config.minRedeemPoints))
       setIsActive(config.isActive)
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [config])
 

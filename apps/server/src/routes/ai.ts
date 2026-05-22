@@ -1,11 +1,11 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
-import { eq, and, gte, lte, desc } from "drizzle-orm"
+import { eq, and, gte, lte } from "drizzle-orm"
 import Anthropic from "@anthropic-ai/sdk"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, menuItems, categories } from "../db/schema/index.js"
+import { bills, menuItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { config } from "../config.js"
 
