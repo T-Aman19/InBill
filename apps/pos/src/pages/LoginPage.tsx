@@ -166,6 +166,16 @@ export default function LoginPage() {
           {saving ? "Verifying…" : "Continue"}
           {!saving && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
         </button>
+
+        <div style={{ marginTop: 20, textAlign: "center" }}>
+          <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Setting up for the first time? </span>
+          <button
+            onClick={() => navigate({ to: "/owner/login" })}
+            style={{ fontSize: 12, color: "var(--color-ink)", fontWeight: 500, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}
+          >
+            Create owner account →
+          </button>
+        </div>
       </div>
     </div>
   )

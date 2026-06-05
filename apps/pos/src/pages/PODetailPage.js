@@ -6,25 +6,8 @@ import { api } from "@/lib/api";
 import { TopBar } from "@/components/ui/TopBar";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_STEPS = ["draft", "ordered", "partial", "received"];
-const STATUS_COLOR = {
-    draft: "var(--color-ink-3)",
-    ordered: "#f59e0b",
-    partial: "#3b82f6",
-    received: "#16a34a",
-};
-const STATUS_BG = {
-    draft: "var(--color-surface-2)",
-    ordered: "rgba(245,158,11,.12)",
-    partial: "rgba(59,130,246,.12)",
-    received: "rgba(22,163,74,.12)",
-};
 function fmt(n) { return `₹${Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
 function fmtDate(s) { return s ? new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"; }
-function fmtDateTime(s) {
-    if (!s)
-        return "—";
-    return new Date(s).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 function buildPOPrintHtml(po) {
     const lineTotal = po.items.reduce((s, i) => s + Number(i.orderedQty) * Number(i.unitCost), 0);
     const rows = po.items.map((line) => `

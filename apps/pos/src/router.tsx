@@ -105,7 +105,11 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
-    const token = localStorage.getItem("inbill_token")
+    const token      = localStorage.getItem("inbill_token")
+    const outletId   = localStorage.getItem("inbill_outlet_id")
+    const ownerToken = localStorage.getItem("inbill_owner_token")
+    // Fresh install — nothing configured yet → owner onboarding first
+    if (!outletId && !ownerToken) throw redirect({ to: "/owner/login" })
     if (!token) throw redirect({ to: "/login" })
     throw redirect({ to: getRole() === "kitchen" ? "/kds" : "/floor" })
   },

@@ -224,8 +224,13 @@ export default function OwnerLoginPage() {
           <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 18, marginTop: 20, textAlign: "center" }}>
             <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
               Staff member?{" "}
-              <a href="/login" style={{ color: "var(--color-accent)", fontWeight: 500, textDecoration: "none" }}>Staff login →</a>
-              {" "}Go to POS
+              <button
+                type="button"
+                onClick={() => navigate({ to: "/login" })}
+                style={{ fontSize: 12, color: "var(--color-accent)", fontWeight: 500, textDecoration: "none", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}
+              >
+                Go to POS login →
+              </button>
             </span>
           </div>
         </div>

@@ -75,7 +75,6 @@ function IngredientsTab() {
     }
     const createMutation = useMutation({ mutationFn: (b) => api.inventory.createIngredient(b), onSuccess: () => { qc.invalidateQueries({ queryKey: ["ingredients"] }); setPanel(null); } });
     const updateMutation = useMutation({ mutationFn: ({ id, body }) => api.inventory.updateIngredient(id, body), onSuccess: () => { qc.invalidateQueries({ queryKey: ["ingredients"] }); setPanel(null); } });
-    const deleteMutation = useMutation({ mutationFn: (id) => api.inventory.deleteIngredient(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["ingredients"] }) });
     const adjustMutation = useMutation({ mutationFn: (b) => api.inventory.createAdjustment(b), onSuccess: () => { qc.invalidateQueries({ queryKey: ["ingredients"] }); qc.invalidateQueries({ queryKey: ["movements"] }); setPanel(null); } });
     const createPOMutation = useMutation({
         mutationFn: (b) => api.purchaseOrders.create(b),

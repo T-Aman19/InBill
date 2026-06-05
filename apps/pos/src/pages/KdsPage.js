@@ -48,7 +48,7 @@ export default function KdsPage() {
     const navigate = useNavigate();
     const qc = useQueryClient();
     const logout = useAuthStore((s) => s.logout);
-    const [now, setNow] = useState(Date.now());
+    const [now, setNow] = useState(() => Date.now());
     // Tick every 30s so elapsed time stays fresh
     useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 30_000);

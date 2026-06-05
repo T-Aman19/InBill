@@ -5,6 +5,23 @@ import { api, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 const OUTLET_ID_KEY = "inbill_outlet_id";
 const OUTLET_NAME_KEY = "inbill_outlet_name";
+function Key({ d, sub, onPress, disabled }) {
+    return (_jsxs("button", { onClick: () => onPress(d), disabled: disabled, style: {
+            height: 76,
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-line)",
+            borderRadius: 16,
+            fontFamily: "var(--font-mono)",
+            fontSize: 28, fontWeight: 500,
+            color: "var(--color-ink)",
+            cursor: "pointer",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            boxShadow: "var(--shadow-1)",
+            transition: "all .08s",
+            userSelect: "none",
+        }, onMouseDown: (e) => { e.currentTarget.style.background = "var(--color-surface-2)"; e.currentTarget.style.transform = "translateY(1px)"; }, onMouseUp: (e) => { e.currentTarget.style.background = "var(--color-surface)"; e.currentTarget.style.transform = ""; }, onMouseLeave: (e) => { e.currentTarget.style.background = "var(--color-surface)"; e.currentTarget.style.transform = ""; }, children: [d, sub && _jsx("span", { style: { fontSize: 9, color: "var(--color-ink-4)", fontFamily: "var(--font-sans)", letterSpacing: ".1em", marginTop: 2 }, children: sub })] }));
+}
 export default function LoginPage() {
     const navigate = useNavigate();
     const login = useAuthStore((s) => s.login);
@@ -99,23 +116,8 @@ export default function LoginPage() {
                             cursor: tmpCode.trim() && !saving ? "pointer" : "not-allowed",
                             opacity: tmpCode.trim() && !saving ? 1 : .4,
                             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                        }, children: [saving ? "Verifying…" : "Continue", !saving && _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] })] }) }));
+                        }, children: [saving ? "Verifying…" : "Continue", !saving && _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] }), _jsxs("div", { style: { marginTop: 20, textAlign: "center" }, children: [_jsx("span", { style: { fontSize: 12, color: "var(--color-ink-3)" }, children: "Setting up for the first time? " }), _jsx("a", { href: "/owner/login", style: { fontSize: 12, color: "var(--color-ink)", fontWeight: 500, textDecoration: "underline" }, children: "Create owner account \u2192" })] })] }) }));
     // ── Main login ───────────────────────────────────────────────
-    const Key = ({ d, sub }) => (_jsxs("button", { onClick: () => press(d), disabled: loading || pin.length >= 4, style: {
-            height: 76,
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-line)",
-            borderRadius: 16,
-            fontFamily: "var(--font-mono)",
-            fontSize: 28, fontWeight: 500,
-            color: "var(--color-ink)",
-            cursor: "pointer",
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            boxShadow: "var(--shadow-1)",
-            transition: "all .08s",
-            userSelect: "none",
-        }, onMouseDown: (e) => { e.currentTarget.style.background = "var(--color-surface-2)"; e.currentTarget.style.transform = "translateY(1px)"; }, onMouseUp: (e) => { e.currentTarget.style.background = "var(--color-surface)"; e.currentTarget.style.transform = ""; }, onMouseLeave: (e) => { e.currentTarget.style.background = "var(--color-surface)"; e.currentTarget.style.transform = ""; }, children: [d, sub && _jsx("span", { style: { fontSize: 9, color: "var(--color-ink-4)", fontFamily: "var(--font-sans)", letterSpacing: ".1em", marginTop: 2 }, children: sub })] }));
     return (_jsxs("div", { style: { flex: 1, display: "grid", gridTemplateColumns: "1.1fr 1fr", overflow: "hidden" }, children: [_jsxs("div", { style: {
                     background: "linear-gradient(160deg, oklch(28% 0.04 55), oklch(22% 0.02 55))",
                     color: "oklch(96% 0.02 70)",
@@ -133,13 +135,13 @@ export default function LoginPage() {
                                     background: pin.length > i ? (error ? "var(--color-red)" : "var(--color-ink)") : "transparent",
                                     border: "2px solid " + (pin.length > i ? (error ? "var(--color-red)" : "var(--color-ink)") : "var(--color-line-strong)"),
                                     transition: "all .15s",
-                                } }, i))) }), _jsx("div", { style: { height: 18, fontSize: 12, color: "var(--color-red)", fontWeight: 500 }, children: error }), _jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", marginTop: 16 }, children: [["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => _jsx(Key, { d: d }, d)), _jsx("button", { onClick: clear, style: {
+                                } }, i))) }), _jsx("div", { style: { height: 18, fontSize: 12, color: "var(--color-red)", fontWeight: 500 }, children: error }), _jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", marginTop: 16 }, children: [["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => _jsx(Key, { d: d, onPress: press, disabled: loading || pin.length >= 4 }, d)), _jsx("button", { onClick: clear, style: {
                                         height: 76, background: "transparent",
                                         border: "1px solid var(--color-line)",
                                         borderRadius: 16, fontSize: 12, color: "var(--color-ink-3)",
                                         cursor: "pointer", fontWeight: 500, letterSpacing: ".04em",
                                         fontFamily: "var(--font-sans)",
-                                    }, children: "CLEAR" }), _jsx(Key, { d: "0" }), _jsx("button", { onClick: back, style: {
+                                    }, children: "CLEAR" }), _jsx(Key, { d: "0", onPress: press, disabled: loading || pin.length >= 4 }), _jsx("button", { onClick: back, style: {
                                         height: 76, background: "transparent",
                                         border: "1px solid var(--color-line)",
                                         borderRadius: 16, cursor: "pointer",

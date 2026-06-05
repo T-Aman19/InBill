@@ -49,6 +49,7 @@ export default function OrderPage() {
         enabled: showMerge,
     });
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (menu?.categories?.[0] && !activeCat)
             setActiveCat(menu.categories[0].id);
     }, [menu]);
