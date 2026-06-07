@@ -47,6 +47,7 @@ jobs:
         run: bun install
 
       - name: Generate app icons
+        shell: bash
         run: cd apps/desktop && bun x tauri icon src-tauri/icons/icon.jpg --output src-tauri/icons
 
       - name: Build server sidecar (macOS)

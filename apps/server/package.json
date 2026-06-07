@@ -11,6 +11,7 @@
     "db:migrate": "bun run src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "bun run src/db/seed.ts",
+    "reset-owner-password": "bun run src/scripts/reset-owner-password.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
   },
@@ -22,6 +23,7 @@
     "hono": "^4.7.10",
     "jose": "^5.10.0",
     "postgres": "^3.4.5",
+    "resend": "^6.12.4",
     "zod": "^3.24.4"
   },
   "devDependencies": {

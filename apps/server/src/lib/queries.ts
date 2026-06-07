@@ -25,6 +25,7 @@ export async function fetchOrderWithKotStatus(orderId: string) {
   return {
     ...order,
     billId: bill?.id ?? null,
+    billIsPaid: bill?.isPaid ?? null,
     items: order.items.map((item) => ({
       ...item,
       kotStatus: item.kotId ? (kotStatusMap[item.kotId] ?? null) : null,

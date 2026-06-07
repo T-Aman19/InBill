@@ -1,11 +1,13 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and } from "drizzle-orm"
-import { loginSchema, ownerLoginSchema, ownerRegisterSchema } from "@inbill/shared"
+import { eq, and, gt, isNull } from "drizzle-orm"
+import { loginSchema, ownerLoginSchema, ownerRegisterSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { users, owners, outlets } from "../db/schema/index.js"
+import { users, owners, outlets, ownerPasswordResets } from "../db/schema/index.js"
 import { signToken, requireAuth } from "../middleware/auth.js"
+import { config } from "../config.js"
+import { sendPasswordResetEmail } from "../lib/email.js"
 
 export const authRouter = new Hono<AppEnv>()
 
@@ -79,3 +81,92 @@ authRouter.post("/owner/login", zValidator("json", ownerLoginSchema), async (c) 
 })
 
 authRouter.get("/me", requireAuth, (c) => c.json(c.get("user")))
+
+// ── Password reset (cloud only) ───────────────────────────────────────────────
+
+// Simple in-memory rate limiter: max 3 requests per email per 15 min
+const forgotRateLimit = new Map<string, { count: number; resetAt: number }>()
+function checkForgotLimit(email: string): boolean {
+  const now = Date.now()
+  const entry = forgotRateLimit.get(email)
+  if (!entry || entry.resetAt < now) {
+    forgotRateLimit.set(email, { count: 1, resetAt: now + 15 * 60_000 })
+    return true
+  }
+  if (entry.count >= 3) return false
+  entry.count++
+  return true
+}
+
+authRouter.post("/owner/forgot-password", zValidator("json", forgotPasswordSchema), async (c) => {
+  if (!config.isCloud) {
+    return c.json({ error: "Password reset via email is not available in local mode. Run: bun run src/scripts/reset-owner-password.ts" }, 400)
+  }
+
+  const { email } = c.req.valid("json")
+
+  // Always respond 200 to prevent user enumeration
+  if (!checkForgotLimit(email)) return c.json({ ok: true })
+
+  const owner = await db.query.owners.findFirst({ where: eq(owners.email, email) })
+  if (!owner) return c.json({ ok: true })
+
+  // Generate a 32-byte random token; store only its SHA-256 hash
+  const rawBytes = crypto.getRandomValues(new Uint8Array(32))
+  const rawToken = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0")).join("")
+  const tokenHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawToken))
+  const tokenHash = Array.from(new Uint8Array(tokenHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("")
+
+  const expiresAt = new Date(Date.now() + 60 * 60_000) // 1 hour
+  await db.insert(ownerPasswordResets).values({ ownerId: owner.id, tokenHash, expiresAt })
+
+  await sendPasswordResetEmail(email, rawToken)
+  return c.json({ ok: true })
+})
+
+authRouter.post("/owner/reset-password", zValidator("json", resetPasswordSchema), async (c) => {
+  if (!config.isCloud) {
+    return c.json({ error: "Not available in local mode" }, 400)
+  }
+
+  const { token, newPassword } = c.req.valid("json")
+
+  const tokenHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))
+  const tokenHash = Array.from(new Uint8Array(tokenHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("")
+
+  const reset = await db.query.ownerPasswordResets.findFirst({
+    where: and(
+      eq(ownerPasswordResets.tokenHash, tokenHash),
+      isNull(ownerPasswordResets.usedAt),
+      gt(ownerPasswordResets.expiresAt, new Date()),
+    ),
+  })
+
+  if (!reset) return c.json({ error: "Invalid or expired reset link" }, 400)
+
+  const passwordHash = await Bun.password.hash(newPassword)
+  await Promise.all([
+    db.update(owners).set({ passwordHash }).where(eq(owners.id, reset.ownerId)),
+    db.update(ownerPasswordResets).set({ usedAt: new Date() }).where(eq(ownerPasswordResets.id, reset.id)),
+  ])
+
+  return c.json({ ok: true })
+})
+
+// ── Change password (authenticated, both modes) ───────────────────────────────
+
+authRouter.patch("/owner/change-password", requireAuth, zValidator("json", changePasswordSchema), async (c) => {
+  const { ownerId } = c.get("user")
+  const { currentPassword, newPassword } = c.req.valid("json")
+
+  const owner = await db.query.owners.findFirst({ where: eq(owners.id, ownerId) })
+  if (!owner) return c.json({ error: "Owner not found" }, 404)
+
+  const valid = await Bun.password.verify(currentPassword, owner.passwordHash)
+  if (!valid) return c.json({ error: "Current password is incorrect" }, 400)
+
+  const passwordHash = await Bun.password.hash(newPassword)
+  await db.update(owners).set({ passwordHash }).where(eq(owners.id, ownerId))
+
+  return c.json({ ok: true })
+})

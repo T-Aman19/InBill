@@ -38,7 +38,8 @@ function Key({ d, sub, onPress, disabled }: { d: string; sub?: string; onPress: 
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const login    = useAuthStore((s) => s.login)
+  const login        = useAuthStore((s) => s.login)
+  const setSetupCode = useAuthStore((s) => s.setSetupCode)
 
   const [outletId,   setOutletId]   = useState(localStorage.getItem(OUTLET_ID_KEY) ?? "")
   const [outletName, setOutletName] = useState(localStorage.getItem(OUTLET_NAME_KEY) ?? "InBill POS")
@@ -104,6 +105,7 @@ export default function LoginPage() {
       localStorage.setItem(OUTLET_NAME_KEY, res.name)
       setOutletId(res.id)
       setOutletName(res.name)
+      setSetupCode(code)
       setSetup(false)
     } catch {
       setSetupError("Invalid setup code — check with your manager")

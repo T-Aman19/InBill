@@ -43,7 +43,7 @@ export default function OwnerLoginPage() {
     outline: "none",
     boxSizing: "border-box",
     color: "var(--color-ink)",
-    background: "#fff",
+    background: "var(--color-surface)",
   }
 
   const labelStyle: React.CSSProperties = {
@@ -55,7 +55,7 @@ export default function OwnerLoginPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f0eee9", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)", padding: 16 }}>
+    <div style={{ minHeight: "100vh", background: "var(--color-bg)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)", padding: 16 }}>
       <div style={{ width: 380, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
 
         {/* Logo wordmark */}
@@ -69,7 +69,7 @@ export default function OwnerLoginPage() {
         </div>
 
         {/* Card */}
-        <div style={{ width: "100%", background: "#fff", border: "1px solid var(--color-line)", borderRadius: 16, padding: 28, boxShadow: "0 12px 40px rgba(0,0,0,.05)" }}>
+        <div style={{ width: "100%", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 28, boxShadow: "var(--shadow-2)" }}>
 
           {/* Tab toggle */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: "var(--color-surface-2)", padding: 3, borderRadius: 10, marginBottom: 24, position: "relative" }}>
@@ -81,7 +81,7 @@ export default function OwnerLoginPage() {
                 left: tab === "login" ? 3 : "calc(50% + 0px)",
                 width: "calc(50% - 3px)",
                 height: "calc(100% - 6px)",
-                background: "#fff",
+                background: "var(--color-surface)",
                 borderRadius: 8,
                 boxShadow: "0 1px 4px rgba(0,0,0,.08)",
                 transition: "left 0.18s ease",
@@ -160,7 +160,18 @@ export default function OwnerLoginPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Password</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>Password</label>
+                {tab === "login" && (
+                  <button
+                    type="button"
+                    onClick={() => navigate({ to: "/owner/forgot-password" })}
+                    style={{ fontSize: 12, color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div style={{ position: "relative" }}>
                 <input
                   type={showPassword ? "text" : "password"}

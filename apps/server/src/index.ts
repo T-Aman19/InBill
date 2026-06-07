@@ -24,6 +24,14 @@ import { purchaseOrdersRouter } from "./routes/purchaseOrders.js"
 import { aiRouter } from "./routes/ai.js"
 import { publicRouter } from "./routes/public.js"
 import { loyaltyRouter } from "./routes/loyalty.js"
+import { queueRouter } from "./routes/queue.js"
+import { runEmbeddedMigrations } from "./db/embedded-migrate.js"
+
+// Run migrations before accepting requests — safe to call on every startup
+// (already-applied migrations are skipped). In cloud mode the host runs
+// `bun run db:migrate` separately, but in local/desktop mode this is the
+// only migration path because the migrations folder is embedded in the binary.
+await runEmbeddedMigrations()
 
 const app = new Hono()
 
@@ -31,7 +39,7 @@ app.use("*", logger())
 app.use(
   "/api/*",
   cors({
-    origin: config.isLocal ? "*" : ["https://inbill.app", "https://pos.inbill.app"],
+    origin: config.isLocal ? "*" : ["https://inbill.app", "https://pos.inbill.app", "capacitor://localhost"],
     allowHeaders: ["Authorization", "Content-Type"],
   }),
 )
@@ -57,13 +65,25 @@ api.route("/purchase-orders", purchaseOrdersRouter)
 api.route("/ai", aiRouter)
 api.route("/public", publicRouter)
 api.route("/loyalty", loyaltyRouter)
+api.route("/queue", queueRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))
 
-// Serve Flutter waiter app at /mobile
-app.use("/mobile/*", serveStatic({ root: config.static.mobile }))
-app.get("/mobile", (c) => c.redirect("/mobile/index.html"))
+// Serve captain mobile app at /mobile
+// rewriteRequestPath strips the /mobile prefix so serveStatic looks up
+// dist/assets/foo.js instead of dist/mobile/assets/foo.js
+app.use("/mobile/*", serveStatic({
+  root: config.static.mobile,
+  rewriteRequestPath: (path) => path.replace(/^\/mobile/, "") || "/",
+}))
+app.get("/mobile", (c) => c.redirect("/mobile/"))
+// SPA fallback: client-side routes like /mobile/floor serve index.html
+app.get("/mobile/*", async (c) => {
+  const indexFile = Bun.file(`${config.static.mobile}/index.html`)
+  if (!(await indexFile.exists())) return c.notFound()
+  return c.html(await indexFile.text())
+})
 
 // Serve POS UI at / — static assets first, then SPA fallback for client-side routes
 app.use("/*", serveStatic({ root: config.static.pos }))

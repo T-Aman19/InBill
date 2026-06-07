@@ -9,6 +9,8 @@ import InventoryPage from "@/pages/InventoryPage";
 import PODetailPage from "@/pages/PODetailPage";
 import OwnerLoginPage from "@/pages/OwnerLoginPage";
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import QrMenuPage from "@/pages/QrMenuPage";
 import { useAuthStore } from "@/stores/auth";
 const rootRoute = createRootRoute({ component: Outlet });
@@ -57,6 +59,7 @@ const orderRoute = createRoute({
     beforeLoad: requireNotKitchen,
     validateSearch: (search) => ({
         tableId: search.tableId,
+        customerId: search.customerId,
     }),
     component: OrderPage,
 });
@@ -125,6 +128,19 @@ const ownerDashboardRoute = createRoute({
     },
     component: OwnerDashboardPage,
 });
+const forgotPasswordRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/owner/forgot-password",
+    component: ForgotPasswordPage,
+});
+const resetPasswordRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/owner/reset-password",
+    validateSearch: (search) => ({
+        token: search.token,
+    }),
+    component: ResetPasswordPage,
+});
 const routeTree = rootRoute.addChildren([
     indexRoute,
     loginRoute,
@@ -137,6 +153,8 @@ const routeTree = rootRoute.addChildren([
     poDetailRoute,
     ownerLoginRoute,
     ownerDashboardRoute,
+    forgotPasswordRoute,
+    resetPasswordRoute,
     qrMenuRoute,
 ]);
 export const router = createRouter({ routeTree });

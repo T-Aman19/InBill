@@ -8,7 +8,9 @@ type AuthState = {
   user: User | null
   outletId: string | null
   outletName: string | null
+  setupCode: string | null
   login: (token: string, user: User, outletId: string, outletName: string) => void
+  setSetupCode: (code: string) => void
   logout: () => void
   isLoggedIn: () => boolean
 }
@@ -20,6 +22,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       outletId: null,
       outletName: null,
+      setupCode: null,
 
       login: (token, user, outletId, outletName) => {
         localStorage.setItem("inbill_token", token)
@@ -27,6 +30,8 @@ export const useAuthStore = create<AuthState>()(
         // Reconnect WS with correct outletId now that we know it
         import("../lib/ws").then(({ ws }) => ws.connect(outletId))
       },
+
+      setSetupCode: (code) => set({ setupCode: code }),
 
       logout: () => {
         localStorage.removeItem("inbill_token")

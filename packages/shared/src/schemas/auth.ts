@@ -27,5 +27,19 @@ export const ownerRegisterSchema = z.object({
   phone: z.string().min(10),
 })
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+})
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(8),
+})
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+})
+
 export type TokenPayload = z.infer<typeof tokenPayloadSchema>
 export type OwnerRegister = z.infer<typeof ownerRegisterSchema>

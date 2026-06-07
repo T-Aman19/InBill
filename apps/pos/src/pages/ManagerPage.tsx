@@ -3,7 +3,6 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
-import { TopBar } from "@/components/ui/TopBar"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
 
@@ -34,7 +33,7 @@ type OutletInfo = { id: string; name: string; address: string; phone: string; gs
 const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green" }
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only" }
-type NavId = "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices"
+type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -1479,15 +1478,98 @@ function ExpensesTab() {
 
 // ── Devices tab (placeholder) ────────────────────────────────────────────────
 function DevicesTab() {
+  const { data: lanData } = useQuery({
+    queryKey: ["lan-url"],
+    queryFn: () => api.public.lanUrl(),
+    staleTime: 30_000,
+  })
+
+  const setupCode = useAuthStore((s) => s.setupCode)
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
+  const lanUrls = lanData?.urls ?? []
+  const activeUrl = selectedUrl ?? lanUrls[0] ?? null
+  const mobileUrl = activeUrl
+    ? `${activeUrl}/mobile${setupCode ? `?setup=${encodeURIComponent(setupCode)}` : ""}`
+    : null
+  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  const noLan = isLocalhost && lanUrls.length === 0
+
   return (
     <>
       <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
         <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Devices</h3>
-        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Connected terminals on this network</div>
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Connect captain phones and tablets to this outlet</div>
       </div>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "var(--color-ink-3)" }}>
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0114 0M8 16a6 6 0 018 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>
-        <div style={{ fontSize: 14 }}>Device management coming soon</div>
+
+      <div className="scroll" style={{ flex: 1, padding: "28px 28px" }}>
+        {/* Captain app card */}
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, overflow: "hidden", maxWidth: 520 }}>
+          <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--color-line)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--color-accent-soft)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-ink)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18" strokeWidth="2.5"/></svg>
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Captain App</div>
+                <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Order-taking app for waiters — runs in any phone browser</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: "20px" }}>
+            {noLan ? (
+              <div style={{ fontSize: 13, color: "var(--color-amber)", background: "var(--color-amber-soft)", borderRadius: 10, padding: "12px 14px" }}>
+                Open the POS via the machine's LAN IP address (not localhost) to generate a working QR code for other devices.
+              </div>
+            ) : !mobileUrl ? (
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)" }}>Detecting network address…</div>
+            ) : (
+              <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+                {/* QR code */}
+                <div style={{ background: "#fff", padding: 12, borderRadius: 12, border: "1px solid var(--color-line)", flexShrink: 0 }}>
+                  <QRCode value={mobileUrl} size={160} />
+                </div>
+
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--color-ink-3)", marginBottom: 8 }}>
+                    How to connect
+                  </div>
+                  <ol style={{ paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {["Connect the phone to the same Wi-Fi network as this PC", "Scan the QR code or open the URL below", "Log in with your captain PIN"].map((step, i) => (
+                      <li key={i} style={{ fontSize: 13, color: "var(--color-ink-2)", lineHeight: 1.4 }}>{step}</li>
+                    ))}
+                  </ol>
+
+                  {/* URL + copy */}
+                  <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, background: "var(--color-surface-2)", borderRadius: 8, padding: "8px 10px", border: "1px solid var(--color-line)" }}>
+                    <span style={{ flex: 1, fontSize: 12, fontFamily: "var(--font-mono)", wordBreak: "break-all", color: "var(--color-ink-2)" }}>{mobileUrl}</span>
+                    <button
+                      onClick={() => void navigator.clipboard.writeText(mobileUrl)}
+                      title="Copy URL"
+                      style={{ background: "transparent", border: "none", cursor: "pointer", padding: 2, color: "var(--color-ink-3)", flexShrink: 0 }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    </button>
+                  </div>
+
+                  {/* Multi-NIC selector */}
+                  {lanUrls.length > 1 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginBottom: 4 }}>Multiple network interfaces detected:</div>
+                      <select
+                        value={activeUrl ?? ""}
+                        onChange={(e) => setSelectedUrl(e.target.value)}
+                        style={{ width: "100%", height: 34, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 12, padding: "0 8px", fontFamily: "var(--font-mono)" }}
+                      >
+                        {lanUrls.map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </>
   )
@@ -1601,6 +1683,196 @@ function DiscountsTab() {
         </SlidePanel>
       )}
     </>
+  )
+}
+
+// ── Reservations tab ─────────────────────────────────────────────────────────
+type Reservation = { id: string; customerName: string; customerPhone: string | null; partySize: number; reservedFor: string; tableId: string | null; status: string; notes: string | null; table?: { name: string } | null }
+
+function ReservationsTab() {
+  const qc = useQueryClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(today)
+  const [slideOpen, setSlideOpen] = useState(false)
+  const [editing, setEditing] = useState<Partial<Reservation> | null>(null)
+  const [form, setForm] = useState({ customerName: "", customerPhone: "", partySize: 2, reservedFor: "", tableId: "", notes: "", status: "pending" })
+  const [error, setError] = useState("")
+
+  const { data: tables = [] } = useQuery<{ id: string; name: string; capacity: number }[]>({
+    queryKey: ["tables-list-for-res"],
+    queryFn: async () => {
+      const r = await api.tables.getAll() as { tables: { id: string; name: string; capacity: number }[] }
+      return r.tables
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: reservations = [], isLoading } = useQuery<Reservation[]>({
+    queryKey: ["reservations", date],
+    queryFn: () => api.queue.listReservations(date) as Promise<Reservation[]>,
+  })
+
+  function openCreate() {
+    setEditing(null)
+    setForm({ customerName: "", customerPhone: "", partySize: 2, reservedFor: `${date}T19:00`, tableId: "", notes: "", status: "pending" })
+    setError("")
+    setSlideOpen(true)
+  }
+
+  function openEdit(r: Reservation) {
+    setEditing(r)
+    setForm({
+      customerName: r.customerName,
+      customerPhone: r.customerPhone ?? "",
+      partySize: r.partySize,
+      reservedFor: r.reservedFor.slice(0, 16),
+      tableId: r.tableId ?? "",
+      notes: r.notes ?? "",
+      status: r.status,
+    })
+    setError("")
+    setSlideOpen(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        customerName: form.customerName.trim(),
+        customerPhone: form.customerPhone.trim() || null,
+        partySize: form.partySize,
+        reservedFor: new Date(form.reservedFor).toISOString(),
+        tableId: form.tableId || null,
+        notes: form.notes.trim() || null,
+        status: form.status,
+      }
+      if (editing?.id) return api.queue.updateReservation(editing.id, payload)
+      return api.queue.createReservation(payload)
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reservations"] }); setSlideOpen(false) },
+    onError: (e: any) => setError(e.message ?? "Failed to save"),
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => api.queue.deleteReservation(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reservations"] }),
+  })
+
+  const STATUS_COLOR: Record<string, string> = { pending: "amber", confirmed: "blue", seated: "green", no_show: "red", cancelled: "red" }
+  const slots: string[] = []
+  for (let h = 9; h <= 23; h++) {
+    slots.push(`${String(h).padStart(2, "0")}:00`)
+    if (h < 23) slots.push(`${String(h).padStart(2, "0")}:30`)
+  }
+
+  function resForSlot(slot: string) {
+    return reservations.filter((r) => r.reservedFor.slice(11, 16) === slot && r.status !== "cancelled")
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", gap: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Reservations</h2>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13 }}
+        />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button
+            onClick={() => { const d = new Date(date); d.setDate(d.getDate() - 1); setDate(d.toISOString().slice(0, 10)) }}
+            style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, cursor: "pointer" }}
+          >← Prev</button>
+          <button onClick={() => setDate(today)} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: date === today ? "var(--color-ink)" : "var(--color-bg)", color: date === today ? "var(--color-bg)" : "var(--color-ink)", fontSize: 13, cursor: "pointer" }}>Today</button>
+          <button
+            onClick={() => { const d = new Date(date); d.setDate(d.getDate() + 1); setDate(d.toISOString().slice(0, 10)) }}
+            style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, cursor: "pointer" }}
+          >Next →</button>
+          <button onClick={openCreate} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ New Reservation</button>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div className="scroll" style={{ flex: 1, padding: "16px 24px" }}>
+        {isLoading ? (
+          <div style={{ color: "var(--color-ink-3)", fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div>
+        ) : (
+          slots.map((slot) => {
+            const slotRes = resForSlot(slot)
+            if (slotRes.length === 0 && slot.endsWith(":30")) return null
+            return (
+              <div key={slot} style={{ display: "flex", gap: 12, marginBottom: 4, alignItems: "flex-start" }}>
+                <div style={{ width: 52, flexShrink: 0, fontSize: 11, fontFamily: "var(--font-mono)", color: slotRes.length > 0 ? "var(--color-ink-2)" : "var(--color-ink-4)", paddingTop: 8, textAlign: "right" }}>{slot}</div>
+                <div style={{ flex: 1, borderTop: "1px solid var(--color-line)", paddingTop: 6, paddingBottom: 6, minHeight: 32 }}>
+                  {slotRes.map((r) => (
+                    <div
+                      key={r.id}
+                      onClick={() => openEdit(r)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 8, padding: "5px 10px", marginRight: 8, marginBottom: 4, cursor: "pointer", fontSize: 13 }}
+                    >
+                      <span className={`dot ${STATUS_COLOR[r.status] ?? "amber"}`} />
+                      <span style={{ fontWeight: 600 }}>{r.customerName}</span>
+                      <span style={{ color: "var(--color-ink-3)" }}>{r.partySize}p</span>
+                      {r.table && <span style={{ color: "var(--color-ink-3)" }}>· {r.table.name}</span>}
+                      <span className={`badge ${STATUS_COLOR[r.status] ?? "amber"}`} style={{ fontSize: 10 }}>{r.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Slide panel */}
+      {slideOpen && (
+        <SlidePanel title={editing ? "Edit Reservation" : "New Reservation"} onClose={() => setSlideOpen(false)} footer={
+          <>
+            <CancelBtn onClose={() => setSlideOpen(false)} />
+            {editing && (
+              <button
+                onClick={() => { if (editing.id) { cancelMutation.mutate(editing.id); setSlideOpen(false) } }}
+                style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-red)", fontSize: 13, cursor: "pointer" }}
+              >Cancel Reservation</button>
+            )}
+            <button
+              onClick={() => { if (!form.customerName.trim()) { setError("Name is required"); return } if (!form.reservedFor) { setError("Time is required"); return } saveMutation.mutate() }}
+              disabled={saveMutation.isPending}
+              style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saveMutation.isPending ? 0.6 : 1 }}
+            >{saveMutation.isPending ? "Saving…" : "Save"}</button>
+          </>
+        }>
+          {field("Customer name *", <input value={form.customerName} onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))} style={inputStyle()} placeholder="e.g. Priya Sharma" />)}
+          {field("Phone (optional)", <input value={form.customerPhone} onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))} style={inputStyle()} placeholder="+91 98765 43210" />)}
+          {field("Party size", (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => setForm((f) => ({ ...f, partySize: Math.max(1, f.partySize - 1) }))} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 18, cursor: "pointer" }}>−</button>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, minWidth: 32, textAlign: "center" }}>{form.partySize}</span>
+              <button onClick={() => setForm((f) => ({ ...f, partySize: Math.min(50, f.partySize + 1) }))} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 18, cursor: "pointer" }}>+</button>
+            </div>
+          ))}
+          {field("Date & time *", <input type="datetime-local" value={form.reservedFor} onChange={(e) => setForm((f) => ({ ...f, reservedFor: e.target.value }))} style={inputStyle()} />)}
+          {field("Table (optional)", (
+            <select value={form.tableId} onChange={(e) => setForm((f) => ({ ...f, tableId: e.target.value }))} style={{ ...inputStyle(), appearance: "none" }}>
+              <option value="">No specific table</option>
+              {tables.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.capacity} seats)</option>)}
+            </select>
+          ))}
+          {editing && field("Status", (
+            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} style={{ ...inputStyle(), appearance: "none" }}>
+              <option value="pending">Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="seated">Seated</option>
+              <option value="no_show">No-show</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          ))}
+          {field("Notes", <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} style={{ ...inputStyle({ height: "auto", padding: "10px 14px", resize: "vertical" }), lineHeight: 1.5 }} placeholder="e.g. window seat, anniversary" />)}
+          {error && <div style={{ fontSize: 12, color: "var(--color-red)" }}>{error}</div>}
+        </SlidePanel>
+      )}
+    </div>
   )
 }
 
@@ -1777,67 +2049,264 @@ function LoyaltyTab() {
   )
 }
 
-// ── Nav sidebar ──────────────────────────────────────────────────────────────
-const NAV_ITEMS: { id: NavId; label: string }[] = [
-  { id: "staff",     label: "Staff & PINs" },
-  { id: "menu",      label: "Menu" },
-  { id: "modifiers", label: "Modifiers" },
-  { id: "tables",    label: "Tables" },
-  { id: "taxes",     label: "Tax & Charges" },
-  { id: "discounts", label: "Discounts" },
-  { id: "shifts",    label: "Reports" },
-  { id: "customers", label: "Customers" },
-  { id: "loyalty",   label: "Loyalty" },
-  { id: "expenses",  label: "Expenses" },
-  { id: "outlet",    label: "Outlet Settings" },
-  { id: "devices",   label: "Devices" },
-]
+// ── Home tab ─────────────────────────────────────────────────────────────────
+function HomeTab({ navigate }: { navigate: (tab: NavId) => void }) {
+  const user = useAuthStore((s) => s.user)
 
-const NAV_ICONS: Record<NavId, React.ReactElement> = {
-  staff:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.3 3-6 7-6s7 2.7 7 6"/><path d="M16 4a3.5 3.5 0 010 7M22 20c0-2.7-1.7-5-4.5-5.7"/></svg>,
-  menu:      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v13a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></svg>,
-  modifiers: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/><circle cx="12" cy="12" r="9"/></svg>,
-  tables:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>,
-  taxes:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="11" rx="1.5"/><circle cx="12" cy="12.5" r="2.5"/><path d="M5 10v.01M19 15v.01"/></svg>,
-  discounts: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
-  shifts:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
-  customers: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
-  loyalty:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
-  expenses:  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
-  outlet:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-  devices:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0114 0M8 16a6 6 0 018 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>,
+  const todayFrom = new Date()
+  todayFrom.setHours(0, 0, 0, 0)
+  const todayTo   = new Date()
+  const fromStr   = todayFrom.toISOString().split("T")[0]!
+  const toStr     = todayTo.toISOString().split("T")[0]!
+
+  const { data: summary } = useQuery({
+    queryKey: ["report-summary-home", fromStr],
+    queryFn: () => api.reports.summary(fromStr, toStr) as Promise<ReportSummary>,
+    refetchInterval: 60_000,
+  })
+  const { data: lowStockData } = useQuery<{ count: number }>({
+    queryKey: ["low-stock-count"],
+    queryFn: () => api.inventory.lowStockCount(),
+    refetchInterval: 60_000,
+  })
+
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+  const dateLabel = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+
+  const kpiCards = [
+    { label: "Revenue today", value: summary ? formatCurrency(summary.totalRevenue) : "—", sub: `${summary?.billCount ?? 0} bills`, forest: true },
+    { label: "Avg ticket", value: summary && summary.billCount > 0 ? formatCurrency(summary.totalRevenue / summary.billCount) : "—", sub: "per bill" },
+    { label: "Tax collected", value: summary ? formatCurrency(summary.totalTax) : "—", sub: "CGST + SGST" },
+    { label: "Discounts", value: summary ? formatCurrency(summary.totalDiscount) : "—", sub: "applied today" },
+  ]
+
+  const sections: { id: NavId; label: string; sub: string; kpi: string; tag?: string; tone?: string }[] = [
+    { id: "menu",      label: "Catalog",    sub: "Menu, modifiers, discounts, tax", kpi: "Manage what you sell" },
+    { id: "staff",     label: "People",     sub: "Staff, customers, loyalty",       kpi: "Manage who works here" },
+    { id: "shifts",    label: "Finance",    sub: "Reports, expenses",               kpi: "Revenue & cost tracking" },
+    { id: "tables",    label: "Setup",      sub: "Tables, outlet, devices",         kpi: "Outlet configuration",
+      tag: lowStockData?.count ? `${lowStockData.count} low stock` : undefined, tone: "red" },
+    { id: "outlet",    label: "Outlet",     sub: "Name, GSTIN, branding",           kpi: "Business info & compliance" },
+    { id: "reservations", label: "Reservations", sub: "Upcoming bookings",          kpi: "Table reservations" },
+  ]
+
+  return (
+    <div className="scroll" style={{ flex: 1, overflowY: "auto", padding: "28px 32px", display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Greeting */}
+      <div>
+        <h1 className="display" style={{ margin: 0, fontSize: 30, fontWeight: 600, letterSpacing: "-.02em" }}>
+          {greeting}, {user?.name?.split(" ")[0] ?? "there"}.
+        </h1>
+        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--color-ink-3)" }}>{dateLabel}</p>
+      </div>
+
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        {kpiCards.map((kpi, i) => (
+          <div key={i} style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, padding: "14px 18px", boxShadow: "0 1px 3px rgba(0,0,0,.04)" }}>
+            <div className="eyebrow">{kpi.label}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 24, fontWeight: 600, marginTop: 6, color: kpi.forest ? "var(--color-green)" : "var(--color-ink)" }}>{kpi.value}</div>
+            <div style={{ fontSize: 11, color: "var(--color-ink-4)", marginTop: 2 }}>{kpi.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Section cards */}
+      <div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Quick access</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {sections.map((s) => (
+            <article key={s.id} onClick={() => navigate(s.id)} style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, padding: 18, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,.04)", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.label}</div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>{s.sub}</div>
+                </div>
+                {s.tag && <span className={`badge ${s.tone ?? ""}`} style={{ fontSize: 10 }}>{s.tag}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-2)", borderTop: "1px solid var(--color-line)", paddingTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", fontWeight: 500 }}>
+                {s.kpi} <span style={{ color: "var(--color-ink-4)" }}>→</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      {/* Payment mode breakdown */}
+      {summary && Object.keys(summary.byPaymentMode).length > 0 && (
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 12 }}>Payment mix · today</div>
+          <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, padding: "16px 20px", display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {Object.entries(summary.byPaymentMode).map(([mode, amount]) => (
+              <div key={mode}>
+                <div style={{ fontSize: 11, color: "var(--color-ink-3)", textTransform: "capitalize", fontWeight: 500 }}>{mode}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 600, marginTop: 2 }}>{formatCurrency(amount as number)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
-const VALID_TABS = new Set<NavId>(["staff", "menu", "tables", "taxes", "modifiers", "discounts", "shifts", "customers", "loyalty", "expenses", "outlet", "devices"])
+// ── Nav sidebar ──────────────────────────────────────────────────────────────
+type NavGroup = { label: string; ownerOnly?: boolean; items: { id: NavId; label: string }[] }
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Catalog",
+    items: [
+      { id: "menu",      label: "Menu" },
+      { id: "modifiers", label: "Modifiers" },
+      { id: "discounts", label: "Discounts" },
+      { id: "taxes",     label: "Tax & Charges" },
+    ],
+  },
+  {
+    label: "People",
+    items: [
+      { id: "staff",     label: "Staff & PINs" },
+      { id: "customers", label: "Customers" },
+      { id: "loyalty",   label: "Loyalty" },
+    ],
+  },
+  {
+    label: "Finance",
+    items: [
+      { id: "shifts",   label: "Reports" },
+      { id: "expenses", label: "Expenses" },
+    ],
+  },
+  {
+    label: "Setup",
+    ownerOnly: false,
+    items: [
+      { id: "outlet",       label: "Outlet Settings" },
+      { id: "tables",       label: "Tables" },
+      { id: "devices",      label: "Devices" },
+      { id: "reservations", label: "Reservations" },
+    ],
+  },
+]
+
+const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
+  home:      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+  staff:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.3 3-6 7-6s7 2.7 7 6"/><path d="M16 4a3.5 3.5 0 010 7M22 20c0-2.7-1.7-5-4.5-5.7"/></svg>,
+  menu:      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v13a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></svg>,
+  modifiers: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/><circle cx="12" cy="12" r="9"/></svg>,
+  tables:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>,
+  taxes:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="11" rx="1.5"/><circle cx="12" cy="12.5" r="2.5"/><path d="M5 10v.01M19 15v.01"/></svg>,
+  discounts: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
+  shifts:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
+  customers: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+  loyalty:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  expenses:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
+  outlet:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+  devices:      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0114 0M8 16a6 6 0 018 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>,
+  reservations: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>,
+}
+
+const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "shifts", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ManagerPage() {
+  const navigate    = useNavigate()
+  const user        = useAuthStore((s) => s.user)
+  const { outletName } = useAuthStore()
   const [activeTab, setActiveTab] = useState<NavId>(() => {
     const t = new URLSearchParams(window.location.search).get("tab") as NavId | null
-    return t && VALID_TABS.has(t) ? t : "staff"
+    return t && VALID_TABS.has(t) ? t : "home"
   })
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
-      <TopBar current="manager" />
-      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
-        <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", padding: 14, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          <div style={{ flex: 1 }}>
-            {NAV_ITEMS.map((item) => {
-              const active = activeTab === item.id
-              return (
-                <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 2, display: "flex", alignItems: "center", gap: 10, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 500, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
-                  onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
-                  onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
-                  {NAV_ICONS[item.id]}
-                  <span style={{ flex: 1 }}>{item.label}</span>
-                </div>
-              )
-            })}
+    <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)" }}>
+      {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
+      <aside style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", flexDirection: "column", padding: "16px 10px" }}>
+        {/* Logo + outlet */}
+        <div style={{ padding: "0 6px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 7, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--color-bg)" }}>
+              <path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z"/>
+            </svg>
           </div>
-          <SetupChecklist onNavigate={setActiveTab} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="display" style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outletName ?? "inbill"}</div>
+          </div>
         </div>
+
+        {/* Floor shortcut */}
+        <div onClick={() => navigate({ to: "/floor" })} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 2, display: "flex", alignItems: "center", gap: 9, fontSize: 13, fontWeight: 500, color: "var(--color-ink-2)", cursor: "pointer" }}
+          onMouseEnter={(e) => (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)"}
+          onMouseLeave={(e) => (e.currentTarget as HTMLDivElement).style.background = "transparent"}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>
+          Floor
+        </div>
+
+        {/* Home */}
+        <div onClick={() => setActiveTab("home")} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 10, display: "flex", alignItems: "center", gap: 9, fontSize: 13, fontWeight: activeTab === "home" ? 600 : 500, color: activeTab === "home" ? "var(--color-ink)" : "var(--color-ink-2)", background: activeTab === "home" ? "var(--color-surface-2)" : "transparent", cursor: "pointer" }}
+          onMouseEnter={(e) => { if (activeTab !== "home") (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
+          onMouseLeave={(e) => { if (activeTab !== "home") (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
+          {NAV_ICONS.home}
+          Home
+        </div>
+
+        {/* Grouped nav */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 18 }}>
+              <div className="eyebrow" style={{ padding: "0 10px", marginBottom: 4 }}>{group.label}</div>
+              {group.items.map((item) => {
+                const active = activeTab === item.id
+                return (
+                  <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 1, display: "flex", alignItems: "center", gap: 9, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 400, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
+                    onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
+                    onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
+                    {NAV_ICONS[item.id]}
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* User + setup checklist */}
+        <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 10 }}>
+          <SetupChecklist onNavigate={setActiveTab} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 8px 0" }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600 }}>
+              {initials(user?.name ?? "?")}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name}</div>
+              <div style={{ fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }}>{user?.role}</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Content ──────────────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+        {/* Content header */}
+        <div style={{ height: 52, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 28px", gap: 14 }}>
+          <span style={{ fontSize: 13, color: "var(--color-ink-3)", fontWeight: 500 }}>
+            {activeTab === "home" ? "Home" : NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === activeTab)?.label ?? activeTab}
+          </span>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => navigate({ to: "/floor" })} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>
+            Floor
+          </button>
+          <button onClick={() => navigate({ to: "/kds" })} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18"/><path d="M9 17v3M15 17v3M6 20h12"/></svg>
+            Kitchen
+          </button>
+        </div>
+
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+          {activeTab === "home"      && <HomeTab navigate={setActiveTab} />}
           {activeTab === "staff"     && <StaffTab />}
           {activeTab === "menu"      && <MenuTab />}
           {activeTab === "modifiers" && <ModifiersTab />}
@@ -1846,8 +2315,9 @@ export default function ManagerPage() {
           {activeTab === "discounts" && <DiscountsTab />}
           {activeTab === "shifts"    && <ShiftsTab />}
           {activeTab === "customers" && <CustomersTab />}
-          {activeTab === "loyalty"   && <LoyaltyTab />}
-          {activeTab === "expenses"  && <ExpensesTab />}
+          {activeTab === "loyalty"       && <LoyaltyTab />}
+          {activeTab === "reservations"  && <ReservationsTab />}
+          {activeTab === "expenses"      && <ExpensesTab />}
           {activeTab === "outlet"    && <OutletTab />}
           {activeTab === "devices"   && <DevicesTab />}
         </div>

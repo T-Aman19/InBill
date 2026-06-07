@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>InBill</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: oklch(14% 0.010 60);
+      color: oklch(96% 0.005 70);
+      font-family: -apple-system, 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    .logo {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 10px;
+    }
+    .sub {
+      font-size: 13px;
+      color: oklch(55% 0.010 60);
+      margin-bottom: 40px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid oklch(30% 0.010 60);
+      border-top-color: oklch(72% 0.010 60);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #status {
+      font-size: 12px;
+      color: oklch(45% 0.010 60);
+      letter-spacing: 0.02em;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">InBill</div>
+  <div class="sub">Point of Sale</div>
+  <div class="spinner"></div>
+  <div id="status">Starting…</div>
+</body>
+</html>

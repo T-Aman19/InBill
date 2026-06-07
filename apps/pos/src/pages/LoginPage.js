@@ -25,6 +25,7 @@ function Key({ d, sub, onPress, disabled }) {
 export default function LoginPage() {
     const navigate = useNavigate();
     const login = useAuthStore((s) => s.login);
+    const setSetupCode = useAuthStore((s) => s.setSetupCode);
     const [outletId, setOutletId] = useState(localStorage.getItem(OUTLET_ID_KEY) ?? "");
     const [outletName, setOutletName] = useState(localStorage.getItem(OUTLET_NAME_KEY) ?? "InBill POS");
     const [pin, setPin] = useState("");
@@ -91,6 +92,7 @@ export default function LoginPage() {
             localStorage.setItem(OUTLET_NAME_KEY, res.name);
             setOutletId(res.id);
             setOutletName(res.name);
+            setSetupCode(code);
             setSetup(false);
         }
         catch {
@@ -116,7 +118,7 @@ export default function LoginPage() {
                             cursor: tmpCode.trim() && !saving ? "pointer" : "not-allowed",
                             opacity: tmpCode.trim() && !saving ? 1 : .4,
                             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                        }, children: [saving ? "Verifying…" : "Continue", !saving && _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] }), _jsxs("div", { style: { marginTop: 20, textAlign: "center" }, children: [_jsx("span", { style: { fontSize: 12, color: "var(--color-ink-3)" }, children: "Setting up for the first time? " }), _jsx("a", { href: "/owner/login", style: { fontSize: 12, color: "var(--color-ink)", fontWeight: 500, textDecoration: "underline" }, children: "Create owner account \u2192" })] })] }) }));
+                        }, children: [saving ? "Verifying…" : "Continue", !saving && _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12h14M13 6l6 6-6 6" }) })] }), _jsxs("div", { style: { marginTop: 20, textAlign: "center" }, children: [_jsx("span", { style: { fontSize: 12, color: "var(--color-ink-3)" }, children: "Setting up for the first time? " }), _jsx("button", { onClick: () => navigate({ to: "/owner/login" }), style: { fontSize: 12, color: "var(--color-ink)", fontWeight: 500, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }, children: "Create owner account \u2192" })] })] }) }));
     // ── Main login ───────────────────────────────────────────────
     return (_jsxs("div", { style: { flex: 1, display: "grid", gridTemplateColumns: "1.1fr 1fr", overflow: "hidden" }, children: [_jsxs("div", { style: {
                     background: "linear-gradient(160deg, oklch(28% 0.04 55), oklch(22% 0.02 55))",

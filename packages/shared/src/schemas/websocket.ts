@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { Order } from "./order.js"
 import type { Kot } from "./order.js"
 import type { Table } from "./table.js"
+import type { QueueEntry, Reservation } from "./queue.js"
 
 export const wsEventTypeSchema = z.enum([
   "order.created",
@@ -15,6 +16,8 @@ export const wsEventTypeSchema = z.enum([
   "sync.status",
   "payment.confirmed",
   "inventory.low_stock",
+  "queue.updated",
+  "reservation.updated",
 ])
 
 export type WsEventType = z.infer<typeof wsEventTypeSchema>
@@ -31,3 +34,5 @@ export type WsEvent =
   | { type: "sync.status"; payload: { status: "synced" | "pending" | "offline"; pendingCount: number } }
   | { type: "payment.confirmed"; payload: { billId: string; paymentId: string } }
   | { type: "inventory.low_stock"; payload: { ingredientId: string; name: string; currentStock: string; unit: string; reorderLevel: string } }
+  | { type: "queue.updated"; payload: { entries: QueueEntry[] } }
+  | { type: "reservation.updated"; payload: { reservation: Reservation } }

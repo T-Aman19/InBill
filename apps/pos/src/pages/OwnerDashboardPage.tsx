@@ -48,6 +48,10 @@ export default function OwnerDashboardPage() {
   const [createForm, setCreateForm] = useState<CreateForm>(DEFAULT_CREATE)
   const [createErr, setCreateErr] = useState("")
   const [range, setRange] = useState<Range>("today")
+  const [showChangePw, setShowChangePw] = useState(false)
+  const [changePwForm, setChangePwForm] = useState({ currentPassword: "", newPassword: "", confirm: "" })
+  const [changePwErr, setChangePwErr] = useState("")
+  const [changePwOk, setChangePwOk] = useState(false)
 
   useEffect(() => {
     if (!localStorage.getItem("inbill_owner_token")) navigate({ to: "/owner/login" })
@@ -101,6 +105,26 @@ export default function OwnerDashboardPage() {
       }
     },
   })
+
+  const changePwMutation = useMutation({
+    mutationFn: () => api.owner.changePassword(changePwForm.currentPassword, changePwForm.newPassword),
+    onSuccess: () => { setChangePwOk(true) },
+    onError: (e: Error) => setChangePwErr(e.message),
+  })
+
+  function handleChangePw(e: React.FormEvent) {
+    e.preventDefault()
+    setChangePwErr("")
+    if (changePwForm.newPassword !== changePwForm.confirm) { setChangePwErr("Passwords do not match"); return }
+    changePwMutation.mutate()
+  }
+
+  function closeChangePw() {
+    setShowChangePw(false)
+    setChangePwForm({ currentPassword: "", newPassword: "", confirm: "" })
+    setChangePwErr("")
+    setChangePwOk(false)
+  }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -190,7 +214,7 @@ export default function OwnerDashboardPage() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--color-bg)", fontFamily: "var(--font-sans)", display: "flex", flexDirection: "column" }}>
       {/* Header */}
-      <header style={{ height: 64, background: "#fff", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 28px", gap: 12, flexShrink: 0 }}>
+      <header style={{ height: 64, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 28px", gap: 12, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 28, height: 28, background: "var(--color-ink)", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
@@ -210,9 +234,16 @@ export default function OwnerDashboardPage() {
 
         <div style={{ width: 1, height: 22, background: "var(--color-line)", margin: "0 4px" }} />
 
-        <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>
-          {ownerInitials}
-        </div>
+        <button
+          className="btn ghost"
+          onClick={() => setShowChangePw(true)}
+          title="Change password"
+          style={{ padding: "0 8px", height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>
+            {ownerInitials}
+          </div>
+        </button>
 
         <button
           className="btn ghost"
@@ -261,7 +292,7 @@ export default function OwnerDashboardPage() {
               style={{
                 borderRadius: 9999,
                 border: "1px solid var(--color-line)",
-                background: "#fff",
+                background: "var(--color-surface)",
                 padding: "10px 20px",
                 display: "flex",
                 alignItems: "center",
@@ -333,7 +364,7 @@ export default function OwnerDashboardPage() {
                     padding: "18px 20px",
                     borderRadius: 12,
                     border: `1px solid ${action ? "var(--color-accent-soft)" : "var(--color-line)"}`,
-                    background: action ? "var(--color-accent-soft)" : "#fff",
+                    background: action ? "var(--color-accent-soft)" : "var(--color-surface)",
                     opacity: action ? 1 : 0.55,
                   }}
                 >
@@ -360,7 +391,7 @@ export default function OwnerDashboardPage() {
                   <div
                     key={outlet.id}
                     style={{
-                      background: "#fff",
+                      background: "var(--color-surface)",
                       border: "1px solid var(--color-line)",
                       borderRadius: 12,
                       padding: 22,
@@ -401,11 +432,11 @@ export default function OwnerDashboardPage() {
 
                     {/* Stats 2-col grid */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "var(--color-line)", borderRadius: 10, overflow: "hidden", border: "1px solid var(--color-line)" }}>
-                      <div style={{ background: "#fff", padding: "12px 14px" }}>
+                      <div style={{ background: "var(--color-surface)", padding: "12px 14px" }}>
                         <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-ink-3)", marginBottom: 4 }}>Revenue</div>
                         <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>{fmt(outlet.revenue)}</div>
                       </div>
-                      <div style={{ background: "#fff", padding: "12px 14px" }}>
+                      <div style={{ background: "var(--color-surface)", padding: "12px 14px" }}>
                         <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--color-ink-3)", marginBottom: 4 }}>Bills</div>
                         <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--color-ink)" }}>{outlet.billCount}</div>
                       </div>
@@ -487,7 +518,7 @@ export default function OwnerDashboardPage() {
                       onClick={() => quickActionMutation.mutate({ outletId: firstOutlet.id, tab: action.tab })}
                       disabled={quickActionMutation.isPending}
                       style={{
-                        background: "#fff",
+                        background: "var(--color-surface)",
                         border: "1px solid var(--color-line)",
                         borderRadius: 12,
                         padding: "18px 16px",
@@ -528,7 +559,7 @@ export default function OwnerDashboardPage() {
       {/* Create outlet modal */}
       {showCreate && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 18, boxShadow: "0 24px 64px rgba(0,0,0,.15)", width: "100%", maxWidth: 440, padding: 28 }}>
+          <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 440, padding: 28 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: "0 0 20px" }}>Add Outlet</h2>
             <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {(["name", "address", "phone", "gstin"] as const).map((field) => (
@@ -552,6 +583,52 @@ export default function OwnerDashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showChangePw && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
+          <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 400, padding: 28 }}>
+            {changePwOk ? (
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <div style={{ width: 44, height: 44, background: "var(--color-surface-2)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>Password updated</div>
+                <p style={{ fontSize: 13, color: "var(--color-ink-3)", margin: "0 0 20px" }}>Your password has been changed successfully.</p>
+                <button className="btn primary" onClick={closeChangePw} style={{ width: "100%", height: 40, justifyContent: "center" }}>Done</button>
+              </div>
+            ) : (
+              <>
+                <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: "0 0 20px" }}>Change Password</h2>
+                <form onSubmit={handleChangePw} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {([
+                    { key: "currentPassword", label: "Current password" },
+                    { key: "newPassword", label: "New password" },
+                    { key: "confirm", label: "Confirm new password" },
+                  ] as { key: keyof typeof changePwForm; label: string }[]).map(({ key, label }) => (
+                    <div key={key}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 5 }}>{label}</label>
+                      <input
+                        type="password"
+                        style={{ width: "100%", height: 42, border: "1px solid var(--color-line-strong)", borderRadius: 10, padding: "0 14px", fontSize: 14, fontFamily: "var(--font-sans)", outline: "none", boxSizing: "border-box", color: "var(--color-ink)" }}
+                        value={changePwForm[key]}
+                        onChange={(e) => setChangePwForm((f) => ({ ...f, [key]: e.target.value }))}
+                        required
+                        placeholder={key === "newPassword" ? "Min 8 characters" : ""}
+                      />
+                    </div>
+                  ))}
+                  {changePwErr && <p style={{ fontSize: 13, color: "var(--color-red)", margin: 0 }}>{changePwErr}</p>}
+                  <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+                    <button type="button" className="btn ghost" onClick={closeChangePw} style={{ flex: 1, justifyContent: "center", height: 40 }}>Cancel</button>
+                    <button type="submit" className="btn primary" disabled={changePwMutation.isPending} style={{ flex: 1, justifyContent: "center", height: 40 }}>
+                      {changePwMutation.isPending ? "Updating…" : "Update"}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}

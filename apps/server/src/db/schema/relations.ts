@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm"
-import { owners, outlets } from "./owners.js"
+import { owners, outlets, ownerPasswordResets } from "./owners.js"
 import { users } from "./users.js"
 import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs } from "./menu.js"
 import { floors, tables } from "./tables.js"
@@ -7,9 +7,15 @@ import { orders, orderItems, orderItemModifiers, kots, customers } from "./order
 import { bills, billPayments, billDiscounts, discounts } from "./billing.js"
 import { shifts, shiftCashEntries } from "./shifts.js"
 import { ingredients, recipes, recipeIngredients, stockMovements, vendors, purchaseOrders, purchaseOrderItems } from "./inventory.js"
+import { queueEntries, reservations } from "./queue.js"
 
 export const ownersRelations = relations(owners, ({ many }) => ({
   outlets: many(outlets),
+  passwordResets: many(ownerPasswordResets),
+}))
+
+export const ownerPasswordResetsRelations = relations(ownerPasswordResets, ({ one }) => ({
+  owner: one(owners, { fields: [ownerPasswordResets.ownerId], references: [owners.id] }),
 }))
 
 export const outletsRelations = relations(outlets, ({ one, many }) => ({
@@ -29,6 +35,8 @@ export const outletsRelations = relations(outlets, ({ one, many }) => ({
   stockMovements: many(stockMovements),
   vendors: many(vendors),
   purchaseOrders: many(purchaseOrders),
+  queueEntries: many(queueEntries),
+  reservations: many(reservations),
 }))
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -171,4 +179,14 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
 export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
   purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
   ingredient: one(ingredients, { fields: [purchaseOrderItems.ingredientId], references: [ingredients.id] }),
+}))
+
+export const queueEntriesRelations = relations(queueEntries, ({ one }) => ({
+  outlet: one(outlets, { fields: [queueEntries.outletId], references: [outlets.id] }),
+  table: one(tables, { fields: [queueEntries.tableId], references: [tables.id] }),
+}))
+
+export const reservationsRelations = relations(reservations, ({ one }) => ({
+  outlet: one(outlets, { fields: [reservations.outletId], references: [outlets.id] }),
+  table: one(tables, { fields: [reservations.tableId], references: [tables.id] }),
 }))

@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth";
@@ -9,7 +9,16 @@ function initials(name) {
 }
 export function TopBar({ current, stats, onTakeaway, onDelivery }) {
     const navigate = useNavigate();
-    const { user, outletName, logout } = useAuthStore();
+    const { user, outletName, setupCode, logout } = useAuthStore();
+    const [copied, setCopied] = useState(false);
+    function copyCode() {
+        if (!displaySetupCode)
+            return;
+        navigator.clipboard.writeText(displaySetupCode).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        });
+    }
     const isManagerOrOwner = user?.role === "manager" || user?.role === "owner";
     const { data: lowStockData } = useQuery({
         queryKey: ["low-stock-count"],
@@ -18,6 +27,13 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }) {
         refetchInterval: 60_000,
     });
     const lowStockCount = lowStockData?.count ?? 0;
+    const { data: outletData } = useQuery({
+        queryKey: ["outlet-info"],
+        queryFn: () => api.outlet.get(),
+        enabled: isManagerOrOwner,
+        staleTime: Infinity,
+    });
+    const displaySetupCode = setupCode ?? outletData?.setupCode ?? null;
     const nav = (to) => () => {
         const paths = { floor: "/floor", kds: "/kds", manager: "/manager", inventory: "/inventory" };
         navigate({ to: paths[to] });
@@ -33,7 +49,16 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }) {
                             background: "var(--color-ink)",
                             display: "flex", alignItems: "center", justifyContent: "center",
                             color: "var(--color-bg)",
-                        }, children: _jsx("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" }) }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 14, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }, children: outletName }), _jsx("div", { style: { fontSize: 11, color: "var(--color-ink-3)" }, children: "Terminal 01" })] })] }), stats && (_jsx("div", { style: {
+                        }, children: _jsx("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" }) }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 14, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }, children: outletName }), displaySetupCode ? (_jsxs("button", { onClick: copyCode, title: copied ? "Copied!" : "Click to copy setup code", style: {
+                                    display: "inline-flex", alignItems: "center", gap: 4,
+                                    background: "none", border: "none", padding: 0,
+                                    cursor: "pointer", color: "inherit",
+                                }, children: [_jsx("span", { style: {
+                                            fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: ".06em",
+                                            color: copied ? "var(--color-accent-ink)" : "var(--color-ink-3)",
+                                            fontWeight: 500,
+                                            transition: "color .15s",
+                                        }, children: copied ? "Copied!" : displaySetupCode }), !copied && (_jsxs("svg", { width: "10", height: "10", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "var(--color-ink-4)", flexShrink: 0 }, children: [_jsx("rect", { x: "9", y: "9", width: "13", height: "13", rx: "2" }), _jsx("path", { d: "M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" })] }))] })) : (_jsx("div", { style: { fontSize: 11, color: "var(--color-ink-3)" }, children: "Terminal 01" }))] })] }), stats && (_jsx("div", { style: {
                     display: "flex", gap: 0, marginLeft: 8,
                     background: "var(--color-surface-2)",
                     border: "1px solid var(--color-line)",

@@ -1,0 +1,160 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter Tight', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-bg:          oklch(98%  0.005 70);
+  --color-surface:     oklch(100% 0     0);
+  --color-surface-2:   oklch(96%  0.006 70);
+  --color-hover:       oklch(94%  0.008 70);
+
+  --color-line:        oklch(90%  0.008 70);
+  --color-line-strong: oklch(82%  0.012 70);
+
+  --color-ink:         oklch(20%  0.010 60);
+  --color-ink-2:       oklch(38%  0.012 60);
+  --color-ink-3:       oklch(58%  0.012 60);
+  --color-ink-4:       oklch(72%  0.012 60);
+
+  --color-accent:      oklch(70%  0.15  55);
+  --color-accent-ink:  oklch(28%  0.06  55);
+  --color-accent-soft: oklch(94%  0.04  70);
+
+  --color-green:       oklch(62%  0.13  150);
+  --color-green-soft:  oklch(94%  0.04  150);
+  --color-amber:       oklch(74%  0.15  70);
+  --color-amber-soft:  oklch(94%  0.05  75);
+  --color-red:         oklch(60%  0.20  25);
+  --color-red-soft:    oklch(94%  0.04  25);
+  --color-blue:        oklch(60%  0.13  245);
+  --color-blue-soft:   oklch(94%  0.04  245);
+}
+
+:root {
+  --shadow-1: 0 1px 0 rgba(0,0,0,.02), 0 1px 3px rgba(0,0,0,.04);
+  --shadow-2: 0 2px 0 rgba(0,0,0,.02), 0 8px 24px rgba(0,0,0,.06);
+  --shadow-3: 0 24px 60px rgba(0,0,0,.18);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  height: 100dvh;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+button { font-family: inherit; cursor: pointer; }
+input  { font-family: inherit; }
+
+#root { height: 100dvh; display: flex; flex-direction: column; }
+
+/* ─── Scrollbar ── */
+.scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; -webkit-overflow-scrolling: touch; }
+.scroll::-webkit-scrollbar { width: 4px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 4px; }
+
+/* ─── Animations ── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pop {
+  0%   { transform: scale(.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(60% 0.2 25 / .6); }
+  50%       { box-shadow: 0 0 0 8px oklch(60% 0.2 25 / 0); }
+}
+
+.animate-fade-in    { animation: fade-in .3s ease forwards; }
+.animate-slide-up   { animation: slide-up .28s cubic-bezier(.2,1,.4,1) forwards; }
+.animate-overlay-in { animation: overlay-in .2s ease forwards; }
+.animate-pop        { animation: pop .4s cubic-bezier(.2,1.5,.4,1) forwards; }
+.animate-shake      { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
+.animate-pulse-red  { animation: pulse-red 1.6s ease-out infinite; }
+
+/* ─── Veg/Non-veg indicator ── */
+.veg-dot {
+  width: 12px; height: 12px;
+  border: 1.5px solid currentColor;
+  padding: 1.5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.veg-dot::after {
+  content: ''; width: 100%; height: 100%;
+  border-radius: 50%; background: currentColor;
+}
+.veg-dot.veg    { color: oklch(58% 0.16 145); }
+.veg-dot.nonveg { color: oklch(56% 0.20 25); }
+
+/* ─── Status dot ── */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.green { background: var(--color-green); }
+.dot.amber { background: var(--color-amber); }
+.dot.red   { background: var(--color-red); }
+.dot.blue  { background: var(--color-blue); }
+.dot.gray  { background: var(--color-ink-4); }
+
+/* ─── Badge ── */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; letter-spacing: .02em;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--color-surface-2); color: var(--color-ink-2);
+  border: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+.badge.green { background: var(--color-green-soft); color: var(--color-green); border-color: transparent; }
+.badge.amber { background: var(--color-amber-soft); color: oklch(45% 0.12 70);  border-color: transparent; }
+.badge.red   { background: var(--color-red-soft);   color: var(--color-red);   border-color: transparent; }
+.badge.blue  { background: var(--color-blue-soft);  color: var(--color-blue);  border-color: transparent; }
+
+/* ─── Button ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1;
+  padding: 0 16px; height: 44px; border-radius: 10px; border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap; transition: opacity .12s;
+  background: var(--color-surface-2); color: var(--color-ink-2);
+  border-color: var(--color-line);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:not(:disabled):active { opacity: .75; transform: scale(.97); }
+.btn.sm { height: 36px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+.btn.lg { height: 52px; padding: 0 24px; font-size: 16px; border-radius: 14px; }
+.btn.primary { background: var(--color-accent); color: var(--color-accent-ink); border-color: transparent; }
+.btn.green   { background: var(--color-green);  color: #fff; border-color: transparent; }
+.btn.red     { background: var(--color-red);    color: #fff; border-color: transparent; }
+.btn.ghost   { background: transparent; color: var(--color-ink-2); border-color: var(--color-line); }
+.btn.full    { width: 100%; }

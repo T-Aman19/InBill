@@ -106,6 +106,7 @@ export const api = {
   },
   orders: {
     getOpen: () => get<unknown[]>("/orders"),
+    getCounter: () => get<unknown[]>("/orders/counter"),
     get: (id: string) => get<unknown>(`/orders/${id}`),
     create: (body: unknown) => post<unknown>("/orders", body),
     addItem: (orderId: string, body: unknown) => post<unknown>(`/orders/${orderId}/items`, body),
@@ -195,7 +196,7 @@ export const api = {
     delete: (id: string) => del(`/shifts/cash-entries/${id}`),
   },
   outlet: {
-    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean } }>("/outlet"),
+    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; setupCode: string; settings?: { deliveryEnabled?: boolean } }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
   },
   inventory: {
@@ -261,6 +262,16 @@ export const api = {
     reportsQuery: (body: { question: string; from?: string; to?: string }) =>
       post<{ answer: string }>("/ai/reports-query", body),
   },
+  queue: {
+    list: (status?: string) => get<unknown[]>(`/queue${status ? `?status=${status}` : ""}`),
+    addWalkIn: (body: { customerName: string; customerPhone?: string | null; partySize: number }) => post<unknown>("/queue", body),
+    seat: (id: string, tableId: string) => patch<unknown>(`/queue/${id}/seat`, { tableId }),
+    cancel: (id: string, status: "cancelled" | "no_show") => patch<unknown>(`/queue/${id}/cancel`, { status }),
+    listReservations: (date?: string) => get<unknown[]>(`/queue/reservations${date ? `?date=${date}` : ""}`),
+    createReservation: (body: unknown) => post<unknown>("/queue/reservations", body),
+    updateReservation: (id: string, body: unknown) => patch<unknown>(`/queue/reservations/${id}`, body),
+    deleteReservation: (id: string) => del<unknown>(`/queue/reservations/${id}`),
+  },
   loyalty: {
     getConfig: () => get<{ id: string; pointsPerRupee: string; redeemRate: string; minRedeemPoints: number; isActive: boolean } | null>("/loyalty/config"),
     saveConfig: (body: { pointsPerRupee?: number; redeemRate?: number; minRedeemPoints?: number; isActive?: boolean }) => post<unknown>("/loyalty/config", body),
@@ -272,6 +283,9 @@ export const api = {
   owner: {
     register: (body: unknown) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/register", body),
     login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),
+    forgotPassword: (email: string) => post<{ ok: boolean }>("/auth/owner/forgot-password", { email }),
+    resetPassword: (token: string, newPassword: string) => post<{ ok: boolean }>("/auth/owner/reset-password", { token, newPassword }),
+    changePassword: (currentPassword: string, newPassword: string) => ownerRequest<{ ok: boolean }>("/auth/owner/change-password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }),
     me: () => oget<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
     outlets: (from?: string, to?: string) => {
       const q = from && to ? `?from=${from}&to=${to}` : ""

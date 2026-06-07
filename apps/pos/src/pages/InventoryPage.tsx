@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { api } from "@/lib/api"
-import { TopBar } from "@/components/ui/TopBar"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Unit = "kg" | "g" | "L" | "mL" | "pcs"
@@ -531,12 +530,35 @@ const MV_BADGE: Record<MovementType, string> = { purchase: "badge green", sale: 
 const MV_LABEL: Record<MovementType, string> = { purchase: "Purchase", sale: "Sale", waste: "Waste", adjustment: "Adjustment" }
 
 function MovementsTab() {
+  const qc = useQueryClient()
   const today = new Date().toISOString().split("T")[0]!
   const [typeFilter, setTypeFilter] = useState<MovementType | "all">("all")
   const [exportFrom, setExportFrom] = useState(today)
   const [exportTo, setExportTo] = useState(today)
   const [ingSearch, setIngSearch] = useState("")
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualIngId, setManualIngId] = useState("")
+  const [manualType, setManualType] = useState<"purchase" | "waste" | "adjustment">("purchase")
+  const [manualDelta, setManualDelta] = useState("")
+  const [manualNote, setManualNote] = useState("")
   const { data: rows = [] } = useQuery<Movement[]>({ queryKey: ["movements"], queryFn: () => api.inventory.listMovements(100) as Promise<Movement[]> })
+  const { data: ingredients = [] } = useQuery<Ingredient[]>({ queryKey: ["ingredients"], queryFn: () => api.inventory.listIngredients() as Promise<Ingredient[]> })
+
+  const manualMutation = useMutation({
+    mutationFn: (b: unknown) => api.inventory.createAdjustment(b),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["movements"] })
+      qc.invalidateQueries({ queryKey: ["ingredients"] })
+      setManualOpen(false)
+      setManualIngId(""); setManualType("purchase"); setManualDelta(""); setManualNote("")
+    },
+  })
+
+  function doManual() {
+    if (!manualIngId || !manualDelta) return
+    const delta = manualType === "waste" ? -Math.abs(Number(manualDelta)) : Number(manualDelta)
+    manualMutation.mutate({ ingredientId: manualIngId, type: manualType, delta, note: manualNote || undefined })
+  }
 
   const filtered = rows.filter(r => {
     if (typeFilter !== "all" && r.type !== typeFilter) return false
@@ -566,7 +588,7 @@ function MovementsTab() {
         </div>
         <div style={{ flex: 1 }} />
         <button className="btn" onClick={() => api.inventory.exportMovementsCsv(exportFrom, exportTo)}>{I.download}&nbsp;Export CSV</button>
-        <button className="btn primary">{I.plus}&nbsp;Manual entry</button>
+        <button className="btn primary" onClick={() => setManualOpen(true)}>{I.plus}&nbsp;Manual entry</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: "var(--color-line)", borderRadius: 12, overflow: "hidden", border: "1px solid var(--color-line)" }}>
@@ -615,6 +637,43 @@ function MovementsTab() {
           </tbody>
         </table>
       </div>
+
+      {manualOpen && (
+        <SlidePanel
+          title="Manual Stock Entry"
+          onClose={() => setManualOpen(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setManualOpen(false)}>Cancel</button>
+              <button className="btn primary" onClick={doManual} disabled={!manualIngId || !manualDelta || manualMutation.isPending}>
+                {manualMutation.isPending ? "Recording…" : "Record"}
+              </button>
+            </>
+          }
+        >
+          <FL label="Ingredient *">
+            <select value={manualIngId} onChange={e => setManualIngId(e.target.value)} style={iStyle({ height: 44 })}>
+              <option value="">Select ingredient…</option>
+              {ingredients.filter(i => i.isActive === "true").map(i => (
+                <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
+              ))}
+            </select>
+          </FL>
+          <FL label="Movement Type">
+            <select value={manualType} onChange={e => setManualType(e.target.value as typeof manualType)} style={iStyle({ height: 44 })}>
+              <option value="purchase">Purchase (add stock)</option>
+              <option value="waste">Waste (remove stock)</option>
+              <option value="adjustment">Adjustment</option>
+            </select>
+          </FL>
+          <FL label={`Quantity${manualIngId ? ` (${ingredients.find(i => i.id === manualIngId)?.unit ?? ""})` : ""}`}>
+            <input style={iStyle({ height: 44 })} type="number" min="0" step="0.001" value={manualDelta} onChange={e => setManualDelta(e.target.value)} placeholder="0.000" autoFocus />
+          </FL>
+          <FL label="Note (optional)">
+            <input style={iStyle({ height: 44 })} value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="e.g. End-of-day count" />
+          </FL>
+        </SlidePanel>
+      )}
     </div>
   )
 }
@@ -851,6 +910,7 @@ function PurchaseOrdersTab() {
 type Tab = "ingredients" | "recipes" | "movements" | "vendors" | "purchase-orders"
 
 export default function InventoryPage() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>("ingredients")
   const { data: ingredients = [] } = useQuery<Ingredient[]>({ queryKey: ["ingredients"], queryFn: () => api.inventory.listIngredients() as Promise<Ingredient[]> })
   const lowCount = ingredients.filter(i => i.isActive === "true" && (isLow(i) || isOut(i))).length
@@ -865,7 +925,30 @@ export default function InventoryPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--color-bg)" }}>
-      <TopBar current="inventory" />
+      {/* v2 compact breadcrumb header */}
+      <div style={{ height: 56, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 24px", gap: 10 }}>
+        <button onClick={() => navigate({ to: "/manager" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+          onMouseEnter={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"}
+          onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Manager
+        </button>
+        <div style={{ width: 1, height: 18, background: "var(--color-line)" }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>Inventory</span>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => navigate({ to: "/floor" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-ink-3)", fontSize: 12, cursor: "pointer" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-2)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>
+          Floor
+        </button>
+        <button onClick={() => navigate({ to: "/kds" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-ink-3)", fontSize: 12, cursor: "pointer" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-2)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h3"/></svg>
+          Kitchen
+        </button>
+      </div>
       <div style={{ background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", padding: "0 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 0 }}>
           {tabs.map(t => (

@@ -1,10 +1,10 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, inArray } from "drizzle-orm"
+import { eq, and, inArray, isNull } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
@@ -137,12 +137,30 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
   if (activeItems.length === 0) return c.json({ error: "Order has no items" }, 400)
 
   const unsentItems = activeItems.filter((i) => !i.kotId)
-  if (unsentItems.length > 0) return c.json({ error: "Send all items to kitchen before billing" }, 400)
 
-  const kotIds = [...new Set(activeItems.map((i) => i.kotId!))]
-  const kotList = await db.query.kots.findMany({ where: inArray(kots.id, kotIds) })
-  const inKitchen = kotList.some((k) => k.status !== "done")
-  if (inKitchen) return c.json({ error: "Items are still being prepared in the kitchen" }, 400)
+  if (order.type === "dine_in") {
+    // Table service: food must be ready before billing
+    if (unsentItems.length > 0) return c.json({ error: "Send all items to kitchen before billing" }, 400)
+    const kotIds = [...new Set(activeItems.map((i) => i.kotId!))]
+    const kotList = await db.query.kots.findMany({ where: inArray(kots.id, kotIds) })
+    const inKitchen = kotList.some((k) => k.status !== "done")
+    if (inKitchen) return c.json({ error: "Items are still being prepared in the kitchen" }, 400)
+  } else {
+    // Counter order (takeaway/delivery): customer pays first, kitchen prepares after
+    // Auto-fire KOT for any unsent items so the kitchen is notified on payment
+    if (unsentItems.length > 0) {
+      const existingKots = await db.query.kots.findMany({ where: eq(kots.outletId, outletId) })
+      const kotNumber = existingKots.length + 1
+      const [kot] = await db.insert(kots).values({ outletId, orderId, kotNumber }).returning()
+      if (kot) {
+        await db
+          .update(orderItems)
+          .set({ kotId: kot.id })
+          .where(and(eq(orderItems.orderId, orderId), isNull(orderItems.kotId), eq(orderItems.isVoided, false)))
+        broadcastOutlet(outletId, { type: "kot.new", payload: { ...kot, items: unsentItems } as never })
+      }
+    }
+  }
 
   // Build per-item tax lines grouped by rate
   const menuItemIds = [...new Set(activeItems.map((i) => i.menuItemId).filter(Boolean) as string[])]

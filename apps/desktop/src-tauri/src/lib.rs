@@ -4,6 +4,15 @@ use tauri::{
     Manager,
 };
 
+// WKWebView on macOS does not route window.print() to the OS print dialog
+// unless the app implements WKUIDelegate. Tauri's WebviewWindow::print()
+// calls the correct platform API, so we expose it as an invoke command and
+// call it from the frontend instead of window.print() when running in Tauri.
+#[tauri::command]
+fn print_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
 #[cfg(not(debug_assertions))]
 use {
     pg_embed::pg_enums::PgAuthMethod,
@@ -21,6 +30,18 @@ type ServerHandle = Arc<Mutex<Option<tauri_plugin_shell::process::CommandChild>>
 #[cfg(not(debug_assertions))]
 type PgHandle = Arc<Mutex<Option<PgEmbed>>>;
 
+// Update the status text shown in the loading splash.
+#[cfg(not(debug_assertions))]
+fn set_status(app: &AppHandle, msg: &str) {
+    if let Some(win) = app.get_webview_window("main") {
+        let js = format!(
+            "var el=document.getElementById('status');if(el)el.textContent={:?};",
+            msg
+        );
+        let _ = win.eval(&js);
+    }
+}
+
 #[cfg(not(debug_assertions))]
 async fn start_postgres(
     data_dir: PathBuf,
@@ -32,7 +53,7 @@ async fn start_postgres(
         password: "inbill_local".to_string(),
         auth_method: PgAuthMethod::Plain,
         persistent: true,
-        timeout: Some(Duration::from_secs(60)),
+        timeout: Some(Duration::from_secs(120)),
         migration_dir: None,
     };
 
@@ -44,14 +65,15 @@ async fn start_postgres(
     let mut pg = PgEmbed::new(pg_settings, fetch_settings).await?;
     pg.setup().await?;
 
-    // If postgres is already running (unclean quit from a previous session), skip start.
+    // If postgres is already running (unclean quit), skip re-start.
     let already_up = std::net::TcpStream::connect("127.0.0.1:5433").is_ok();
     if !already_up {
         pg.start_db().await?;
     }
 
     if let Err(e) = pg.create_database("inbill").await {
-        if !e.to_string().contains("42P04") && !e.to_string().contains("already exists") {
+        let msg = e.to_string();
+        if !msg.contains("42P04") && !msg.contains("already exists") {
             return Err(Box::new(e));
         }
     }
@@ -69,14 +91,42 @@ fn spawn_server(app: &AppHandle, server_handle: ServerHandle, pg_handle: PgHandl
             .expect("failed to get app data dir")
             .join("pgdata");
 
+        // Resolve bundled dist paths so both the POS (webview) and captain
+        // mobile app (/mobile on LAN) are served by the local server.
+        let resource_dir = app.path().resource_dir().unwrap_or_default();
+        let pos_dist    = resource_dir.join("pos");
+        let mobile_dist = resource_dir.join("mobile");
+
+        // Give the webview ~300 ms to finish loading its initial page before
+        // we redirect it to the splash. Fails silently if the window isn't
+        // ready yet — the POS error state is acceptable in that edge case.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        if let Some(win) = app.get_webview_window("main") {
+            // Tauri v2 uses tauri:// on macOS/Linux but https://tauri.localhost/ on Windows (WebView2).
+            #[cfg(target_os = "windows")]
+            let loading_url = "https://tauri.localhost/loading.html";
+            #[cfg(not(target_os = "windows"))]
+            let loading_url = "tauri://localhost/loading.html";
+            let _ = win.eval(&format!("window.location.href = '{loading_url}'"));
+        }
+
+        set_status(&app, "Downloading database engine…");
+
         match start_postgres(data_dir).await {
             Ok(pg) => {
                 let db_url = "postgresql://inbill:inbill_local@localhost:5433/inbill".to_string();
                 *pg_handle.lock().unwrap() = Some(pg);
 
-                // Kill anything already on port 3000 just before binding it
+                set_status(&app, "Starting server…");
+
+                // Kill anything already on port 3000 before binding.
+                #[cfg(not(target_os = "windows"))]
                 let _ = std::process::Command::new("sh")
                     .args(["-c", "lsof -ti :3000 | xargs kill -9 2>/dev/null"])
+                    .output();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a"])
                     .output();
 
                 let result = app
@@ -86,26 +136,49 @@ fn spawn_server(app: &AppHandle, server_handle: ServerHandle, pg_handle: PgHandl
                     .env("PORT", "3000")
                     .env("DEPLOYMENT_MODE", "local")
                     .env("DATABASE_URL", &db_url)
+                    .env("POS_DIST_PATH",    pos_dist.to_string_lossy().as_ref())
+                    .env("MOBILE_DIST_PATH", mobile_dist.to_string_lossy().as_ref())
                     .spawn();
 
                 match result {
                     Ok((_rx, child)) => {
                         *server_handle.lock().unwrap() = Some(child);
-                        for _ in 0..30 {
+
+                        // Poll up to 60 s (120 × 500 ms) — first run includes
+                        // migrations which can take a few seconds.
+                        let mut ready = false;
+                        for _ in 0..120 {
                             tokio::time::sleep(Duration::from_millis(500)).await;
                             if std::net::TcpStream::connect("127.0.0.1:3000").is_ok() {
+                                ready = true;
                                 break;
                             }
                         }
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
+
+                        if ready {
+                            if let Some(win) = app.get_webview_window("main") {
+                                // Navigate the webview to the local server.
+                                // From http://localhost:3000 the POS api.ts uses
+                                // relative paths which resolve correctly.
+                                let _ = win.eval("window.location.href = 'http://localhost:3000'");
+                                let _ = win.set_focus();
+                            }
+                        } else {
+                            // Server didn't come up in time — show an error in the splash.
+                            set_status(&app, "Failed to start. Check logs and relaunch.");
+                            eprintln!("[inbill] server did not respond within 60 s");
                         }
                     }
-                    Err(e) => eprintln!("[inbill] failed to start server: {e}"),
+                    Err(e) => {
+                        set_status(&app, "Failed to launch server. Please relaunch.");
+                        eprintln!("[inbill] failed to start server: {e}");
+                    }
                 }
             }
-            Err(e) => eprintln!("[inbill] failed to start postgres: {e}"),
+            Err(e) => {
+                set_status(&app, "Failed to start database. Please relaunch.");
+                eprintln!("[inbill] failed to start postgres: {e}");
+            }
         }
     });
 }
@@ -132,16 +205,14 @@ pub fn run() {
     #[cfg(not(debug_assertions))]
     let pg_handle: PgHandle = Arc::new(Mutex::new(None));
 
-    // Clones for each consumer: setup closure, tray event handler
     #[cfg(not(debug_assertions))]
-    let (server_for_setup, server_for_tray) =
-        (server_handle.clone(), server_handle.clone());
+    let (server_for_setup, server_for_tray) = (server_handle.clone(), server_handle.clone());
     #[cfg(not(debug_assertions))]
-    let (pg_for_setup, pg_for_tray) =
-        (pg_handle.clone(), pg_handle.clone());
+    let (pg_for_setup, pg_for_tray) = (pg_handle.clone(), pg_handle.clone());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![print_window])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open InBill", true, None::<&str>)?;
             let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
@@ -192,14 +263,13 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // In release: window is already visible (shows loading.html splash).
+            // Kick off the async startup — the splash status text updates as
+            // each stage completes, then the webview navigates to localhost:3000.
             #[cfg(not(debug_assertions))]
-            {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.hide();
-                }
-                spawn_server(app.handle(), server_for_setup, pg_for_setup);
-            }
+            spawn_server(app.handle(), server_for_setup, pg_for_setup);
 
+            // In dev: the window loads the Vite dev server directly.
             #[cfg(debug_assertions)]
             {
                 if let Some(win) = app.get_webview_window("main") {
@@ -211,6 +281,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Close button minimises to tray instead of quitting.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 window.hide().unwrap();
                 api.prevent_close();

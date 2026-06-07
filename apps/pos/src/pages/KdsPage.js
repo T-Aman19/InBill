@@ -1,55 +1,80 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ws } from "@/lib/ws";
 import { useAuthStore } from "@/stores/auth";
-function KDSColumn({ title, accent, kots, actionLabel, onAction, now, stage, }) {
+const STATIONS = [
+    { id: "all", label: "All" },
+    { id: "starters", label: "Starters" },
+    { id: "tandoor", label: "Tandoor" },
+    { id: "curries", label: "Curries" },
+    { id: "cold", label: "Cold" },
+];
+/** Very rough guess at station from item name — in a real app this comes from the menu item's station field */
+function guessStation(name) {
+    const n = name.toLowerCase();
+    if (/lassi|ice\s*cream|cold|juice|mocktail|shake/.test(n))
+        return "cold";
+    if (/biryani|naan|roti|paratha|tandoor|tikka|kebab|kulcha/.test(n))
+        return "tandoor";
+    if (/paneer|curry|dal|makhani|butter\s*chicken|gravy|korma|masala|soup/.test(n))
+        return "curries";
+    if (/starter|chaat|bhel|pani\s*puri|samosa|pakora|chilli|gobi|tikki/.test(n))
+        return "starters";
+    return "tandoor";
+}
+function SourceChip({ src }) {
+    if (!src || src === "pos")
+        return (_jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: "oklch(26% 0.01 60)", color: "oklch(78% 0.01 70)", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600 }, children: "POS" }));
+    if (src === "qr")
+        return (_jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: "oklch(58% 0.13 245)", color: "white", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600 }, children: "QR" }));
+    return (_jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: 5, background: "oklch(26% 0.01 60)", color: "oklch(78% 0.01 70)", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600 }, children: src.toUpperCase() }));
+}
+function KotCard({ kot, stage, elapsed, onAction, isPending, }) {
+    const overdue = elapsed >= 12;
+    const veryLate = elapsed >= 20;
     return (_jsxs("div", { style: {
-            background: "var(--color-kds-bg)",
-            display: "flex", flexDirection: "column", overflow: "hidden",
+            background: "oklch(20% 0.012 60)",
+            border: `1.5px solid ${veryLate ? "oklch(58% 0.2 28)" : overdue ? "oklch(74% 0.15 75)" : "oklch(28% 0.012 60)"}`,
+            boxShadow: veryLate ? "0 0 0 4px oklch(58% 0.2 28 / .1)" : "none",
+            borderRadius: 10, overflow: "hidden",
+            display: "flex", flexDirection: "column",
         }, children: [_jsxs("div", { style: {
-                    padding: "16px 24px",
-                    borderBottom: `2px solid ${accent}`,
+                    padding: "12px 14px",
+                    background: veryLate ? "oklch(26% 0.1 28)" : overdue ? "oklch(26% 0.08 75)" : "oklch(24% 0.012 60)",
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [_jsx("span", { style: { width: 10, height: 10, borderRadius: "50%", background: accent } }), _jsx("h3", { style: { margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: ".01em", textTransform: "uppercase", color: "var(--color-kds-ink)" }, children: title })] }), _jsx("span", { style: { fontSize: 24, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--color-kds-ink)" }, children: kots.length })] }), _jsxs("div", { className: "scroll", style: { flex: 1, padding: 16, overflowY: "auto" }, children: [kots.length === 0 && (_jsx("div", { style: { textAlign: "center", padding: 80, color: "var(--color-kds-ink-3)", fontSize: 16 }, children: "All clear" })), _jsx("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }, children: kots.map((kot) => {
-                            const elapsed = Math.floor((now - new Date(kot.createdAt).getTime()) / 60000);
-                            const overdue = elapsed >= 10;
-                            return (_jsxs("div", { style: {
-                                    background: "oklch(20% 0.012 60)",
-                                    border: `1px solid ${overdue ? "oklch(64% 0.21 25)" : "oklch(30% 0.012 60)"}`,
-                                    borderRadius: 12, overflow: "hidden",
-                                    display: "flex", flexDirection: "column",
-                                }, children: [_jsxs("div", { style: {
-                                            padding: "14px 18px",
-                                            background: overdue ? "oklch(28% 0.08 25)" : "oklch(24% 0.012 60)",
-                                            borderBottom: "1px solid oklch(30% 0.012 60)",
-                                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                                        }, children: [_jsx("div", { children: _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [_jsxs("span", { style: { fontSize: 18, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: ".02em", color: "var(--color-kds-ink)" }, children: ["KOT #", kot.kotNumber] }), kot.orderSource === "qr" && (_jsx("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: ".06em", color: "oklch(76% 0.16 240)", background: "oklch(28% 0.06 240)", padding: "2px 7px", borderRadius: 5 }, children: "QR" }))] }) }), _jsxs("div", { style: { textAlign: "right" }, children: [_jsxs("div", { style: {
-                                                            fontSize: 22, fontWeight: 700, fontFamily: "var(--font-mono)",
-                                                            color: overdue ? "oklch(72% 0.18 25)" : "var(--color-kds-ink)",
-                                                        }, children: [elapsed, "m"] }), _jsx("div", { style: { fontSize: 10, color: overdue ? "oklch(72% 0.18 25)" : "var(--color-kds-ink-3)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }, children: overdue ? "⚠ Overdue" : "elapsed" })] })] }), _jsx("div", { style: { padding: 18, flex: 1 }, children: kot.items.map((item, i) => (_jsxs("div", { style: {
-                                                padding: "7px 0", fontSize: 18, fontWeight: 500,
-                                                borderBottom: i < kot.items.length - 1 ? "1px solid oklch(24% 0.012 60)" : "none",
-                                            }, children: [_jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" }, children: [_jsxs("span", { style: { color: "var(--color-kds-ink)" }, children: [item.name, item.variantName && (_jsxs("span", { style: { fontSize: 13, color: "var(--color-kds-ink-2)", marginLeft: 6 }, children: ["(", item.variantName, ")"] }))] }), _jsxs("span", { style: { fontFamily: "var(--font-mono)", color: accent, fontSize: 20, fontWeight: 700, marginLeft: 12 }, children: ["\u00D7", item.quantity] })] }), item.modifiers && item.modifiers.length > 0 && (_jsx("div", { style: { marginTop: 4, paddingLeft: 12 }, children: item.modifiers.map((m, mi) => (_jsxs("div", { style: { fontSize: 13, color: "var(--color-kds-ink-2)", lineHeight: 1.5 }, children: ["+ ", m.name] }, mi))) })), item.notes && (_jsxs("div", { style: { marginTop: 4, paddingLeft: 12, fontSize: 13, color: "oklch(70% 0.15 70)", fontStyle: "italic" }, children: ["Note: ", item.notes] }))] }, item.id))) }), _jsxs("button", { onClick: () => onAction(kot.id), style: {
-                                            height: 64, background: accent,
-                                            border: "none",
-                                            color: stage === "new" ? "oklch(20% 0.04 25)" : "oklch(20% 0.04 70)",
-                                            fontSize: 17, fontWeight: 700, fontFamily: "inherit",
-                                            cursor: "pointer", letterSpacing: ".02em",
-                                            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                                        }, children: [stage === "new"
-                                                ? _jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "currentColor", stroke: "none", children: _jsx("path", { d: "M6 4l14 8-14 8z" }) })
-                                                : _jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12l5 5L20 7" }) }), actionLabel] })] }, kot.id));
-                        }) })] })] }));
+                }, children: [_jsxs("div", { children: [_jsxs("div", { style: { fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 700, color: "oklch(96% 0.005 70)" }, children: ["KOT #", kot.kotNumber, kot.tableName && (_jsx("span", { style: { color: "oklch(72% 0.012 70)", fontWeight: 500, marginLeft: 8, fontSize: 14 }, children: kot.tableName }))] }), _jsx("div", { style: { marginTop: 6 }, children: _jsx(SourceChip, { src: kot.orderSource }) })] }), _jsxs("div", { style: { textAlign: "right" }, children: [_jsxs("div", { style: {
+                                    fontFamily: "var(--font-mono)", fontSize: 24, fontWeight: 700,
+                                    color: veryLate ? "oklch(78% 0.18 28)" : overdue ? "oklch(80% 0.15 75)" : "oklch(96% 0.005 70)",
+                                }, children: [elapsed, "m"] }), veryLate && _jsx("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: ".08em", color: "oklch(78% 0.18 28)", textTransform: "uppercase" }, children: "Overdue" })] })] }), _jsx("div", { style: { padding: "12px 14px", flex: 1 }, children: kot.items.map((item, i) => (_jsxs("div", { style: {
+                        padding: "6px 0", fontSize: 16, fontWeight: 500,
+                        borderBottom: i < kot.items.length - 1 ? "1px solid oklch(26% 0.012 60)" : "none",
+                        color: "oklch(96% 0.005 70)",
+                    }, children: [_jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 10 }, children: [_jsxs("span", { style: { flex: 1, lineHeight: 1.25 }, children: [item.name, item.variantName && _jsxs("span", { style: { fontSize: 13, color: "oklch(72% 0.012 70)", marginLeft: 6 }, children: ["(", item.variantName, ")"] })] }), _jsxs("span", { style: { fontFamily: "var(--font-mono)", color: "oklch(70% 0.17 55)", fontSize: 18, fontWeight: 700 }, children: ["\u00D7", item.quantity] })] }), item.modifiers && item.modifiers.length > 0 && (_jsx("div", { style: { marginTop: 3, paddingLeft: 10 }, children: item.modifiers.map((m, mi) => (_jsxs("div", { style: { fontSize: 13, color: "oklch(70% 0.012 70)", lineHeight: 1.5 }, children: ["+ ", m.name] }, mi))) })), item.notes && (_jsxs("div", { style: { marginTop: 3, paddingLeft: 10, fontSize: 13, color: "oklch(72% 0.15 75)", fontStyle: "italic" }, children: ["Note: ", item.notes] }))] }, item.id))) }), _jsxs("button", { onClick: onAction, disabled: isPending, style: {
+                    height: 56, border: "none",
+                    background: stage === "new" ? "oklch(58% 0.2 28)" : "oklch(46% 0.08 165)",
+                    color: "white", fontSize: 16, fontWeight: 700, fontFamily: "inherit",
+                    cursor: isPending ? "not-allowed" : "pointer", letterSpacing: ".02em",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                    opacity: isPending ? .7 : 1,
+                }, children: [stage === "new" ? (_jsxs(_Fragment, { children: [_jsx("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M6 4l14 8-14 8z" }) }), "Accept"] })) : (_jsxs(_Fragment, { children: [_jsx("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.4", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M5 12l5 5L20 7" }) }), "Done"] })), _jsx("span", { style: { fontFamily: "var(--font-mono)", opacity: .6, fontSize: 11, marginLeft: 4 }, children: stage === "new" ? "↵" : "space" })] })] }));
+}
+function KDSColumn({ title, accent, kots, stage, onAction, now, pendingId, }) {
+    return (_jsxs("div", { style: { background: "oklch(14% 0.01 60)", display: "flex", flexDirection: "column", overflow: "hidden" }, children: [_jsxs("div", { style: { padding: "14px 20px", borderBottom: `2px solid ${accent}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }, children: [_jsx("span", { style: { fontSize: 13, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "oklch(96% 0.005 70)" }, children: title }), _jsx("span", { style: { fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, color: "oklch(96% 0.005 70)" }, children: kots.length })] }), _jsxs("div", { className: "scroll", style: { flex: 1, padding: 14, overflowY: "auto", display: "grid", gap: 12, alignContent: "start" }, children: [kots.length === 0 && (_jsx("div", { style: { textAlign: "center", padding: "60px 0", color: "oklch(50% 0.012 70)", fontSize: 15 }, children: "All clear" })), kots.map((kot) => {
+                        const elapsed = Math.floor((now - new Date(kot.createdAt).getTime()) / 60000);
+                        return (_jsx(KotCard, { kot: kot, stage: stage, elapsed: elapsed, onAction: () => onAction(kot.id), isPending: pendingId === kot.id }, kot.id));
+                    })] })] }));
 }
 export default function KdsPage() {
     const navigate = useNavigate();
     const qc = useQueryClient();
     const logout = useAuthStore((s) => s.logout);
     const [now, setNow] = useState(() => Date.now());
-    // Tick every 30s so elapsed time stays fresh
+    const [station, setStation] = useState("all");
+    const [ackPending, setAckPending] = useState(null);
+    const [donePending, setDonePending] = useState(null);
     useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 30_000);
         return () => clearInterval(t);
@@ -68,37 +93,61 @@ export default function KdsPage() {
     }, [qc]);
     const ackMutation = useMutation({
         mutationFn: (id) => api.kots.acknowledge(id),
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["kots"] }),
+        onMutate: (id) => setAckPending(id),
+        onSettled: () => { setAckPending(null); qc.invalidateQueries({ queryKey: ["kots"] }); },
     });
     const doneMutation = useMutation({
         mutationFn: (id) => api.kots.done(id),
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["kots"] }),
+        onMutate: (id) => setDonePending(id),
+        onSettled: () => { setDonePending(null); qc.invalidateQueries({ queryKey: ["kots"] }); },
     });
     const newKots = kots.filter((k) => k.status === "pending");
     const progKots = kots.filter((k) => k.status === "acknowledged");
-    return (_jsxs("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-kds-bg)", color: "var(--color-kds-ink)" }, children: [_jsxs("div", { style: {
+    // Filter by station
+    const filterByStation = (list) => {
+        if (station === "all")
+            return list;
+        return list.filter((k) => k.items.some((it) => guessStation(it.name) === station));
+    };
+    const visibleNew = filterByStation(newKots);
+    const visibleProg = filterByStation(progKots);
+    // Overdue tickets (> 20m)
+    const overdueKots = kots.filter((k) => {
+        const elapsed = Math.floor((now - new Date(k.createdAt).getTime()) / 60000);
+        return elapsed >= 20;
+    });
+    const currentTime = new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return (_jsxs("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "oklch(14% 0.01 60)", color: "oklch(96% 0.005 70)" }, children: [_jsxs("div", { style: {
                     height: 64, flexShrink: 0,
-                    background: "var(--color-kds-bar)",
-                    borderBottom: "1px solid var(--color-kds-line)",
+                    background: "oklch(18% 0.01 60)",
+                    borderBottom: "1px solid oklch(26% 0.012 60)",
                     display: "flex", alignItems: "center",
-                    padding: "0 24px", gap: 16,
+                    padding: "0 20px", gap: 14,
                 }, children: [_jsxs("button", { onClick: () => navigate({ to: "/floor" }), style: {
                             background: "transparent",
-                            border: "1px solid oklch(34% 0.012 60)",
-                            borderRadius: 8, padding: "8px 12px",
-                            color: "var(--color-kds-ink)", cursor: "pointer",
-                            display: "flex", alignItems: "center", gap: 8, fontSize: 13,
-                            fontFamily: "inherit",
-                        }, children: [_jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), "Back"] }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginLeft: 8 }, children: [_jsxs("svg", { width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "var(--color-kds-ink)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { style: { fontSize: 18, fontWeight: 600, letterSpacing: "-.01em" }, children: "Kitchen Display" })] }), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { style: { display: "flex", gap: 20, fontSize: 13, color: "var(--color-kds-ink-2)" }, children: [_jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: newKots.length }), " new"] }), _jsxs("span", { children: [_jsx("b", { style: { color: "var(--color-kds-ink)" }, children: progKots.length }), " in progress"] }), _jsx("span", { style: { fontFamily: "var(--font-mono)" }, children: new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) })] }), _jsxs("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, style: {
+                            border: "1px solid oklch(32% 0.012 60)",
+                            borderRadius: 8, padding: "7px 12px",
+                            color: "oklch(80% 0.01 70)", cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontFamily: "inherit",
+                        }, children: [_jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), "Floor"] }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [_jsxs("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "oklch(70% 0.17 55)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { className: "display", style: { fontSize: 18, fontWeight: 600 }, children: "Kitchen" })] }), _jsx("div", { style: { marginLeft: 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8 }, children: STATIONS.map((s) => {
+                            const count = s.id === "all" ? kots.length : kots.filter((k) => k.items.some((it) => guessStation(it.name) === s.id)).length;
+                            return (_jsxs("button", { onClick: () => setStation(s.id), style: {
+                                    padding: "6px 12px", borderRadius: 6,
+                                    background: station === s.id ? "oklch(70% 0.17 55)" : "transparent",
+                                    color: station === s.id ? "oklch(34% 0.08 55)" : "oklch(78% 0.012 70)",
+                                    border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                }, children: [s.label, " ", _jsx("span", { style: { marginLeft: 4, fontFamily: "var(--font-mono)", opacity: .7, fontSize: 11 }, children: count })] }, s.id));
+                        }) }), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { style: { display: "flex", gap: 14, fontSize: 11, color: "oklch(60% 0.012 70)" }, children: [_jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(78% 0.01 70)", display: "inline-block" } }), "POS ", kots.filter((k) => !k.orderSource || k.orderSource === "pos").length] }), _jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(58% 0.13 245)", display: "inline-block" } }), "QR ", kots.filter((k) => k.orderSource === "qr").length] })] }), _jsx("div", { style: { width: 1, height: 22, background: "oklch(26% 0.012 60)" } }), _jsx("span", { style: { fontFamily: "var(--font-mono)", fontSize: 15, color: "oklch(78% 0.012 70)" }, children: currentTime }), _jsxs("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, style: {
                             background: "transparent",
-                            border: "1px solid oklch(34% 0.012 60)",
-                            borderRadius: 8, padding: "8px 12px",
-                            color: "var(--color-kds-ink-2)", cursor: "pointer",
-                            display: "flex", alignItems: "center", gap: 8, fontSize: 13,
-                            fontFamily: "inherit",
-                        }, children: [_jsxs("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }), _jsx("polyline", { points: "16 17 21 12 16 7" }), _jsx("line", { x1: "21", y1: "12", x2: "9", y2: "12" })] }), "Switch User"] })] }), _jsxs("div", { style: {
-                    flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr",
-                    gap: 1, background: "oklch(28% 0.012 60)",
-                    overflow: "hidden",
-                }, children: [_jsx(KDSColumn, { title: "New Orders", accent: "oklch(64% 0.21 25)", kots: newKots, stage: "new", actionLabel: "Accept", onAction: (id) => ackMutation.mutate(id), now: now }), _jsx(KDSColumn, { title: "In Progress", accent: "oklch(76% 0.16 70)", kots: progKots, stage: "progress", actionLabel: "Done", onAction: (id) => doneMutation.mutate(id), now: now })] })] }));
+                            border: "1px solid oklch(32% 0.012 60)",
+                            borderRadius: 8, padding: "7px 12px",
+                            color: "oklch(60% 0.012 70)", cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontFamily: "inherit",
+                        }, children: [_jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" }), _jsx("polyline", { points: "16 17 21 12 16 7" }), _jsx("line", { x1: "21", y1: "12", x2: "9", y2: "12" })] }), "Switch"] })] }), overdueKots.length > 0 && (_jsxs("div", { className: "animate-pulse-marigold", style: {
+                    background: "oklch(58% 0.2 28)", color: "white",
+                    padding: "10px 20px", fontSize: 13, fontWeight: 500,
+                    display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
+                }, children: [_jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M12 2a10 10 0 110 20A10 10 0 0112 2zm0 2a8 8 0 100 16A8 8 0 0012 4zm0 3v5l3.5 3.5-1.4 1.4L10 13V7h2z" }) }), _jsx("span", { children: overdueKots.length === 1
+                            ? `KOT #${overdueKots[0]?.kotNumber} · ${Math.floor((now - new Date(overdueKots[0]?.createdAt ?? 0).getTime()) / 60000)}m — captain notified`
+                            : `${overdueKots.length} tickets overdue — oldest ${Math.floor((now - new Date(overdueKots[0]?.createdAt ?? 0).getTime()) / 60000)}m` }), _jsx("div", { style: { flex: 1 } }), _jsx("button", { style: { background: "rgba(255,255,255,.18)", color: "white", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }, children: "Bump now" })] })), _jsxs("div", { style: { flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "oklch(26% 0.012 60)", overflow: "hidden" }, children: [_jsx(KDSColumn, { title: "New", accent: "oklch(58% 0.2 28)", kots: visibleNew, stage: "new", onAction: (id) => ackMutation.mutate(id), now: now, pendingId: ackPending }), _jsx(KDSColumn, { title: "In Progress", accent: "oklch(74% 0.15 75)", kots: visibleProg, stage: "progress", onAction: (id) => doneMutation.mutate(id), now: now, pendingId: donePending })] })] }));
 }

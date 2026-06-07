@@ -3,8 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { useState, useEffect, useRef } from "react"
 import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
-import { formatCurrency } from "@/lib/utils"
-import { TopBar } from "@/components/ui/TopBar"
+import { formatCurrency, triggerPrint } from "@/lib/utils"
 
 type TaxLine = { name: string; rate: number; amount: number }
 type Payment = { id: string; mode: string; amount: string }
@@ -56,6 +55,7 @@ export default function BillingPage() {
   const [custName,  setCustName]    = useState("")
   const [custLinking, setCustLinking] = useState(false)
   const [custErr, setCustErr]       = useState("")
+  const [countdown, setCountdown]   = useState(8)
 
   async function handleLinkCustomer() {
     if (!custPhone.trim() || !bill) return
@@ -141,6 +141,13 @@ export default function BillingPage() {
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
+  useEffect(() => {
+    if (!bill?.isPaid) return
+    if (countdown <= 0) { navigate({ to: "/floor" }); return }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [bill?.isPaid, countdown, navigate])
+
   const applyDiscountMutation = useMutation({
     mutationFn: (body: { discountId?: string; label: string; amount: number }) =>
       api.bills.applyDiscount(billId, body),
@@ -192,111 +199,175 @@ export default function BillingPage() {
     payMutation.mutate(amount)
   }
 
-  // Paid success state
+  // Paid success state — v2 two-panel
   if (bill.isPaid) return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
-      {/* Receipt — hidden on screen, visible when printing */}
-      <div className="print-receipt" style={{ display: "none" }}>
-        <div style={{ textAlign: "center", paddingBottom: 14, borderBottom: "1px dashed #aaa" }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{outlet?.name ?? "InBill"}</div>
-          {outlet?.address && <div style={{ fontSize: 11, marginTop: 2 }}>{outlet.address}</div>}
-          {outlet?.gstin && <div style={{ fontSize: 11, marginTop: 2 }}>GSTIN {outlet.gstin}</div>}
-          {outlet?.fssaiNumber && <div style={{ fontSize: 11, marginTop: 2 }}>FSSAI {outlet.fssaiNumber}</div>}
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", fontSize: 11 }}>
-          <span>Bill #{bill.billNumber}</span>
-          <span>{new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
-        </div>
-        {bill.items && bill.items.length > 0 && (
-          <div style={{ borderTop: "1px solid #aaa", borderBottom: "1px solid #aaa" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px", padding: "8px 0", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>
-              <span>Item</span><span style={{ textAlign: "center" }}>Qty</span><span style={{ textAlign: "right" }}>Amt</span>
-            </div>
-            {bill.items.map((l, i) => (
-              <div key={i} style={{ borderTop: "1px solid #ddd", padding: "6px 0", fontSize: 12 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px" }}>
-                  <span>{l.name}</span>
-                  <span style={{ textAlign: "center" }}>{l.quantity}</span>
-                  <span style={{ textAlign: "right" }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
-                </div>
-                {(l.modifiers ?? []).map((m, mi) => (
-                  <div key={mi} style={{ display: "grid", gridTemplateColumns: "1fr 80px", paddingLeft: 10, fontSize: 10, color: "#777", marginTop: 2 }}>
-                    <span>+ {m.name}</span>
-                    <span style={{ textAlign: "right" }}>{formatCurrency(Number(m.price) * l.quantity)}</span>
+    <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+      {/* Left: on-screen receipt (doubles as print target) */}
+      <div className="scroll print-receipt" style={{ flex: 1, padding: "32px 40px", background: "var(--color-bg)" }}>
+        <div style={{ maxWidth: 540, margin: "0 auto" }}>
+
+          {/* Outlet header */}
+          <div style={{ textAlign: "center", paddingBottom: 18, borderBottom: "1px dashed var(--color-line-strong)" }}>
+            <div className="display" style={{ fontSize: 18, fontWeight: 700 }}>{outlet?.name ?? "InBill"}</div>
+            {outlet?.address    && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>{outlet.address}</div>}
+            {outlet?.gstin      && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>GSTIN {outlet.gstin}</div>}
+            {outlet?.fssaiNumber && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>FSSAI {outlet.fssaiNumber}</div>}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
+            <span>Bill #{bill.billNumber}</span>
+            <span>{new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+          </div>
+
+          {/* Items */}
+          {bill.items && bill.items.length > 0 && (
+            <div style={{ borderTop: "1px solid var(--color-line)", borderBottom: "1px solid var(--color-line)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", padding: "10px 0", fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".04em", textTransform: "uppercase", fontWeight: 500 }}>
+                <span /><span>Item</span><span style={{ textAlign: "center" }}>Qty</span><span style={{ textAlign: "right" }}>Amount</span>
+              </div>
+              {bill.items.map((l, i) => (
+                <div key={i} style={{ borderTop: "1px solid var(--color-line)", padding: "10px 0" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 14, alignItems: "center" }}>
+                    <span className={`veg-dot ${l.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
+                    <span style={{ color: "var(--color-ink)", fontWeight: 500 }}>{l.name}</span>
+                    <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
                   </div>
-                ))}
-              </div>
+                  {(l.modifiers ?? []).map((m, mi) => (
+                    <div key={mi} style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>
+                      <span /><span style={{ paddingLeft: 4 }}>+ {m.name}</span><span />
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency(Number(m.price) * l.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Totals */}
+          <div style={{ paddingTop: 16 }}>
+            <Row label="Subtotal" value={formatCurrency(bill.subtotal)} />
+            {(bill.discountLines ?? []).length > 0
+              ? (bill.discountLines ?? []).map((line, i) => <Row key={i} label={line.label} value={"− " + formatCurrency(line.amount)} dim />)
+              : Number(bill.discountAmount) > 0 && <Row label="Discount" value={"− " + formatCurrency(bill.discountAmount)} dim />
+            }
+            {bill.taxLines.map((line, i) => (
+              <Row key={i} label={`${line.name} (${line.rate}%)`} value={formatCurrency(line.amount)} dim />
             ))}
+            <div style={{ height: 1, background: "var(--color-line-strong)", margin: "12px 0" }} />
+            <Row label="Total" value={formatCurrency(bill.total)} big />
           </div>
-        )}
-        <div style={{ paddingTop: 12, fontSize: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span>{formatCurrency(bill.subtotal)}</span></div>
-          {(bill.discountLines ?? []).length > 0
-            ? (bill.discountLines ?? []).map((line, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span>{line.label}</span><span>-{formatCurrency(line.amount)}</span></div>)
-            : Number(bill.discountAmount) > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Discount</span><span>-{formatCurrency(bill.discountAmount)}</span></div>
-          }
-          {bill.taxLines.map((line, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between" }}><span>{line.name} ({line.rate}%)</span><span>{formatCurrency(line.amount)}</span></div>
-          ))}
-          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 15, borderTop: "1px solid #aaa", marginTop: 8, paddingTop: 8 }}><span>Total</span><span>{formatCurrency(bill.total)}</span></div>
+
+          {/* Payment split bar */}
+          {bill.payments.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              {bill.payments.length > 1 && (
+                <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", height: 6, marginBottom: 10 }}>
+                  {bill.payments.map((p) => {
+                    const pct = (Number(p.amount) / Number(bill.total)) * 100
+                    const bg  = p.mode === "cash" ? "var(--color-amber)" : p.mode === "card" ? "var(--color-blue)" : "var(--color-green)"
+                    return <div key={p.id} style={{ flex: `0 0 ${pct}%`, background: bg }} />
+                  })}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                {bill.payments.map((p) => {
+                  const bg = p.mode === "cash" ? "var(--color-amber)" : p.mode === "card" ? "var(--color-blue)" : "var(--color-green)"
+                  return (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: bg, flexShrink: 0 }} />
+                      <span style={{ textTransform: "capitalize", color: "var(--color-ink-3)" }}>{p.mode}</span>
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-ink-2)", fontWeight: 500 }}>{formatCurrency(p.amount)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ textAlign: "center", marginTop: 28, paddingTop: 20, borderTop: "1px dashed var(--color-line)", fontSize: 11, color: "var(--color-ink-4)" }}>
+            Thank you for visiting{outlet?.name ? ` ${outlet.name}` : ""}!
+          </div>
         </div>
-        {bill.payments.length > 0 && (
-          <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px dashed #aaa", fontSize: 11 }}>
-            {bill.payments.map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ textTransform: "capitalize" }}>{p.mode}</span>
-                <span>{formatCurrency(p.amount)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11 }}>Thank you for visiting!</div>
       </div>
 
-      <TopBar current="floor" />
-      <div className="animate-fade-in" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 40 }}>
+      {/* Right: dark success panel */}
+      <div className="animate-slide-right" style={{
+        width: 400, flexShrink: 0,
+        background: "var(--color-ink)",
+        padding: "44px 36px", display: "flex", flexDirection: "column",
+        overflowY: "auto",
+      }}>
+        <div className="eyebrow" style={{ color: "var(--v2-marigold)" }}>Payment received</div>
+
         <div className="animate-pop" style={{
-          width: 96, height: 96, borderRadius: "50%",
-          background: "var(--color-green-soft)", color: "var(--color-green)",
+          width: 80, height: 80, borderRadius: "50%",
+          background: "oklch(70% 0.17 55 / .12)",
+          border: "2px solid oklch(70% 0.17 55 / .4)",
+          color: "var(--v2-marigold)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          marginBottom: 24,
+          marginTop: 28, marginBottom: 20, flexShrink: 0,
         }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7"/></svg>
         </div>
 
-        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-.01em" }}>Payment received</div>
-        <div style={{ fontSize: 16, color: "var(--color-ink-3)", marginTop: 6 }}>
-          {formatCurrency(bill.total)} collected · Bill #{bill.billNumber}
+        <div className="display" style={{ fontSize: 42, fontWeight: 700, lineHeight: 1.1, color: "#fff", letterSpacing: "-.02em" }}>
+          {formatCurrency(bill.total)}
+        </div>
+        <div style={{ fontSize: 13, color: "oklch(100% 0 0 / .45)", marginTop: 8 }}>
+          Bill #{bill.billNumber} · {new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
         </div>
 
+        {/* Payment breakdown */}
         {bill.payments.length > 0 && (
-          <div style={{ display: "flex", gap: 18, marginTop: 20, fontSize: 13, color: "var(--color-ink-3)" }}>
+          <div style={{ marginTop: 24, padding: "14px 16px", background: "oklch(100% 0 0 / .04)", borderRadius: 12, border: "1px solid oklch(100% 0 0 / .08)", display: "flex", flexDirection: "column", gap: 6 }}>
             {bill.payments.map((p) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ textTransform: "capitalize" }}>{p.mode}</span>
-                <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{formatCurrency(p.amount)}</span>
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span style={{ textTransform: "capitalize", color: "oklch(100% 0 0 / .55)" }}>{p.mode}</span>
+                <span style={{ fontFamily: "var(--font-mono)", color: "#fff", fontWeight: 500 }}>{formatCurrency(p.amount)}</span>
               </div>
             ))}
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 12, marginTop: 36 }}>
-          <button onClick={() => navigate({ to: "/floor" })} style={{
-            padding: "16px 28px", borderRadius: 12,
-            background: "var(--color-ink)", border: "none",
-            color: "var(--color-bg)", fontSize: 15, fontWeight: 600, fontFamily: "inherit",
-            cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+        {/* Loyalty earned block */}
+        {loyaltyInfo && (
+          <div style={{ marginTop: 14, padding: "14px 16px", background: "oklch(70% 0.17 55 / .08)", borderRadius: 12, border: "1px solid oklch(70% 0.17 55 / .2)" }}>
+            <div style={{ fontSize: 12, color: "var(--v2-marigold)", fontWeight: 600, marginBottom: 4 }}>
+              {loyaltyInfo.customer.name ?? loyaltyInfo.customer.phone}
+            </div>
+            <div style={{ fontSize: 12, color: "oklch(100% 0 0 / .45)" }}>
+              +{loyaltyInfo.pointsToEarn} pts earned · {loyaltyInfo.totalPoints} total · {loyaltyInfo.tier}
+            </div>
+          </div>
+        )}
+
+        <div style={{ flex: 1, minHeight: 32 }} />
+
+        {/* Actions */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => triggerPrint()} style={{
+            height: 44, borderRadius: 10,
+            background: "transparent", border: "1px solid oklch(100% 0 0 / .18)",
+            color: "oklch(100% 0 0 / .7)", fontSize: 13, fontFamily: "inherit", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}>
-            Back to floor
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          </button>
-          <button onClick={() => window.print()} style={{
-            padding: "16px 24px", borderRadius: 12,
-            background: "var(--color-surface)", border: "1px solid var(--color-line-strong)",
-            color: "var(--color-ink)", fontSize: 15, fontFamily: "inherit", cursor: "pointer",
-          }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             Print receipt
           </button>
+          <button onClick={() => navigate({ to: "/floor" })} style={{
+            height: 52, borderRadius: 12,
+            background: "var(--v2-marigold)", border: "none",
+            color: "var(--v2-marigold-ink)", fontSize: 15, fontWeight: 700, fontFamily: "inherit",
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}>
+            Back to floor
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+          <div style={{ textAlign: "center", fontSize: 12, color: "oklch(100% 0 0 / .3)", marginTop: 2 }}>
+            Auto-returns in {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
+          </div>
         </div>
       </div>
     </div>
@@ -304,8 +375,6 @@ export default function BillingPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)" }}>
-      <TopBar current="floor" />
-
       {/* Sub-header */}
       <div style={{
         height: 56, flexShrink: 0,
@@ -329,7 +398,7 @@ export default function BillingPage() {
         <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
           {new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
         </span>
-        <button onClick={() => window.print()} title="Print receipt" style={{
+        <button onClick={() => triggerPrint()} title="Print receipt" style={{
           background: "transparent", border: "none",
           color: "var(--color-ink-3)", padding: 8, borderRadius: 8, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",

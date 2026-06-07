@@ -1,8 +1,9 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Geist:wght@100..900&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 @theme {
-  --font-sans: 'Inter Tight', system-ui, sans-serif;
+  --font-sans: 'Geist', 'Inter Tight', system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque', 'Geist', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   /* ── Light warm palette ── */
@@ -44,6 +45,16 @@
   --color-kds-ink:     oklch(96%  0.005 70);
   --color-kds-ink-2:   oklch(72%  0.012 70);
   --color-kds-ink-3:   oklch(50%  0.012 70);
+
+  /* v2 brand tokens */
+  --v2-marigold:      oklch(70% 0.17 55);
+  --v2-marigold-soft: oklch(95% 0.045 70);
+  --v2-marigold-ink:  oklch(34% 0.08 55);
+  --v2-marigold-deep: oklch(50% 0.15 50);
+  --v2-forest:        oklch(46% 0.08 165);
+  --v2-forest-soft:   oklch(94% 0.035 165);
+  --v2-crimson:       oklch(58% 0.2 28);
+  --v2-sky:           oklch(58% 0.13 245);
 }
 
 /* ─── Shadows & radii (not theme-mapped, used via var()) ─────── */
@@ -106,13 +117,18 @@ input  { font-family: inherit; }
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes pulse-marigold {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(70% 0.17 55 / .55); }
+  50%       { box-shadow: 0 0 0 8px oklch(70% 0.17 55 / 0); }
+}
 
-.animate-shake        { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
-.animate-pulse-red    { animation: pulse-red 1.6s ease-out infinite; }
-.animate-fade-in      { animation: fade-in .3s ease forwards; }
-.animate-pop          { animation: pop .4s cubic-bezier(.2,1.5,.4,1) forwards; }
-.animate-slide-right  { animation: slide-in-right .25s cubic-bezier(.2,1,.4,1) forwards; }
-.animate-overlay-in   { animation: overlay-in .2s ease forwards; }
+.animate-shake          { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
+.animate-pulse-red      { animation: pulse-red 1.6s ease-out infinite; }
+.animate-pulse-marigold { animation: pulse-marigold 1.8s ease-out infinite; }
+.animate-fade-in        { animation: fade-in .3s ease forwards; }
+.animate-pop            { animation: pop .4s cubic-bezier(.2,1.5,.4,1) forwards; }
+.animate-slide-right    { animation: slide-in-right .25s cubic-bezier(.2,1,.4,1) forwards; }
+.animate-overlay-in     { animation: overlay-in .2s ease forwards; }
 
 /* ─── Veg/Non-veg indicator ──────────────────────────────────── */
 .veg-dot {
@@ -175,6 +191,10 @@ input  { font-family: inherit; }
 .btn.red     { background: var(--color-red);    color: #fff;                   border-color: transparent; }
 .btn.ghost   { background: transparent; color: var(--color-ink-2); border-color: var(--color-line); }
 .btn.ghost:not(:disabled):hover { background: var(--color-surface-2); opacity: 1; }
+
+/* ─── Display / brand helpers ───────────────────────────────── */
+.display { font-family: var(--font-display); letter-spacing: -.02em; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--color-ink-3); }
 
 /* ─── Print receipt ──────────────────────────────────────────── */
 @media print {

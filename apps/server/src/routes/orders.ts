@@ -1,10 +1,10 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, isNull } from "drizzle-orm"
+import { eq, and, isNull, inArray, gte } from "drizzle-orm"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems } from "../db/schema/index.js"
+import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
@@ -20,6 +20,48 @@ ordersRouter.get("/", async (c) => {
     with: { items: { with: { modifiers: true } } },
   })
   return c.json(openOrders)
+})
+
+// Active counter orders (takeaway/delivery) — shown on the FloorPage counter panel
+ordersRouter.get("/counter", async (c) => {
+  const { outletId } = c.get("user")
+
+  // Only show orders from the last 12 hours so the panel doesn't fill with old entries
+  const since = new Date(Date.now() - 12 * 60 * 60 * 1000)
+
+  const counterOrders = await db.query.orders.findMany({
+    where: and(
+      eq(orders.outletId, outletId),
+      inArray(orders.type, ["takeaway", "delivery"]),
+      inArray(orders.status, ["open", "kot_sent", "billed"]),
+      gte(orders.createdAt, since),
+    ),
+    with: { items: { where: (i, { eq }) => eq(i.isVoided, false) } },
+    orderBy: (o, { desc }) => [desc(o.createdAt)],
+  })
+
+  if (counterOrders.length === 0) return c.json([])
+
+  // Attach bill payment status for billed orders
+  const billedIds = counterOrders.filter((o) => o.status === "billed").map((o) => o.id)
+  const billMap = new Map<string, { isPaid: boolean; total: string; id: string }>()
+  if (billedIds.length > 0) {
+    const billRows = await db.query.bills.findMany({
+      where: and(eq(bills.outletId, outletId), inArray(bills.orderId, billedIds)),
+      columns: { orderId: true, isPaid: true, total: true, id: true },
+    })
+    for (const b of billRows) billMap.set(b.orderId, { isPaid: b.isPaid, total: b.total, id: b.id })
+  }
+
+  const result = counterOrders
+    // Skip empty orders (created by tapping Takeaway before adding any items)
+    .filter((o) => o.items.length > 0)
+    .map((o) => {
+      const bill = billMap.get(o.id) ?? null
+      return { ...o, bill }
+    })
+
+  return c.json(result)
 })
 
 ordersRouter.get("/:id", async (c) => {
@@ -140,6 +182,8 @@ async function maybeAutoCancel(orderId: string, outletId: string) {
     await db.update(tables).set({ status: "available", currentOrderId: null }).where(eq(tables.id, order.tableId))
     broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
   }
+
+  broadcastOutlet(outletId, { type: "order.updated", payload: await fetchOrderWithKotStatus(orderId) as never })
 }
 
 // Decrement pending item qty by 1; void if qty reaches 0

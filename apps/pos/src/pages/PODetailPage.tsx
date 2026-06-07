@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { TopBar } from "@/components/ui/TopBar"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type POStatus = "draft" | "ordered" | "partial" | "received"
@@ -223,18 +222,34 @@ export default function PODetailPage() {
   function handlePrint() {
     if (!po) return
     const html = buildPOPrintHtml(po)
-    const w = window.open("", "_blank", "width=900,height=700")
-    if (!w) return
-    w.document.write(html)
-    w.document.close()
-    w.focus()
-    w.print()
+    const iframe = document.createElement("iframe")
+    iframe.style.cssText = "position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none"
+    document.body.appendChild(iframe)
+    const doc = iframe.contentDocument!
+    doc.open()
+    doc.write(html)
+    doc.close()
+    iframe.onload = () => {
+      const win = iframe.contentWindow!
+      win.addEventListener("afterprint", () => iframe.remove())
+      win.focus()
+      win.print()
+    }
   }
 
   if (isLoading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar current="inventory" />
+        <div style={{ height: 56, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 24px", gap: 10 }}>
+          <button onClick={() => navigate({ to: "/inventory" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+            onMouseEnter={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"}
+            onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Inventory
+          </button>
+          <div style={{ width: 1, height: 18, background: "var(--color-line)" }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>Purchase Order</span>
+        </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-3)" }}>Loading…</div>
       </div>
     )
@@ -243,7 +258,16 @@ export default function PODetailPage() {
   if (!po) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <TopBar current="inventory" />
+        <div style={{ height: 56, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 24px", gap: 10 }}>
+          <button onClick={() => navigate({ to: "/inventory" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+            onMouseEnter={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"}
+            onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Inventory
+          </button>
+          <div style={{ width: 1, height: 18, background: "var(--color-line)" }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>Purchase Order</span>
+        </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-3)" }}>Purchase order not found.</div>
       </div>
     )
@@ -264,7 +288,16 @@ export default function PODetailPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--color-bg)" }}>
-      <TopBar current="inventory" />
+      <div style={{ height: 56, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 24px", gap: 10 }}>
+        <button onClick={() => navigate({ to: "/inventory" })} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+          onMouseEnter={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"}
+          onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Inventory
+        </button>
+        <div style={{ width: 1, height: 18, background: "var(--color-line)" }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>Purchase Order</span>
+      </div>
 
       <div style={{ flex: 1, overflow: "auto" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 32px" }}>

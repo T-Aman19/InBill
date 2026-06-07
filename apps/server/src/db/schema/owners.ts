@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, timestamp, boolean, jsonb } from "drizzle-orm/pg-core"
+import { pgTable, text, uuid, timestamp, boolean, jsonb, index } from "drizzle-orm/pg-core"
 
 export const owners = pgTable("owners", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -9,6 +9,15 @@ export const owners = pgTable("owners", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const ownerPasswordResets = pgTable("owner_password_resets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("idx_opr_token_hash").on(t.tokenHash)])
 
 export const outlets = pgTable("outlets", {
   id: uuid("id").primaryKey().defaultRandom(),

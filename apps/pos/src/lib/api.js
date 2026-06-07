@@ -103,6 +103,7 @@ export const api = {
     },
     orders: {
         getOpen: () => get("/orders"),
+        getCounter: () => get("/orders/counter"),
         get: (id) => get(`/orders/${id}`),
         create: (body) => post("/orders", body),
         addItem: (orderId, body) => post(`/orders/${orderId}/items`, body),
@@ -266,6 +267,16 @@ export const api = {
         menuDescription: (body) => post("/ai/menu-description", body),
         reportsQuery: (body) => post("/ai/reports-query", body),
     },
+    queue: {
+        list: (status) => get(`/queue${status ? `?status=${status}` : ""}`),
+        addWalkIn: (body) => post("/queue", body),
+        seat: (id, tableId) => patch(`/queue/${id}/seat`, { tableId }),
+        cancel: (id, status) => patch(`/queue/${id}/cancel`, { status }),
+        listReservations: (date) => get(`/queue/reservations${date ? `?date=${date}` : ""}`),
+        createReservation: (body) => post("/queue/reservations", body),
+        updateReservation: (id, body) => patch(`/queue/reservations/${id}`, body),
+        deleteReservation: (id) => del(`/queue/reservations/${id}`),
+    },
     loyalty: {
         getConfig: () => get("/loyalty/config"),
         saveConfig: (body) => post("/loyalty/config", body),
@@ -277,6 +288,9 @@ export const api = {
     owner: {
         register: (body) => post("/auth/owner/register", body),
         login: (email, password) => post("/auth/owner/login", { email, password }),
+        forgotPassword: (email) => post("/auth/owner/forgot-password", { email }),
+        resetPassword: (token, newPassword) => post("/auth/owner/reset-password", { token, newPassword }),
+        changePassword: (currentPassword, newPassword) => ownerRequest("/auth/owner/change-password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }),
         me: () => oget("/owner/me"),
         outlets: (from, to) => {
             const q = from && to ? `?from=${from}&to=${to}` : "";

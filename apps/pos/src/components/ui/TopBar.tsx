@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { useAuthStore } from "@/stores/auth"
@@ -21,7 +21,16 @@ function initials(name: string) {
 
 export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
   const navigate = useNavigate()
-  const { user, outletName, logout } = useAuthStore()
+  const { user, outletName, setupCode, logout } = useAuthStore()
+  const [copied, setCopied] = useState(false)
+
+  function copyCode() {
+    if (!displaySetupCode) return
+    navigator.clipboard.writeText(displaySetupCode).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
   const isManagerOrOwner = user?.role === "manager" || user?.role === "owner"
 
   const { data: lowStockData } = useQuery<{ count: number }>({
@@ -31,6 +40,14 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
     refetchInterval: 60_000,
   })
   const lowStockCount = lowStockData?.count ?? 0
+
+  const { data: outletData } = useQuery({
+    queryKey: ["outlet-info"],
+    queryFn: () => api.outlet.get(),
+    enabled: isManagerOrOwner,
+    staleTime: Infinity,
+  })
+  const displaySetupCode = setupCode ?? outletData?.setupCode ?? null
 
   const nav = (to: NavId) => () => {
     const paths: Record<NavId, string> = { floor: "/floor", kds: "/kds", manager: "/manager", inventory: "/inventory" }
@@ -59,7 +76,33 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }}>{outletName}</div>
-          <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Terminal 01</div>
+          {displaySetupCode ? (
+            <button
+              onClick={copyCode}
+              title={copied ? "Copied!" : "Click to copy setup code"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                background: "none", border: "none", padding: 0,
+                cursor: "pointer", color: "inherit",
+              }}
+            >
+              <span style={{
+                fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: ".06em",
+                color: copied ? "var(--color-accent-ink)" : "var(--color-ink-3)",
+                fontWeight: 500,
+                transition: "color .15s",
+              }}>
+                {copied ? "Copied!" : displaySetupCode}
+              </span>
+              {!copied && (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-ink-4)", flexShrink: 0 }}>
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+              )}
+            </button>
+          ) : (
+            <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Terminal 01</div>
+          )}
         </div>
       </div>
 
