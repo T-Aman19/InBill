@@ -37,5 +37,6 @@ export const config = {
   static: {
     pos: process.env["POS_DIST_PATH"] ?? "../pos/dist",
     mobile: process.env["MOBILE_DIST_PATH"] ?? "../mobile/dist",
+    host: process.env["HOST_DIST_PATH"] ?? "../host/dist",
   },
 } as const

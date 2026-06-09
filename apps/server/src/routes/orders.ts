@@ -79,7 +79,7 @@ ordersRouter.post("/", requireRole("owner", "manager", "cashier", "captain"), zV
 
   if (data.tableId) {
     const table = await db.query.tables.findFirst({ where: eq(tables.id, data.tableId) })
-    if (table && table.status !== "available") {
+    if (table && table.status !== "available" && table.status !== "reserved") {
       return c.json({ error: "Table is not available" }, 400)
     }
   }

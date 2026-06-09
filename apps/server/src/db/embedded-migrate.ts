@@ -15,6 +15,7 @@ import m0010 from "./migrations/0010_loyalty.sql" with { type: "text" }
 import m0011 from "./migrations/0011_outlet_settings.sql" with { type: "text" }
 import m0012 from "./migrations/0012_queue.sql" with { type: "text" }
 import m0013 from "./migrations/0013_owner_password_resets.sql" with { type: "text" }
+import m0014 from "./migrations/0014_host_role.sql" with { type: "text" }
 import postgres from "postgres"
 import { config } from "../config.js"
 
@@ -33,6 +34,7 @@ const MIGRATIONS = [
   { name: "0011_outlet_settings",         sql: m0011 },
   { name: "0012_queue",                   sql: m0012 },
   { name: "0013_owner_password_resets",   sql: m0013 },
+  { name: "0014_host_role",              sql: m0014 },
 ]
 
 export async function runEmbeddedMigrations(): Promise<void> {

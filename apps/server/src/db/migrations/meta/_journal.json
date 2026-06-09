@@ -92,6 +92,20 @@
       "when": 1780768520846,
       "tag": "0012_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1749300000000,
+      "tag": "0013_owner_password_resets",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1749310000000,
+      "tag": "0014_host_role",
+      "breakpoints": true
     }
   ]
 }

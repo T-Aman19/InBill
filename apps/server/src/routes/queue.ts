@@ -81,17 +81,17 @@ queueRouter.get("/", async (c) => {
   return c.json(entries.map(serializeEntry))
 })
 
-queueRouter.post("/", requireRole("manager", "owner", "cashier", "captain"), zValidator("json", createQueueEntrySchema), async (c) => {
+queueRouter.post("/", requireRole("manager", "owner", "cashier", "captain", "host"), zValidator("json", createQueueEntrySchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
 
   // Generate sequential token for today (A1, A2, …)
   const { start, end } = todayBounds()
-  const [{ value: todayCount }] = await db
+  const countResult = await db
     .select({ value: count() })
     .from(queueEntries)
     .where(and(eq(queueEntries.outletId, outletId), gte(queueEntries.joinedAt, start), lte(queueEntries.joinedAt, end)))
-  const token = `A${Number(todayCount) + 1}`
+  const token = `A${Number(countResult[0]?.value ?? 0) + 1}`
 
   const [entry] = await db.insert(queueEntries).values({
     outletId,
@@ -102,10 +102,10 @@ queueRouter.post("/", requireRole("manager", "owner", "cashier", "captain"), zVa
   }).returning()
 
   await broadcastQueue(outletId)
-  return c.json(serializeEntry({ ...entry, table: null }), 201)
+  return c.json(serializeEntry({ ...entry!, table: null }), 201)
 })
 
-queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "captain"), zValidator("json", seatQueueEntrySchema), async (c) => {
+queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "captain", "host"), zValidator("json", seatQueueEntrySchema), async (c) => {
   const { outletId } = c.get("user")
   const id = c.req.param("id")
   const { tableId } = c.req.valid("json")
@@ -127,6 +127,11 @@ queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "capta
     .where(and(eq(queueEntries.id, id), eq(queueEntries.outletId, outletId)))
     .returning()
 
+  // Mark the table as reserved so the floor view shows it's taken
+  // (it becomes "occupied" once the waiter creates an order for it)
+  await db.update(tables).set({ status: "reserved" }).where(eq(tables.id, tableId))
+  broadcastOutlet(outletId, { type: "table.status", payload: { id: tableId, status: "reserved", currentOrderId: null } })
+
   // Upsert customer record if phone is known, so the order can be pre-linked
   let customerId: string | null = null
   if (entry.customerPhone) {
@@ -142,15 +147,15 @@ queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "capta
       const [created] = await db.insert(customers)
         .values({ outletId, phone: entry.customerPhone, name: entry.customerName })
         .returning()
-      customerId = created.id
+      customerId = created!.id
     }
   }
 
   await broadcastQueue(outletId)
-  return c.json({ ...serializeEntry({ ...updated, table }), customerId })
+  return c.json({ ...serializeEntry({ ...updated!, table }), customerId })
 })
 
-queueRouter.patch("/:id/cancel", requireRole("manager", "owner", "cashier", "captain"), zValidator("json", cancelQueueEntrySchema), async (c) => {
+queueRouter.patch("/:id/cancel", requireRole("manager", "owner", "cashier", "captain", "host"), zValidator("json", cancelQueueEntrySchema), async (c) => {
   const { outletId } = c.get("user")
   const id = c.req.param("id")
   const { status } = c.req.valid("json")
@@ -167,7 +172,7 @@ queueRouter.patch("/:id/cancel", requireRole("manager", "owner", "cashier", "cap
     .returning()
 
   await broadcastQueue(outletId)
-  return c.json(serializeEntry({ ...updated, table: null }))
+  return c.json(serializeEntry({ ...updated!, table: null }))
 })
 
 // ── Reservations endpoints ────────────────────────────────────────────────────
@@ -213,7 +218,7 @@ queueRouter.post("/reservations", requireRole("manager", "owner", "cashier"), zV
     notes: data.notes ?? null,
   }).returning()
 
-  const withTable = await db.query.reservations.findFirst({ where: eq(reservations.id, res.id), with: { table: true } })
+  const withTable = await db.query.reservations.findFirst({ where: eq(reservations.id, res!.id), with: { table: true } })
   const serialized = serializeReservation(withTable!)
   broadcastOutlet(outletId, { type: "reservation.updated", payload: { reservation: serialized } })
   return c.json(serialized, 201)

@@ -85,6 +85,18 @@ app.get("/mobile/*", async (c) => {
   return c.html(await indexFile.text())
 })
 
+// Serve host app at /host
+app.use("/host/*", serveStatic({
+  root: config.static.host,
+  rewriteRequestPath: (path) => path.replace(/^\/host/, "") || "/",
+}))
+app.get("/host", (c) => c.redirect("/host/"))
+app.get("/host/*", async (c) => {
+  const indexFile = Bun.file(`${config.static.host}/index.html`)
+  if (!(await indexFile.exists())) return c.notFound()
+  return c.html(await indexFile.text())
+})
+
 // Serve POS UI at / — static assets first, then SPA fallback for client-side routes
 app.use("/*", serveStatic({ root: config.static.pos }))
 

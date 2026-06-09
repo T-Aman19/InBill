@@ -60,6 +60,30 @@ export default function LoginPage() {
     const [code, setCode] = useState("");
     const [codeErr, setCodeErr] = useState("");
     const [saving, setSaving] = useState(false);
+    // If the URL contains ?setup=<code> (scanned from QR in ManagerPage) and
+    // no outlet is configured yet, auto-resolve the code silently.
+    useEffect(() => {
+        if (savedOutletId)
+            return; // already configured — nothing to do
+        const params = new URLSearchParams(window.location.search);
+        const qrCode = params.get("setup");
+        if (!qrCode)
+            return;
+        setSaving(true);
+        api.auth.resolveSetupCode(qrCode)
+            .then((outlet) => {
+            localStorage.setItem(OUTLET_ID_KEY, outlet.id);
+            localStorage.setItem(OUTLET_NAME_KEY, outlet.name);
+            setOutletId(outlet.id);
+            setOutletName(outlet.name);
+            setSetup(false);
+        })
+            .catch(() => {
+            // Bad/expired code — let captain enter it manually
+            setCode(qrCode);
+        })
+            .finally(() => setSaving(false));
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
     // Auto-submit when 4 digits entered
     useEffect(() => {
         if (pin.length === 4)
@@ -134,7 +158,7 @@ export default function LoginPage() {
                 height: "100dvh", display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center",
                 padding: "24px 32px", background: "var(--color-bg)",
-            }, children: [_jsxs("div", { style: { marginBottom: 32, textAlign: "center" }, children: [_jsx("div", { style: { fontSize: 40, marginBottom: 8 }, children: "\uD83C\uDF7D\uFE0F" }), _jsx("h1", { style: { fontSize: 22, fontWeight: 700, marginBottom: 6 }, children: "InBill Captain" }), _jsx("p", { style: { fontSize: 14, color: "var(--color-ink-3)" }, children: "Enter your outlet setup code to get started" })] }), _jsxs("div", { style: { width: "100%", maxWidth: 320 }, children: [_jsx("input", { value: code, onChange: (e) => { setCode(e.target.value.toUpperCase()); setCodeErr(""); }, onKeyDown: (e) => e.key === "Enter" && resolveCode(), placeholder: "Setup code (e.g. ABC-123)", style: {
+            }, children: [_jsxs("div", { style: { marginBottom: 32, textAlign: "center" }, children: [_jsx("div", { style: { fontSize: 40, marginBottom: 8 }, children: "\uD83C\uDF7D\uFE0F" }), _jsx("h1", { style: { fontSize: 22, fontWeight: 700, marginBottom: 6 }, children: "InBill Captain" }), _jsx("p", { style: { fontSize: 14, color: "var(--color-ink-3)" }, children: saving ? "Connecting to outlet…" : "Enter your outlet setup code to get started" })] }), _jsxs("div", { style: { width: "100%", maxWidth: 320 }, children: [_jsx("input", { value: code, onChange: (e) => { setCode(e.target.value.toUpperCase()); setCodeErr(""); }, onKeyDown: (e) => e.key === "Enter" && resolveCode(), placeholder: "Setup code (e.g. ABC-123)", style: {
                                 width: "100%", height: 52, borderRadius: 12,
                                 border: `1.5px solid ${codeErr ? "var(--color-red)" : "var(--color-line-strong)"}`,
                                 padding: "0 16px", fontSize: 16,

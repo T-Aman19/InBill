@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { ws } from "@/lib/ws";
 import { formatCurrency } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
+import { LogoMark } from "@/components/ui/LogoMark";
 function elapsed(iso) {
     const m = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
     if (m < 60)
@@ -170,7 +171,8 @@ export default function FloorPage() {
         return () => { u1(); u2(); u3(); };
     }, [qc]);
     function handleTableClick(table) {
-        if (table.status === "available") {
+        if (table.status === "available" || table.status === "reserved") {
+            // "reserved" = host seated a customer but no order yet — waiter opens it to start the order
             navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: undefined } });
         }
         else if (table.currentOrderId) {
@@ -200,7 +202,7 @@ export default function FloorPage() {
                     borderBottom: "1px solid var(--color-line)",
                     display: "flex", alignItems: "center",
                     padding: "0 20px", gap: 14,
-                }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }, children: [_jsx("div", { style: { width: 28, height: 28, borderRadius: 7, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center" }, children: _jsx("span", { style: { color: "var(--color-bg)", fontSize: 13, fontWeight: 700, fontFamily: "var(--font-mono)" }, children: "i" }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--color-ink)", lineHeight: 1.15 }, children: outletName }), displaySetupCode ? (_jsx("button", { onClick: copyCode, style: { background: "none", border: "none", padding: 0, cursor: "pointer" }, children: _jsx("span", { style: { fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: ".06em", color: copied ? "var(--v2-marigold-ink)" : "var(--color-ink-4)", fontWeight: 500, transition: "color .15s" }, children: copied ? "Copied!" : displaySetupCode }) })) : (_jsx("div", { style: { fontSize: 10, color: "var(--color-ink-4)" }, children: "Terminal 01" }))] })] }), _jsx("div", { style: { display: "flex", background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, flexShrink: 0 }, children: ([
+                }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }, children: [_jsx("div", { style: { color: "var(--color-ink)", flexShrink: 0 }, children: _jsx(LogoMark, { size: 28 }) }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--color-ink)", lineHeight: 1.15 }, children: outletName }), displaySetupCode ? (_jsx("button", { onClick: copyCode, style: { background: "none", border: "none", padding: 0, cursor: "pointer" }, children: _jsx("span", { style: { fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: ".06em", color: copied ? "var(--v2-marigold-ink)" : "var(--color-ink-4)", fontWeight: 500, transition: "color .15s" }, children: copied ? "Copied!" : displaySetupCode }) })) : (_jsx("div", { style: { fontSize: 10, color: "var(--color-ink-4)" }, children: "Terminal 01" }))] })] }), _jsx("div", { style: { display: "flex", background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, flexShrink: 0 }, children: ([
                             { label: "Free", dot: "green", val: stats.free },
                             { label: "Open", dot: "amber", val: stats.open },
                             { label: "Billed", dot: "red", val: stats.billed },

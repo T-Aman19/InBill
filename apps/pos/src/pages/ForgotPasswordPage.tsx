@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { api } from "@/lib/api"
+import { LogoMark } from "@/components/ui/LogoMark"
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate()
@@ -42,10 +43,8 @@ export default function ForgotPasswordPage() {
       <div style={{ width: 380, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 28, height: 28, background: "var(--color-ink)", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-              <path d="M6 2h12a1 1 0 011 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 011-1zm2 5v2h8V7H8zm0 4v2h8v-2H8zm0 4v2h5v-2H8z"/>
-            </svg>
+          <div style={{ color: "var(--color-ink)" }}>
+            <LogoMark size={28} />
           </div>
           <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }}>InBill Owner</span>
         </div>

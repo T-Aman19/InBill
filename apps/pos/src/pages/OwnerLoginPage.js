@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { api } from "@/lib/api";
+import { LogoMark } from "@/components/ui/LogoMark";
 export default function OwnerLoginPage() {
     const navigate = useNavigate();
     const [tab, setTab] = useState("login");
@@ -50,7 +51,7 @@ export default function OwnerLoginPage() {
         color: "var(--color-ink-2)",
         marginBottom: 5,
     };
-    return (_jsx("div", { style: { minHeight: "100vh", background: "var(--color-bg)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)", padding: 16 }, children: _jsxs("div", { style: { width: 380, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [_jsx("div", { style: { width: 28, height: 28, background: "var(--color-ink)", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center" }, children: _jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "white", children: _jsx("path", { d: "M6 2h12a1 1 0 011 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 011-1zm2 5v2h8V7H8zm0 4v2h8v-2H8zm0 4v2h5v-2H8z" }) }) }), _jsx("span", { style: { fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }, children: "InBill Owner" })] }), _jsxs("div", { style: { width: "100%", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 28, boxShadow: "var(--shadow-2)" }, children: [_jsxs("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", background: "var(--color-surface-2)", padding: 3, borderRadius: 10, marginBottom: 24, position: "relative" }, children: [_jsx("div", { style: {
+    return (_jsx("div", { style: { minHeight: "100vh", background: "var(--color-bg)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)", padding: 16 }, children: _jsxs("div", { style: { width: 380, display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [_jsx("div", { style: { color: "var(--color-ink)" }, children: _jsx(LogoMark, { size: 28 }) }), _jsx("span", { style: { fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }, children: "InBill Owner" })] }), _jsxs("div", { style: { width: "100%", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 28, boxShadow: "var(--shadow-2)" }, children: [_jsxs("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", background: "var(--color-surface-2)", padding: 3, borderRadius: 10, marginBottom: 24, position: "relative" }, children: [_jsx("div", { style: {
                                         position: "absolute",
                                         top: 3,
                                         left: tab === "login" ? 3 : "calc(50% + 0px)",

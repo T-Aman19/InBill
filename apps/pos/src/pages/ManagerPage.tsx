@@ -5,6 +5,7 @@ import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
+import { LogoMark } from "@/components/ui/LogoMark"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Staff = { id: string; name: string; role: string; isActive: boolean }
@@ -30,9 +31,9 @@ type ReportSummary = { billCount: number; totalRevenue: number; totalTax: number
 type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean } }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const ROLES = ["manager", "cashier", "captain", "kitchen"] as const
-const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green" }
-const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only" }
+const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
+const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green", host: "gray" }
+const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only", host: "Queue & seating" }
 type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -2226,10 +2227,8 @@ export default function ManagerPage() {
       <aside style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", flexDirection: "column", padding: "16px 10px" }}>
         {/* Logo + outlet */}
         <div style={{ padding: "0 6px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--color-bg)" }}>
-              <path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z"/>
-            </svg>
+          <div style={{ color: "var(--color-ink)", flexShrink: 0 }}>
+            <LogoMark size={28} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="display" style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outletName ?? "inbill"}</div>

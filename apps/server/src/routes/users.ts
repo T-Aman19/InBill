@@ -14,13 +14,13 @@ usersRouter.use("*", requireAuth)
 const createUserSchema = z.object({
   name: z.string().min(1),
   pin: z.string().length(4).regex(/^\d+$/),
-  role: z.enum(["manager", "cashier", "captain", "kitchen"]),
+  role: z.enum(["manager", "cashier", "captain", "kitchen", "host"]),
 })
 
 const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   pin: z.string().length(4).regex(/^\d+$/).optional(),
-  role: z.enum(["manager", "cashier", "captain", "kitchen"]).optional(),
+  role: z.enum(["manager", "cashier", "captain", "kitchen", "host"]).optional(),
   isActive: z.boolean().optional(),
 })
 

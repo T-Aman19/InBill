@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { api, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
+import { LogoMark } from "@/components/ui/LogoMark";
 const OUTLET_ID_KEY = "inbill_outlet_id";
 const OUTLET_NAME_KEY = "inbill_outlet_name";
 function Key({ d, sub, onPress, disabled }) {
@@ -59,6 +60,11 @@ export default function LoginPage() {
         try {
             const res = await api.auth.login(p, outletId);
             login(res.token, res.user, outletId, outletName);
+            if (res.user.role === "host") {
+                // Host staff use the dedicated Host app served at /host/
+                window.location.href = "/host/";
+                return;
+            }
             navigate({ to: res.user.role === "kitchen" ? "/kds" : "/floor" });
         }
         catch (e) {
@@ -127,7 +133,7 @@ export default function LoginPage() {
                     padding: "48px 56px",
                     position: "relative", overflow: "hidden",
                 }, children: [_jsx("div", { style: { position: "absolute", inset: 0, opacity: .12, pointerEvents: "none",
-                            backgroundImage: "radial-gradient(circle at 20% 90%, oklch(70% 0.15 55) 0, transparent 40%), radial-gradient(circle at 90% 10%, oklch(70% 0.15 55) 0, transparent 50%)" } }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, position: "relative" }, children: [_jsx("div", { style: { width: 36, height: 36, borderRadius: 10, background: "var(--color-accent)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(20% 0.05 55)" }, children: _jsx("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" }) }) }), _jsx("span", { style: { fontSize: 18, fontWeight: 600, letterSpacing: "-.01em" }, children: "InBill" })] }), _jsxs("div", { style: { marginTop: "auto", position: "relative" }, children: [_jsx("div", { style: { fontSize: 13, color: "oklch(72% 0.02 70)", letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }, children: "Outlet" }), _jsx("div", { style: { fontSize: 36, fontWeight: 600, lineHeight: 1.1, letterSpacing: "-.02em" }, children: outletName }), _jsxs("div", { style: { display: "flex", gap: 24, marginTop: 32, fontSize: 12, color: "oklch(72% 0.02 70)" }, children: [_jsxs("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [_jsx("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "oklch(70% 0.15 145)" } }), "Local network"] }), _jsx("span", { children: "Terminal 01" }), _jsx("span", { children: "v1.0.0" })] })] })] }), _jsx("div", { style: {
+                            backgroundImage: "radial-gradient(circle at 20% 90%, oklch(70% 0.15 55) 0, transparent 40%), radial-gradient(circle at 90% 10%, oklch(70% 0.15 55) 0, transparent 50%)" } }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, position: "relative" }, children: [_jsx("div", { style: { color: "var(--color-ink)" }, children: _jsx(LogoMark, { size: 36 }) }), _jsx("span", { className: "display", style: { fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }, children: "InBill" })] }), _jsxs("div", { style: { marginTop: "auto", position: "relative" }, children: [_jsx("div", { style: { fontSize: 13, color: "oklch(72% 0.02 70)", letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }, children: "Outlet" }), _jsx("div", { style: { fontSize: 36, fontWeight: 600, lineHeight: 1.1, letterSpacing: "-.02em" }, children: outletName }), _jsxs("div", { style: { display: "flex", gap: 24, marginTop: 32, fontSize: 12, color: "oklch(72% 0.02 70)" }, children: [_jsxs("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [_jsx("span", { style: { width: 6, height: 6, borderRadius: "50%", background: "oklch(70% 0.15 145)" } }), "Local network"] }), _jsx("span", { children: "Terminal 01" }), _jsx("span", { children: "v1.0.0" })] })] })] }), _jsx("div", { style: {
                     display: "flex", flexDirection: "column",
                     alignItems: "center", justifyContent: "center",
                     padding: 40,

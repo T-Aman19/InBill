@@ -42,7 +42,8 @@ tablesRouter.get("/", async (c) => {
 
   const enriched = tableList.map((t) => {
     const orderInfo = t.currentOrderId ? orderMap[t.currentOrderId] : null
-    let effectiveStatus: typeof t.status = "available"
+    // Fall back to stored status (e.g. "reserved" set by host seating) when no active order
+    let effectiveStatus: typeof t.status = t.status
     if (orderInfo) {
       if (orderInfo.status === "billed") effectiveStatus = "billed"
       else if (orderInfo.status === "cancelled") effectiveStatus = "available"

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { api, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth"
+import { LogoMark } from "@/components/ui/LogoMark"
 
 const OUTLET_ID_KEY   = "inbill_outlet_id"
 const OUTLET_NAME_KEY = "inbill_outlet_name"
@@ -73,6 +74,11 @@ export default function LoginPage() {
     try {
       const res = await api.auth.login(p, outletId)
       login(res.token, res.user, outletId, outletName)
+      if (res.user.role === "host") {
+        // Host staff use the dedicated Host app served at /host/
+        window.location.href = "/host/"
+        return
+      }
       navigate({ to: res.user.role === "kitchen" ? "/kds" : "/floor" })
     } catch (e) {
       const msg = e instanceof ApiError && e.status === 401 ? "Incorrect PIN" : "Login failed"
@@ -199,11 +205,11 @@ export default function LoginPage() {
           backgroundImage: "radial-gradient(circle at 20% 90%, oklch(70% 0.15 55) 0, transparent 40%), radial-gradient(circle at 90% 10%, oklch(70% 0.15 55) 0, transparent 50%)" }} />
 
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--color-accent)", display: "flex", alignItems: "center", justifyContent: "center", color: "oklch(20% 0.05 55)" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z"/></svg>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
+          <div style={{ color: "var(--color-ink)" }}>
+            <LogoMark size={36} />
           </div>
-          <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-.01em" }}>InBill</span>
+          <span className="display" style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>InBill</span>
         </div>
 
         {/* Bottom copy */}

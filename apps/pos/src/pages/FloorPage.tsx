@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
+import { LogoMark } from "@/components/ui/LogoMark"
 
 type TableStatus = "available" | "occupied" | "reserved" | "billed"
 type Table = { id: string; name: string; capacity: number; status: TableStatus; currentOrderId: string | null; floorId: string; source?: string; openedAt?: string; total?: number; items?: number }
@@ -407,7 +408,8 @@ export default function FloorPage() {
   }, [qc])
 
   function handleTableClick(table: Table) {
-    if (table.status === "available") {
+    if (table.status === "available" || table.status === "reserved") {
+      // "reserved" = host seated a customer but no order yet — waiter opens it to start the order
       navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: undefined } })
     } else if (table.currentOrderId) {
       navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined, customerId: undefined } })
@@ -445,8 +447,8 @@ export default function FloorPage() {
       }}>
         {/* Logo + outlet */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ color: "var(--color-bg)", fontSize: 13, fontWeight: 700, fontFamily: "var(--font-mono)" }}>i</span>
+          <div style={{ color: "var(--color-ink)", flexShrink: 0 }}>
+            <LogoMark size={28} />
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", lineHeight: 1.15 }}>{outletName}</div>
