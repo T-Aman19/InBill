@@ -76,7 +76,6 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
-            libfuse2 \
             build-essential \
             file
 
@@ -122,10 +121,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # linuxdeploy (used for AppImage bundling) is itself an AppImage and
-          # needs FUSE to run. GitHub Actions runners don't have FUSE mounted,
-          # so tell it to extract-and-run instead.
-          APPIMAGE_EXTRACT_AND_RUN: 1
+          # linuxdeploy and its plugins are AppImages. GitHub Actions runners
+          # don't expose FUSE, so tell them to extract-and-run instead.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          # Prevent linuxdeploy from stripping bundled binaries — strip can
+          # fail on CI when the binary format doesn't match the host strip version.
+          NO_STRIP: "true"
         with:
           projectPath: apps/desktop
           tauriScript: bun x tauri
