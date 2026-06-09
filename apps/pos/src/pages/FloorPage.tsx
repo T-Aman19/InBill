@@ -131,7 +131,7 @@ function QueuePanel({ tables }: { tables: Table[] }) {
   })
 
   useEffect(() => {
-    return ws.on("queue.updated", (e: any) => {
+    return ws.on("queue.updated", (e: { type: string; payload: unknown }) => {
       qc.setQueryData(["queue"], (e.payload as { entries: QueueEntry[] }).entries.filter((x: QueueEntry) => x.status === "waiting"))
     })
   }, [qc])
@@ -139,7 +139,7 @@ function QueuePanel({ tables }: { tables: Table[] }) {
   const addMutation = useMutation({
     mutationFn: () => api.queue.addWalkIn({ customerName: form.customerName.trim(), customerPhone: form.customerPhone.trim() || null, partySize: form.partySize }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["queue"] }); setShowModal(false); setForm({ customerName: "", customerPhone: "", partySize: 2 }); setFormError("") },
-    onError: (e: any) => setFormError(e.message ?? "Failed to add"),
+    onError: (e: Error) => setFormError(e.message ?? "Failed to add"),
   })
 
   const seatMutation = useMutation({
@@ -236,7 +236,7 @@ function QueuePanel({ tables }: { tables: Table[] }) {
                       Seat
                     </button>
                     <div style={{ position: "relative" }}>
-                      <KebabMenu entry={entry} onCancel={(status) => cancelMutation.mutate({ id: entry.id, status })} />
+                      <KebabMenu onCancel={(status) => cancelMutation.mutate({ id: entry.id, status })} />
                     </div>
                   </div>
                 </div>
@@ -328,7 +328,7 @@ function QueuePanel({ tables }: { tables: Table[] }) {
   )
 }
 
-function KebabMenu({ entry, onCancel }: { entry: QueueEntry; onCancel: (status: "cancelled" | "no_show") => void }) {
+function KebabMenu({ onCancel }: { onCancel: (status: "cancelled" | "no_show") => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -424,7 +424,7 @@ export default function FloorPage() {
     billed: tables.filter((t) => t.status === "billed").length,
   }
   const lowStockCount    = lowStockData?.count ?? 0
-  const displaySetupCode = setupCode ?? (outlet as any)?.setupCode ?? null
+  const displaySetupCode = setupCode ?? null
 
   function copyCode() {
     if (!displaySetupCode) return
@@ -433,6 +433,9 @@ export default function FloorPage() {
       setTimeout(() => setCopied(false), 1500)
     })
   }
+
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now()
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--color-bg)", position: "relative" }}>
@@ -571,7 +574,7 @@ export default function FloorPage() {
               const statusColor       = isBuilding ? "var(--color-ink-3)" : isAwaitingPayment ? "var(--color-amber)" : "var(--color-blue)"
               const statusLabel       = isBuilding ? "Building" : isAwaitingPayment ? "Awaiting payment" : "In kitchen"
               const itemCount         = order.items.reduce((s, i) => s + i.quantity, 0)
-              const elapsedMin        = Math.max(0, Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000))
+              const elapsedMin        = Math.max(0, Math.floor((now - new Date(order.createdAt).getTime()) / 60000))
 
               return (
                 <button

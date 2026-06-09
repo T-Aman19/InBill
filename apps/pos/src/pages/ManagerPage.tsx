@@ -1750,7 +1750,7 @@ function ReservationsTab() {
       return api.queue.createReservation(payload)
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["reservations"] }); setSlideOpen(false) },
-    onError: (e: any) => setError(e.message ?? "Failed to save"),
+    onError: (e: Error) => setError(e.message ?? "Failed to save"),
   })
 
   const cancelMutation = useMutation({

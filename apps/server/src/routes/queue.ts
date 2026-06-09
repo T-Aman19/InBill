@@ -1,7 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, gte, lte, count } from "drizzle-orm"
-import { z } from "zod"
 import {
   createQueueEntrySchema,
   seatQueueEntrySchema,
@@ -197,8 +196,6 @@ queueRouter.get("/reservations", async (c) => {
   return c.json(rows.map(serializeReservation))
 })
 
-const dateQuerySchema = z.object({ date: z.string().optional() })
-
 queueRouter.post("/reservations", requireRole("manager", "owner", "cashier"), zValidator("json", createReservationSchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
@@ -268,7 +265,7 @@ queueRouter.delete("/reservations/:id", requireRole("manager", "owner", "cashier
   })
   if (!existing) return c.json({ error: "Not found" }, 404)
 
-  const [updated] = await db.update(reservations)
+  await db.update(reservations)
     .set({ status: "cancelled" })
     .where(and(eq(reservations.id, id), eq(reservations.outletId, outletId)))
     .returning()

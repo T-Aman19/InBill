@@ -18,7 +18,7 @@ export function formatCurrencyInt(amount: number | string): string {
 // print dialog. Use Tauri's invoke API when available, fall back to the
 // browser API everywhere else (LAN browsers, dev server).
 export function triggerPrint(): void {
-  const tauri = (window as any).__TAURI_INTERNALS__
+  const tauri = (window as Window & { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<void> } }).__TAURI_INTERNALS__
   if (tauri) {
     tauri.invoke('print_window').catch(() => window.print())
   } else {
