@@ -27,7 +27,7 @@ jobs:
           ALL='[
             {"platform":"macos-14","target":"aarch64-apple-darwin","bundles":"dmg"},
             {"platform":"macos-13","target":"x86_64-apple-darwin","bundles":"dmg"},
-            {"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb"},
+            {"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},
             {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}
           ]'
           FILTER="${{ inputs.platforms }}"
@@ -71,6 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
@@ -78,6 +79,8 @@ jobs:
             libssl-dev \
             build-essential \
             file \
+            fuse \
+            dpkg-dev \
             libfuse2
 
       - name: Install frontend dependencies
@@ -122,6 +125,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUST_BACKTRACE: full
+          RUST_LOG: trace
+          TAURI_LOG_LEVEL: trace
           # linuxdeploy and its plugins are AppImages. GitHub Actions runners
           # don't expose FUSE, so tell them to extract-and-run instead.
           APPIMAGE_EXTRACT_AND_RUN: "1"
