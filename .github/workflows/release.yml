@@ -77,7 +77,8 @@ jobs:
             patchelf \
             libssl-dev \
             build-essential \
-            file
+            file \
+            libfuse2
 
       - name: Install frontend dependencies
         run: bun install
