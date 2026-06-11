@@ -1,20 +1,39 @@
 import { z } from "zod"
+import { phoneSchema } from "./auth.js"
+
+// Indian GSTIN: 15-character alphanumeric with specific structure
+export const gstinSchema = z
+  .string()
+  .regex(
+    /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
+    "GSTIN must be a valid 15-character Indian GST number",
+  )
+
+// FSSAI licence number: exactly 14 digits
+export const fssaiSchema = z
+  .string()
+  .regex(/^\d{14}$/, "FSSAI number must be exactly 14 digits")
+
+// UPI VPA format: username@bankcode
+export const upiVpaSchema = z
+  .string()
+  .regex(/^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/, "UPI VPA must be in format username@bankcode")
 
 export const ownerSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
   email: z.string().email(),
-  phone: z.string().min(10),
+  phone: phoneSchema,
   createdAt: z.string().datetime(),
 })
 
 export const outletSchema = z.object({
   id: z.string().uuid(),
   ownerId: z.string().uuid(),
-  name: z.string().min(1),
-  address: z.string().min(1),
-  phone: z.string().min(10),
-  gstin: z.string().optional(),
+  name: z.string().min(1).max(100),
+  address: z.string().min(1).max(500),
+  phone: phoneSchema,
+  gstin: gstinSchema.optional(),
   timezone: z.string().default("Asia/Kolkata"),
   currency: z.string().default("INR"),
   isActive: z.boolean().default(true),
@@ -28,15 +47,15 @@ export const outletSettingsSchema = z.object({
 })
 
 export const updateOutletSchema = z.object({
-  name: z.string().min(1).optional(),
-  address: z.string().optional(),
-  phone: z.string().optional(),
-  gstin: z.string().optional(),
-  fssaiNumber: z.string().optional(),
+  name: z.string().min(1).max(100).optional(),
+  address: z.string().max(500).optional(),
+  phone: phoneSchema.optional(),
+  gstin: gstinSchema.optional().or(z.literal("")),
+  fssaiNumber: fssaiSchema.optional().or(z.literal("")),
   timezone: z.string().optional(),
-  upiVpa: z.string().optional(),
-  razorpayKeyId: z.string().optional(),
-  razorpayKeySecret: z.string().optional(),
+  upiVpa: upiVpaSchema.optional().or(z.literal("")),
+  razorpayKeyId: z.string().max(100).optional(),
+  razorpayKeySecret: z.string().max(100).optional(),
   settings: outletSettingsSchema.optional(),
 })
 

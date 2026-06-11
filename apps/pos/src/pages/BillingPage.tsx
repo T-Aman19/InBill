@@ -58,11 +58,16 @@ export default function BillingPage() {
   const [countdown, setCountdown]   = useState(8)
 
   async function handleLinkCustomer() {
-    if (!custPhone.trim() || !bill) return
+    const phone = custPhone.trim()
+    if (!phone || !bill) return
+    if (!/^[6-9]\d{9}$/.test(phone)) {
+      setCustErr("Enter a valid 10-digit Indian mobile number")
+      return
+    }
     setCustLinking(true)
     setCustErr("")
     try {
-      const cust = await api.customers.upsert({ phone: custPhone.trim(), name: custName.trim() || undefined }) as { id: string }
+      const cust = await api.customers.upsert({ phone, name: custName.trim() || undefined }) as { id: string }
       await api.orders.linkCustomer(bill.orderId, cust.id)
       refetchLoyalty()
     } catch {
@@ -493,8 +498,8 @@ export default function BillingPage() {
         <div style={{ background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", padding: 24, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 500 }}>Collect payment</div>
 
-          {/* Customer lookup — takeaway/delivery only, before payment starts, no customer yet */}
-          {(bill.orderType === "takeaway" || bill.orderType === "delivery") && !loyaltyInfo && !bill.isPaid && (
+          {/* Customer lookup — before payment starts, no customer yet */}
+          {!loyaltyInfo && !bill.isPaid && (
             <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)" }}>
                 Customer <span style={{ fontWeight: 400, color: "var(--color-ink-3)" }}>(optional · for loyalty)</span>
@@ -502,9 +507,11 @@ export default function BillingPage() {
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   value={custPhone}
-                  onChange={(e) => setCustPhone(e.target.value)}
+                  onChange={(e) => setCustPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                   onKeyDown={(e) => e.key === "Enter" && handleLinkCustomer()}
-                  placeholder="Phone number"
+                  placeholder="10-digit mobile"
+                  inputMode="numeric"
+                  maxLength={10}
                   style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
                   onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
@@ -669,7 +676,12 @@ export default function BillingPage() {
             </div>
             <input
               value={tendered}
-              onChange={(e) => setTendered(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9.]/g, "")
+                // Allow only one decimal point
+                const parts = raw.split(".")
+                setTendered(parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : raw)
+              }}
               placeholder={"₹" + Math.ceil(remaining)}
               style={{
                 width: "100%", height: 56, padding: "0 18px",

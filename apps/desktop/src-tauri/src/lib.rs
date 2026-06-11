@@ -81,6 +81,28 @@ async fn start_postgres(
     Ok(pg)
 }
 
+// Returns true only when the local server replies with an HTTP 200 on /health,
+// confirming that Hono and migrations have finished — a bare TCP connect can
+// succeed while the server is still starting up, causing a stale Edge error page.
+#[cfg(not(debug_assertions))]
+fn http_health_check() -> bool {
+    use std::io::{Read, Write};
+    let addr: std::net::SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let timeout = std::time::Duration::from_millis(400);
+    if let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, timeout) {
+        let _ = stream.set_read_timeout(Some(timeout));
+        let req = b"GET /health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+        if stream.write_all(req).is_ok() {
+            let mut buf = [0u8; 32];
+            if let Ok(n) = stream.read(&mut buf) {
+                let s = &buf[..n];
+                return s.starts_with(b"HTTP/1.1 200") || s.starts_with(b"HTTP/1.0 200");
+            }
+        }
+    }
+    false
+}
+
 #[cfg(not(debug_assertions))]
 fn spawn_server(app: &AppHandle, server_handle: ServerHandle, pg_handle: PgHandle) {
     let app = app.clone();
@@ -125,9 +147,13 @@ fn spawn_server(app: &AppHandle, server_handle: ServerHandle, pg_handle: PgHandl
                     .args(["-c", "lsof -ti :3000 | xargs kill -9 2>/dev/null"])
                     .output();
                 #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("cmd")
-                    .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a"])
-                    .output();
+                {
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a"])
+                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                        .output();
+                }
 
                 let result = app
                     .shell()
@@ -146,10 +172,12 @@ fn spawn_server(app: &AppHandle, server_handle: ServerHandle, pg_handle: PgHandl
 
                         // Poll up to 60 s (120 × 500 ms) — first run includes
                         // migrations which can take a few seconds.
+                        // Use an HTTP GET rather than a bare TCP connect so we only
+                        // navigate once the server is actually serving responses.
                         let mut ready = false;
                         for _ in 0..120 {
                             tokio::time::sleep(Duration::from_millis(500)).await;
-                            if std::net::TcpStream::connect("127.0.0.1:3000").is_ok() {
+                            if http_health_check() {
                                 ready = true;
                                 break;
                             }
@@ -192,7 +220,9 @@ fn shutdown(app: &tauri::AppHandle, server_handle: ServerHandle, pg_handle: PgHa
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(mut pg) = pg {
-            let _ = pg.stop_db().await;
+            if let Err(e) = pg.stop_db().await {
+                eprintln!("[inbill] pg_ctl stop failed: {e}");
+            }
         }
         app.exit(0);
     });

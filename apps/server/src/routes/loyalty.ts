@@ -1,14 +1,30 @@
 import { Hono } from "hono"
+import { zValidator } from "@hono/zod-validator"
 import { eq, and, desc } from "drizzle-orm"
+import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
 import { customers, bills, orders } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { phoneSchema } from "@inbill/shared"
 
 export const loyaltyRouter = new Hono<AppEnv>()
 
 loyaltyRouter.use("*", requireAuth)
+
+const loyaltyConfigSchema = z.object({
+  pointsPerRupee: z.number().min(0.01).max(10).optional(),
+  redeemRate: z.number().min(1).max(10_000).optional(),
+  minRedeemPoints: z.number().int().min(1).max(100_000).optional(),
+  isActive: z.boolean().optional(),
+})
+
+const redeemSchema = z.object({
+  customerId: z.string().uuid(),
+  points: z.number().int().positive().max(1_000_000),
+  billId: z.string().uuid(),
+})
 
 // GET /api/loyalty/config
 loyaltyRouter.get("/config", async (c) => {
@@ -18,9 +34,9 @@ loyaltyRouter.get("/config", async (c) => {
 })
 
 // POST /api/loyalty/config — upsert loyalty program settings (owner/manager only)
-loyaltyRouter.post("/config", requireRole("owner", "manager"), async (c) => {
+loyaltyRouter.post("/config", requireRole("owner", "manager"), zValidator("json", loyaltyConfigSchema), async (c) => {
   const { outletId } = c.get("user")
-  const body = await c.req.json() as { pointsPerRupee?: number; redeemRate?: number; minRedeemPoints?: number; isActive?: boolean }
+  const body = c.req.valid("json")
 
   const existing = await db.query.loyaltyPrograms.findFirst({ where: eq(loyaltyPrograms.outletId, outletId) })
 
@@ -55,7 +71,11 @@ loyaltyRouter.post("/config", requireRole("owner", "manager"), async (c) => {
 // GET /api/loyalty/customers/:phone — look up customer + points balance
 loyaltyRouter.get("/customers/:phone", async (c) => {
   const { outletId } = c.get("user")
-  const phone = c.req.param("phone")
+  const rawPhone = c.req.param("phone")
+
+  const parsed = phoneSchema.safeParse(rawPhone)
+  if (!parsed.success) return c.json({ error: "Invalid phone number format" }, 400)
+  const phone = parsed.data
 
   const customer = await db.query.customers.findFirst({
     where: and(eq(customers.outletId, outletId), eq(customers.phone, phone)),
@@ -82,13 +102,9 @@ loyaltyRouter.get("/customers/:phone", async (c) => {
 })
 
 // POST /api/loyalty/redeem — deduct points, insert transaction, apply discount line to bill
-loyaltyRouter.post("/redeem", requireRole("owner", "manager", "cashier"), async (c) => {
+loyaltyRouter.post("/redeem", requireRole("owner", "manager", "cashier"), zValidator("json", redeemSchema), async (c) => {
   const { outletId } = c.get("user")
-  const body = await c.req.json() as { customerId: string; points: number; billId: string }
-  const { customerId, points, billId } = body
-
-  if (!customerId || !points || !billId) return c.json({ error: "customerId, points, and billId are required" }, 400)
-  if (points <= 0) return c.json({ error: "Points must be positive" }, 400)
+  const { customerId, points, billId } = c.req.valid("json")
 
   const program = await db.query.loyaltyPrograms.findFirst({ where: and(eq(loyaltyPrograms.outletId, outletId), eq(loyaltyPrograms.isActive, true)) })
   if (!program) return c.json({ error: "Loyalty program is not active" }, 400)
@@ -113,6 +129,8 @@ loyaltyRouter.post("/redeem", requireRole("owner", "manager", "cashier"), async 
     .update(customerPoints)
     .set({ totalPoints: newBalance, updatedAt: new Date() })
     .where(eq(customerPoints.id, cpRow.id))
+
+  await db.update(customers).set({ loyaltyPoints: newBalance }).where(eq(customers.id, customerId))
 
   // Insert point transaction
   await db.insert(pointTransactions).values({

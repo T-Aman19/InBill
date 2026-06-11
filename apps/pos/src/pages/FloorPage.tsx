@@ -12,7 +12,7 @@ type Table = { id: string; name: string; capacity: number; status: TableStatus; 
 type Floor = { id: string; name: string; sortOrder: number }
 type CounterItem = { id: string; name: string; quantity: number }
 type CounterOrder = { id: string; type: "takeaway" | "delivery"; status: string; createdAt: string; items: CounterItem[]; bill: { isPaid: boolean; total: string; id: string } | null }
-type QueueEntry = { id: string; customerName: string; customerPhone: string | null; partySize: number; token: string; status: string; tableId: string | null; joinedAt: string; seatedAt: string | null; cancelledAt: string | null }
+type QueueEntry = { id: string; customerName: string; customerPhone: string | null; customerId?: string | null; partySize: number; token: string; status: string; tableId: string | null; joinedAt: string; seatedAt: string | null; cancelledAt: string | null }
 
 function elapsed(iso: string) {
   const m = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))
@@ -147,6 +147,7 @@ function QueuePanel({ tables }: { tables: Table[] }) {
       api.queue.seat(entryId, tableId) as Promise<{ customerId?: string | null }>,
     onSuccess: (data, { tableId }) => {
       qc.invalidateQueries({ queryKey: ["queue"] })
+      qc.invalidateQueries({ queryKey: ["queue-seated"] })
       qc.invalidateQueries({ queryKey: ["tables"] })
       setSeatEntry(null)
       navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId, customerId: data.customerId ?? undefined } })
@@ -267,8 +268,10 @@ function QueuePanel({ tables }: { tables: Table[] }) {
                 <label style={{ fontSize: 12, color: "var(--color-ink-2)", fontWeight: 600, display: "block", marginBottom: 5 }}>Phone (optional)</label>
                 <input
                   value={form.customerPhone}
-                  onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))}
-                  placeholder="+91 98765 43210"
+                  onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                  placeholder="10-digit mobile (optional)"
+                  inputMode="numeric"
+                  maxLength={10}
                   style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 14, boxSizing: "border-box" }}
                 />
               </div>
@@ -285,7 +288,11 @@ function QueuePanel({ tables }: { tables: Table[] }) {
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
               <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-ink)", fontSize: 14, cursor: "pointer" }}>Cancel</button>
               <button
-                onClick={() => { if (!form.customerName.trim()) { setFormError("Name is required"); return } addMutation.mutate() }}
+                onClick={() => {
+                  if (!form.customerName.trim()) { setFormError("Name is required"); return }
+                  if (form.customerPhone && !/^[6-9]\d{9}$/.test(form.customerPhone)) { setFormError("Enter a valid 10-digit Indian mobile number"); return }
+                  addMutation.mutate()
+                }}
                 disabled={addMutation.isPending}
                 style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: addMutation.isPending ? 0.6 : 1 }}
               >
@@ -407,10 +414,16 @@ export default function FloorPage() {
     return () => { u1(); u2(); u3() }
   }, [qc])
 
+  const { data: seatedEntries = [] } = useQuery<QueueEntry[]>({
+    queryKey: ["queue-seated"],
+    queryFn: () => api.queue.list("seated") as Promise<QueueEntry[]>,
+    refetchOnWindowFocus: false,
+  })
+
   function handleTableClick(table: Table) {
     if (table.status === "available" || table.status === "reserved") {
-      // "reserved" = host seated a customer but no order yet — waiter opens it to start the order
-      navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: undefined } })
+      const seatedEntry = seatedEntries.find((e: QueueEntry) => e.tableId === table.id)
+      navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: seatedEntry?.customerId ?? undefined } })
     } else if (table.currentOrderId) {
       navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined, customerId: undefined } })
     }
@@ -424,7 +437,7 @@ export default function FloorPage() {
     billed: tables.filter((t) => t.status === "billed").length,
   }
   const lowStockCount    = lowStockData?.count ?? 0
-  const displaySetupCode = setupCode ?? null
+  const displaySetupCode = setupCode ?? outlet?.setupCode ?? null
 
   function copyCode() {
     if (!displaySetupCode) return
@@ -507,12 +520,14 @@ export default function FloorPage() {
         {/* App navigation */}
         <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
           {[
-            { id: "floor",   label: "Floor",   path: "/floor",   show: user?.role !== "kitchen",
+            { id: "floor",     label: "Floor",     path: "/floor",     show: user?.role !== "kitchen",
               icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg> },
-            { id: "kds",     label: "Kitchen", path: "/kds",     show: user?.role !== "kitchen",
+            { id: "kds",       label: "Kitchen",   path: "/kds",       show: user?.role !== "kitchen",
               icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg> },
-            { id: "manager", label: "Manager", path: "/manager", show: isManagerOrOwner,
+            { id: "manager",   label: "Manager",   path: "/manager",   show: isManagerOrOwner,
               icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z"/></svg> },
+            { id: "inventory", label: "Inventory", path: "/inventory", show: isManagerOrOwner,
+              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M10 12h4M10 16h4M8 12v.01M8 16v.01"/></svg> },
           ].filter((n) => n.show).map((n) => {
             const active = n.id === "floor"
             return (
@@ -527,7 +542,7 @@ export default function FloorPage() {
               }}>
                 {n.icon}
                 {n.label}
-                {n.id === "manager" && lowStockCount > 0 && (
+                {n.id === "inventory" && lowStockCount > 0 && (
                   <span style={{ background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }}>{lowStockCount}</span>
                 )}
               </button>

@@ -21,10 +21,10 @@ export const orderItemSchema = z.object({
   variantId: z.string().uuid().nullable().default(null),
   name: z.string(),
   variantName: z.string().nullable().default(null),
-  quantity: z.number().int().positive(),
+  quantity: z.number().int().positive().max(999),
   unitPrice: z.number().nonnegative(),
   modifiers: z.array(orderItemModifierSchema).default([]),
-  notes: z.string().optional(),
+  notes: z.string().max(800).optional(),
   kotId: z.string().uuid().nullable().default(null),
   isVoided: z.boolean().default(false),
 })
@@ -37,7 +37,7 @@ export const orderSchema = z.object({
   status: orderStatusSchema.default("open"),
   serverId: z.string().uuid().nullable().default(null),
   customerId: z.string().uuid().nullable().default(null),
-  guestCount: z.number().int().positive().nullable().default(null),
+  guestCount: z.number().int().positive().max(100).nullable().default(null),
   items: z.array(orderItemSchema).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -46,16 +46,16 @@ export const orderSchema = z.object({
 export const createOrderSchema = z.object({
   tableId: z.string().uuid().nullable().optional(),
   type: orderTypeSchema,
-  guestCount: z.number().int().positive().optional(),
+  guestCount: z.number().int().positive().max(25).optional(),
   customerId: z.string().uuid().optional(),
 })
 
 export const addOrderItemSchema = z.object({
   menuItemId: z.string().uuid(),
   variantId: z.string().uuid().optional(),
-  quantity: z.number().int().positive().default(1),
+  quantity: z.number().int().positive().max(999).default(1),
   modifiers: z.array(z.string().uuid()).default([]),
-  notes: z.string().optional(),
+  notes: z.string().max(800).optional(),
 })
 
 export const kotSchema = z.object({

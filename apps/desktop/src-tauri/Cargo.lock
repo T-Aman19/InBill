@@ -2675,8 +2675,6 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "pg-embed"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6816c076d6ddf0a99543f5fe62d8b9667c16d70fbb3454dc3184b16337ae6f3f"
 dependencies = [
  "archiver-rs",
  "async-trait",

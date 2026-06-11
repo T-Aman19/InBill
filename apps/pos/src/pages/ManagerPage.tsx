@@ -33,6 +33,7 @@ type OutletInfo = { id: string; name: string; address: string; phone: string; gs
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green", host: "gray" }
+const WEAK_PINS = new Set(["0000","1111","2222","3333","4444","5555","6666","7777","8888","9999","1234","4321","1212","0101","1122"])
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only", host: "Queue & seating" }
 type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
@@ -111,8 +112,9 @@ function StaffEditPanel({ record, onClose, onSaved }: { record: EditRecord; onCl
   const [error, setError] = useState<string | null>(null)
 
   const pinChanged = pin !== "••••" && pin !== ""
-  const canSave = name.trim() &&
-    (isNew ? pin.length === 4 : (!pinChanged || pin.length === 4))
+  const isWeakPin = pinChanged && pin.length === 4 && WEAK_PINS.has(pin)
+  const canSave = name.trim() && name.trim().length <= 100 &&
+    (isNew ? pin.length === 4 && !isWeakPin : (!pinChanged || (pin.length === 4 && !isWeakPin)))
 
   const createMutation = useMutation({
     mutationFn: () => api.users.create({ name: name.trim(), role, pin }),
@@ -154,12 +156,12 @@ function StaffEditPanel({ record, onClose, onSaved }: { record: EditRecord; onCl
       </div>
       {field(isNew ? "4-digit PIN" : "Reset PIN",
         <input type="text" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^0-9]/g, "")); setError(null) }} placeholder="••••"
-          style={inputStyle({ fontFamily: "var(--font-mono)", fontSize: 22, letterSpacing: ".4em", textAlign: "center" })}
-          onFocus={(e) => { if (e.currentTarget.value === "••••") setPin(""); e.currentTarget.style.borderColor = "var(--color-ink-3)"; }}
-          onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-
-)}
-      {!isNew && <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Leave PIN empty to keep current</span>}
+          style={inputStyle({ fontFamily: "var(--font-mono)", fontSize: 22, letterSpacing: ".4em", textAlign: "center", borderColor: isWeakPin ? "var(--color-amber)" : undefined })}
+          onFocus={(e) => { if (e.currentTarget.value === "••••") setPin(""); e.currentTarget.style.borderColor = isWeakPin ? "var(--color-amber)" : "var(--color-ink-3)"; }}
+          onBlur={(e) => (e.currentTarget.style.borderColor = isWeakPin ? "var(--color-amber)" : "var(--color-line-strong)")} />
+      )}
+      {isWeakPin && <div style={{ fontSize: 12, color: "var(--color-amber)", marginTop: -10 }}>PIN is too common — choose something less predictable</div>}
+      {!isNew && !isWeakPin && <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Leave PIN empty to keep current</span>}
       {error && <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--color-red-soft)", color: "var(--color-red)", fontSize: 13 }}>{error}</div>}
     </SlidePanel>
   )
@@ -252,7 +254,8 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
     }
   }
 
-  const canSave = name.trim() && parseFloat(price) >= 0 && catId
+  const hsnError = hsnCode.length > 0 && hsnCode.length !== 6 && hsnCode.length !== 8
+  const canSave = name.trim() && name.trim().length <= 100 && parseFloat(price) >= 0 && parseFloat(price) <= 1_000_000 && catId && !hsnError
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["menu"] }); onSaved() }
 
@@ -274,9 +277,9 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
     <SlidePanel title={isNew ? "Add item" : `Edit "${item.name}"`} onClose={onClose}
       footer={<><CancelBtn onClose={onClose} /><SaveBtn onClick={doSave} disabled={!canSave || isPending} label={isPending ? "Saving…" : isNew ? "Add item" : "Save"} /></>}>
       <form onSubmit={(e) => { e.preventDefault(); doSave() }} style={{ display: "contents" }}>
-        {field("Item name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Butter Chicken" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+        {field("Item name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Butter Chicken" maxLength={100} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {field("Base price (₹)", <input type="number" min="0" step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+          {field("Base price (₹)", <input type="number" min="0" max={1_000_000} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
           {field("Category",
             <select value={catId} onChange={(e) => setCatId(e.target.value)} style={{ ...inputStyle(), appearance: "none" }}>
               <option value="">Select category</option>
@@ -305,7 +308,11 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Short description…" style={{ ...inputStyle({ height: 72, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
         </label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {field("HSN code (optional)", <input value={hsnCode} onChange={(e) => setHsnCode(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="e.g. 1902" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)" }}>HSN code (optional)</span>
+            <input value={hsnCode} onChange={(e) => setHsnCode(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="e.g. 1902" style={inputStyle({ fontFamily: "var(--font-mono)", borderColor: hsnError ? "var(--color-red)" : undefined })} onFocus={(e) => (e.currentTarget.style.borderColor = hsnError ? "var(--color-red)" : "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = hsnError ? "var(--color-red)" : "var(--color-line-strong)")} />
+            {hsnError && <span style={{ fontSize: 11, color: "var(--color-red)", marginTop: -2 }}>HSN must be exactly 6 or 8 digits</span>}
+          </label>
           {taxConfigs.length > 0 && field("Tax config", (
             <select value={taxConfigId} onChange={(e) => setTaxConfigId(e.target.value)} style={{ ...inputStyle(), appearance: "none" }}>
               <option value="">No tax</option>
@@ -332,8 +339,8 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
               </div>
             ))}
             <div style={{ display: "flex", gap: 8, padding: "10px 14px", borderTop: variants.filter((v) => v.isActive).length > 0 ? "1px solid var(--color-line)" : "none" }}>
-              <input value={newVarName} onChange={(e) => setNewVarName(e.target.value)} placeholder="Variant name (e.g. Large)" style={{ ...inputStyle({ height: 36 }), flex: 1 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-              <input type="number" min="0" step="0.5" value={newVarPrice} onChange={(e) => setNewVarPrice(e.target.value)} placeholder="₹0" style={{ ...inputStyle({ height: 36, fontFamily: "var(--font-mono)", width: 80 }) }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+              <input value={newVarName} onChange={(e) => setNewVarName(e.target.value)} placeholder="Variant name (e.g. Large)" maxLength={100} style={{ ...inputStyle({ height: 36 }), flex: 1 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+              <input type="number" min="0" max={1_000_000} step="0.5" value={newVarPrice} onChange={(e) => setNewVarPrice(e.target.value)} placeholder="₹0" style={{ ...inputStyle({ height: 36, fontFamily: "var(--font-mono)", width: 80 }) }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
               <button onClick={() => { if (newVarName.trim() && newVarPrice) addVariantMutation.mutate() }} disabled={!newVarName.trim() || !newVarPrice} style={{ height: 36, padding: "0 14px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: (!newVarName.trim() || !newVarPrice) ? .4 : 1 }}>Add</button>
             </div>
           </div>
@@ -1169,9 +1176,9 @@ function OutletTab() {
           </div>
         ) : (
           <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 20 }}>
-            {field("Outlet name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Spice Garden" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-            {field("Address", <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state, PIN" style={{ ...inputStyle({ height: 80, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
-            {field("Phone", <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Outlet name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Spice Garden" maxLength={100} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Address", <textarea value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city, state, PIN" maxLength={500} style={{ ...inputStyle({ height: 80, padding: "10px 14px", resize: "none" }), lineHeight: 1.5 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Phone", <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" maxLength={10} placeholder="e.g. 9876543210" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             {field("GSTIN (optional)", <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="29ABCDE1234F1Z5" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             {field("FSSAI licence number (optional)", <input value={fssaiNumber} onChange={(e) => setFssaiNumber(e.target.value)} placeholder="e.g. 12345678901234" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
 
@@ -1387,8 +1394,8 @@ function CustomersTab() {
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Adjust loyalty points</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <input type="number" value={loyaltyDelta} onChange={(e) => setLoyaltyDelta(e.target.value)} placeholder="Points (positive = add, negative = redeem)" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-                <input value={loyaltyNote} onChange={(e) => setLoyaltyNote(e.target.value)} placeholder="Note (optional)" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                <input type="number" min={-100_000} max={100_000} value={loyaltyDelta} onChange={(e) => setLoyaltyDelta(e.target.value)} placeholder="Points (positive = add, negative = redeem)" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+                <input value={loyaltyNote} onChange={(e) => setLoyaltyNote(e.target.value)} placeholder="Note (optional)" maxLength={200} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
                 <button onClick={() => loyaltyMutation.mutate()} disabled={!loyaltyDelta || loyaltyMutation.isPending} style={{ alignSelf: "flex-start", padding: "10px 20px", borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: !loyaltyDelta ? .4 : 1 }}>
                   {loyaltyMutation.isPending ? "Saving…" : "Apply"}
                 </button>
@@ -1452,7 +1459,7 @@ function ExpensesTab() {
               </button>
             ))}
           </div>
-          <input type="number" min="0" step="0.5" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="₹ Amount" style={{ ...inputStyle({ height: 38, width: 120, fontFamily: "var(--font-mono)" }) }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
+          <input type="number" min="0" max={1_000_000} step="0.5" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="₹ Amount" style={{ ...inputStyle({ height: 38, width: 120, fontFamily: "var(--font-mono)" }) }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (supplies, petty cash…)" style={{ ...inputStyle({ height: 38 }), flex: 1 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
           <button onClick={() => { if (amount) createMutation.mutate() }} disabled={!amount || createMutation.isPending} style={{ height: 38, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: !amount ? .4 : 1, flexShrink: 0 }}>Add</button>
         </div>
@@ -1492,6 +1499,9 @@ function DevicesTab() {
   const mobileUrl = activeUrl
     ? `${activeUrl}/mobile${setupCode ? `?setup=${encodeURIComponent(setupCode)}` : ""}`
     : null
+  const hostUrl = activeUrl
+    ? `${activeUrl}/host/${setupCode ? `?setup=${encodeURIComponent(setupCode)}` : ""}`
+    : null
   const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   const noLan = isLocalhost && lanUrls.length === 0
 
@@ -1502,77 +1512,116 @@ function DevicesTab() {
         <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Connect captain phones and tablets to this outlet</div>
       </div>
 
-      <div className="scroll" style={{ flex: 1, padding: "28px 28px" }}>
+      <div className="scroll" style={{ flex: 1, padding: "28px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
         {/* Captain app card */}
-        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, overflow: "hidden", maxWidth: 520 }}>
-          <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--color-line)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--color-accent-soft)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-ink)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18" strokeWidth="2.5"/></svg>
-              </div>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>Captain App</div>
-                <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Order-taking app for waiters — runs in any phone browser</div>
-              </div>
-            </div>
+        <DeviceCard
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-ink)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18" strokeWidth="2.5"/></svg>}
+          iconBg="var(--color-accent-soft)"
+          title="Captain App"
+          subtitle="Order-taking app for waiters — runs in any phone browser"
+          url={mobileUrl}
+          noLan={noLan}
+          steps={["Connect the phone to the same Wi-Fi network as this PC", "Scan the QR code or open the URL below", "Log in with your captain PIN"]}
+          lanUrls={lanUrls}
+          activeUrl={activeUrl}
+          onSelectUrl={setSelectedUrl}
+        />
+
+        {/* Host app card */}
+        <DeviceCard
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-2)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
+          iconBg="var(--color-surface-2)"
+          title="Host App"
+          subtitle="Queue &amp; seating management — runs on a tablet at the front desk"
+          url={hostUrl}
+          noLan={noLan}
+          steps={["Place a tablet at the front desk on the same Wi-Fi", "Scan the QR code — outlet is set up automatically", "Log in with the host staff PIN"]}
+          lanUrls={lanUrls}
+          activeUrl={activeUrl}
+          onSelectUrl={setSelectedUrl}
+        />
+      </div>
+    </>
+  )
+}
+
+function DeviceCard({ icon, iconBg, title, subtitle, url, noLan, steps, lanUrls, activeUrl, onSelectUrl }: {
+  icon: React.ReactNode
+  iconBg: string
+  title: string
+  subtitle: string
+  url: string | null
+  noLan: boolean
+  steps: string[]
+  lanUrls: string[]
+  activeUrl: string | null
+  onSelectUrl: (u: string) => void
+}) {
+  return (
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, overflow: "hidden", maxWidth: 520 }}>
+      <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--color-line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {icon}
           </div>
-
-          <div style={{ padding: "20px" }}>
-            {noLan ? (
-              <div style={{ fontSize: 13, color: "var(--color-amber)", background: "var(--color-amber-soft)", borderRadius: 10, padding: "12px 14px" }}>
-                Open the POS via the machine's LAN IP address (not localhost) to generate a working QR code for other devices.
-              </div>
-            ) : !mobileUrl ? (
-              <div style={{ fontSize: 13, color: "var(--color-ink-3)" }}>Detecting network address…</div>
-            ) : (
-              <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-                {/* QR code */}
-                <div style={{ background: "#fff", padding: 12, borderRadius: 12, border: "1px solid var(--color-line)", flexShrink: 0 }}>
-                  <QRCode value={mobileUrl} size={160} />
-                </div>
-
-                <div style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--color-ink-3)", marginBottom: 8 }}>
-                    How to connect
-                  </div>
-                  <ol style={{ paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
-                    {["Connect the phone to the same Wi-Fi network as this PC", "Scan the QR code or open the URL below", "Log in with your captain PIN"].map((step, i) => (
-                      <li key={i} style={{ fontSize: 13, color: "var(--color-ink-2)", lineHeight: 1.4 }}>{step}</li>
-                    ))}
-                  </ol>
-
-                  {/* URL + copy */}
-                  <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, background: "var(--color-surface-2)", borderRadius: 8, padding: "8px 10px", border: "1px solid var(--color-line)" }}>
-                    <span style={{ flex: 1, fontSize: 12, fontFamily: "var(--font-mono)", wordBreak: "break-all", color: "var(--color-ink-2)" }}>{mobileUrl}</span>
-                    <button
-                      onClick={() => void navigator.clipboard.writeText(mobileUrl)}
-                      title="Copy URL"
-                      style={{ background: "transparent", border: "none", cursor: "pointer", padding: 2, color: "var(--color-ink-3)", flexShrink: 0 }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    </button>
-                  </div>
-
-                  {/* Multi-NIC selector */}
-                  {lanUrls.length > 1 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginBottom: 4 }}>Multiple network interfaces detected:</div>
-                      <select
-                        value={activeUrl ?? ""}
-                        onChange={(e) => setSelectedUrl(e.target.value)}
-                        style={{ width: "100%", height: 34, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 12, padding: "0 8px", fontFamily: "var(--font-mono)" }}
-                      >
-                        {lanUrls.map((u) => <option key={u} value={u}>{u}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{subtitle}</div>
           </div>
         </div>
       </div>
-    </>
+
+      <div style={{ padding: "20px" }}>
+        {noLan ? (
+          <div style={{ fontSize: 13, color: "var(--color-amber)", background: "var(--color-amber-soft)", borderRadius: 10, padding: "12px 14px" }}>
+            Open the POS via the machine's LAN IP address (not localhost) to generate a working QR code for other devices.
+          </div>
+        ) : !url ? (
+          <div style={{ fontSize: 13, color: "var(--color-ink-3)" }}>Detecting network address…</div>
+        ) : (
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ background: "#fff", padding: 12, borderRadius: 12, border: "1px solid var(--color-line)", flexShrink: 0 }}>
+              <QRCode value={url} size={160} />
+            </div>
+
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em", color: "var(--color-ink-3)", marginBottom: 8 }}>
+                How to connect
+              </div>
+              <ol style={{ paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6 }}>
+                {steps.map((step, i) => (
+                  <li key={i} style={{ fontSize: 13, color: "var(--color-ink-2)", lineHeight: 1.4 }}>{step}</li>
+                ))}
+              </ol>
+
+              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, background: "var(--color-surface-2)", borderRadius: 8, padding: "8px 10px", border: "1px solid var(--color-line)" }}>
+                <span style={{ flex: 1, fontSize: 12, fontFamily: "var(--font-mono)", wordBreak: "break-all", color: "var(--color-ink-2)" }}>{url}</span>
+                <button
+                  onClick={() => void navigator.clipboard.writeText(url)}
+                  title="Copy URL"
+                  style={{ background: "transparent", border: "none", cursor: "pointer", padding: 2, color: "var(--color-ink-3)", flexShrink: 0 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+              </div>
+
+              {lanUrls.length > 1 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginBottom: 4 }}>Multiple network interfaces detected:</div>
+                  <select
+                    value={activeUrl ?? ""}
+                    onChange={(e) => onSelectUrl(e.target.value)}
+                    style={{ width: "100%", height: 34, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 12, padding: "0 8px", fontFamily: "var(--font-mono)" }}
+                  >
+                    {lanUrls.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1595,6 +1644,14 @@ function DiscountsTab() {
     if (!editing) return
     const { _new, id, ...rest } = editing
     if (!rest.name?.trim() || !rest.value) { setErr("Name and value are required"); return }
+    if (rest.name.trim().length > 100) { setErr("Name must be 100 characters or less"); return }
+    const numVal = parseFloat(String(rest.value))
+    if (isNaN(numVal) || numVal <= 0) { setErr("Value must be a positive number"); return }
+    if ((rest.type ?? "percentage") === "percentage" && numVal > 100) { setErr("Percentage discount cannot exceed 100%"); return }
+    if ((rest.type ?? "percentage") === "flat" && numVal > 1_000_000) { setErr("Flat discount cannot exceed ₹10,00,000"); return }
+    const code = rest.code?.trim()
+    if (code && !/^[A-Z0-9_-]{1,20}$/.test(code)) { setErr("Coupon code must be 1–20 uppercase letters, digits, _ or -"); return }
+    if (rest.validFrom && rest.validTo && rest.validTo < rest.validFrom) { setErr("'Valid to' must be on or after 'Valid from'"); return }
     const payload = {
       name: rest.name.trim(),
       type: rest.type ?? "percentage",
@@ -1660,7 +1717,7 @@ function DiscountsTab() {
           footer={<><CancelBtn onClose={() => setEditing(null)} /><SaveBtn onClick={handleSave} disabled={isPending} label={isPending ? "Saving…" : editing._new ? "Create" : "Save"} /></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {err && <div style={{ padding: "10px 14px", background: "var(--color-red-soft)", color: "var(--color-red)", borderRadius: 8, fontSize: 13 }}>{err}</div>}
-            {field("Discount name", <input value={editing.name ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, name: e.target.value }))} placeholder="e.g. Happy Hour, Staff Discount" style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Discount name", <input value={editing.name ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, name: e.target.value }))} placeholder="e.g. Happy Hour, Staff Discount" maxLength={100} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {field("Type", (
                 <select value={editing.type ?? "percentage"} onChange={(e) => setEditing((d) => ({ ...d!, type: e.target.value as "percentage" | "flat" }))} style={{ ...inputStyle(), appearance: "none" }}>
@@ -1668,13 +1725,13 @@ function DiscountsTab() {
                   <option value="flat">Flat amount (₹)</option>
                 </select>
               ))}
-              {field(editing.type === "flat" ? "Amount (₹)" : "Percentage (%)", <input type="number" min="0" step="0.01" value={editing.value ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, value: e.target.value }))} placeholder={editing.type === "flat" ? "e.g. 50" : "e.g. 10"} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+              {field(editing.type === "flat" ? "Amount (₹)" : "Percentage (%)", <input type="number" min="0" max={editing.type === "flat" ? 1_000_000 : 100} step="0.01" value={editing.value ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, value: e.target.value }))} placeholder={editing.type === "flat" ? "e.g. 50" : "e.g. 10"} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {field("Min order value (₹)", <input type="number" min="0" value={editing.minOrderValue ?? "0"} onChange={(e) => setEditing((d) => ({ ...d!, minOrderValue: e.target.value }))} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
               {field("Max discount cap (₹, optional)", <input type="number" min="0" value={editing.maxDiscountAmount ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, maxDiscountAmount: e.target.value || null }))} placeholder="No cap" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             </div>
-            {field("Coupon code (optional)", <input value={editing.code ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, code: e.target.value.toUpperCase() }))} placeholder="e.g. HAPPY10 — leave blank for staff-applied only" style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            {field("Coupon code (optional)", <input value={editing.code ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "") }))} placeholder="e.g. HAPPY10 — leave blank for staff-applied only" maxLength={20} style={inputStyle({ fontFamily: "var(--font-mono)", letterSpacing: ".05em" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {field("Valid from (optional)", <input type="date" value={editing.validFrom?.split("T")[0] ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, validFrom: e.target.value || null }))} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
               {field("Valid to (optional)", <input type="date" value={editing.validTo?.split("T")[0] ?? ""} onChange={(e) => setEditing((d) => ({ ...d!, validTo: e.target.value || null }))} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
@@ -1844,8 +1901,8 @@ function ReservationsTab() {
             >{saveMutation.isPending ? "Saving…" : "Save"}</button>
           </>
         }>
-          {field("Customer name *", <input value={form.customerName} onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))} style={inputStyle()} placeholder="e.g. Priya Sharma" />)}
-          {field("Phone (optional)", <input value={form.customerPhone} onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))} style={inputStyle()} placeholder="+91 98765 43210" />)}
+          {field("Customer name *", <input value={form.customerName} onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))} maxLength={100} style={inputStyle()} placeholder="e.g. Priya Sharma" />)}
+          {field("Phone (optional)", <input value={form.customerPhone} onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} inputMode="numeric" maxLength={10} style={inputStyle()} placeholder="e.g. 9876543210" />)}
           {field("Party size", (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button onClick={() => setForm((f) => ({ ...f, partySize: Math.max(1, f.partySize - 1) }))} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 18, cursor: "pointer" }}>−</button>
@@ -1869,7 +1926,7 @@ function ReservationsTab() {
               <option value="cancelled">Cancelled</option>
             </select>
           ))}
-          {field("Notes", <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} style={{ ...inputStyle({ height: "auto", padding: "10px 14px", resize: "vertical" }), lineHeight: 1.5 }} placeholder="e.g. window seat, anniversary" />)}
+          {field("Notes", <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} maxLength={500} style={{ ...inputStyle({ height: "auto", padding: "10px 14px", resize: "vertical" }), lineHeight: 1.5 }} placeholder="e.g. window seat, anniversary" />)}
           {error && <div style={{ fontSize: 12, color: "var(--color-red)" }}>{error}</div>}
         </SlidePanel>
       )}
@@ -1994,13 +2051,13 @@ function LoyaltyTab() {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             {([
-              { label: "Points per ₹1 spent", value: pointsPerRupee, set: setPointsPerRupee, hint: "e.g. 1 = earn 1 pt per ₹1" },
-              { label: "Points per ₹1 off", value: redeemRate, set: setRedeemRate, hint: "e.g. 100 = 100 pts = ₹1" },
-              { label: "Min points to redeem", value: minPoints, set: setMinPoints, hint: "Minimum before redeem allowed" },
-            ] as const).map(({ label, value, set, hint }) => (
+              { label: "Points per ₹1 spent", value: pointsPerRupee, set: setPointsPerRupee, hint: "e.g. 1 = earn 1 pt per ₹1", min: "0.01", max: "10", step: "0.01" },
+              { label: "Points per ₹1 off", value: redeemRate, set: setRedeemRate, hint: "e.g. 100 = 100 pts = ₹1", min: "1", max: "10000", step: "1" },
+              { label: "Min points to redeem", value: minPoints, set: setMinPoints, hint: "Minimum before redeem allowed", min: "1", max: "100000", step: "1" },
+            ] as const).map(({ label, value, set, hint, min, max, step }) => (
               <div key={label}>
                 <label style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", display: "block", marginBottom: 6 }}>{label}</label>
-                <input type="number" value={value} onChange={(e) => set(e.target.value)} style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid var(--color-line-strong)", padding: "0 12px", fontSize: 14, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", boxSizing: "border-box" }} />
+                <input type="number" min={min} max={max} step={step} value={value} onChange={(e) => set(e.target.value)} style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid var(--color-line-strong)", padding: "0 12px", fontSize: 14, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", boxSizing: "border-box" }} />
                 <div style={{ fontSize: 11, color: "var(--color-ink-4)", marginTop: 4 }}>{hint}</div>
               </div>
             ))}

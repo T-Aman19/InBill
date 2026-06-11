@@ -13,17 +13,22 @@ purchaseOrdersRouter.use("*", requireAuth, requireRole("owner", "manager"))
 
 const lineItemSchema = z.object({
   ingredientId: z.string().uuid(),
-  orderedQty: z.number().positive(),
-  unitCost: z.number().nonnegative(),
-  note: z.string().optional(),
+  orderedQty: z.number().positive().max(1_000_000),
+  unitCost: z.number().positive().max(1_000_000),
+  note: z.string().max(200).optional(),
 })
 
-const createPOSchema = z.object({
-  vendorId: z.string().uuid(),
-  notes: z.string().optional(),
-  expectedAt: z.string().optional(),
-  items: z.array(lineItemSchema).min(1),
-})
+const createPOSchema = z
+  .object({
+    vendorId: z.string().uuid(),
+    notes: z.string().max(500).optional(),
+    expectedAt: z.string().datetime({ offset: true }).optional(),
+    items: z.array(lineItemSchema).min(1).max(200),
+  })
+  .refine(
+    (d) => !d.expectedAt || new Date(d.expectedAt) > new Date(),
+    { message: "Expected delivery date must be in the future", path: ["expectedAt"] },
+  )
 
 purchaseOrdersRouter.get("/", async (c) => {
   const { outletId } = c.get("user")
@@ -161,7 +166,7 @@ purchaseOrdersRouter.post("/:id/order", async (c) => {
 
 // Ordered → Received: update stock with weighted avg cost
 purchaseOrdersRouter.post("/:id/receive", zValidator("json", z.object({
-  receivedItems: z.array(z.object({ itemId: z.string().uuid(), receivedQty: z.number().nonnegative() })),
+  receivedItems: z.array(z.object({ itemId: z.string().uuid(), receivedQty: z.number().nonnegative().max(1_000_000) })),
 })), async (c) => {
   const { outletId, userId } = c.get("user")
   const id = c.req.param("id")

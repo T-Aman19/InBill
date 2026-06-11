@@ -39,6 +39,9 @@ export const api = {
     menu: {
         getAll: () => get("/menu"),
     },
+    queue: {
+        listSeated: () => get("/queue?status=seated"),
+    },
     orders: {
         get: (id) => get(`/orders/${id}`),
         create: (body) => post("/orders", body),

@@ -4,7 +4,7 @@ import { eq, and, inArray, isNull } from "drizzle-orm"
 import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { bills, billPayments, billDiscounts, discounts, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions, customers } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 
@@ -26,20 +26,24 @@ async function awardLoyaltyPoints(outletId: string, billId: string, billTotal: n
     where: and(eq(customerPoints.outletId, outletId), eq(customerPoints.customerId, order.customerId)),
   })
 
+  let newTotal: number
   if (existing) {
-    const newTotal    = existing.totalPoints    + points
-    const newLifetime = existing.lifetimePoints + points
+    newTotal              = existing.totalPoints    + points
+    const newLifetime     = existing.lifetimePoints + points
     const tier = newLifetime >= 10000 ? "gold" : newLifetime >= 3000 ? "silver" : "bronze"
     await db.update(customerPoints)
       .set({ totalPoints: newTotal, lifetimePoints: newLifetime, tier, updatedAt: new Date() })
       .where(eq(customerPoints.id, existing.id))
   } else {
+    newTotal = points
     const tier = points >= 10000 ? "gold" : points >= 3000 ? "silver" : "bronze"
     await db.insert(customerPoints).values({
       outletId, customerId: order.customerId,
       totalPoints: points, lifetimePoints: points, tier,
     })
   }
+
+  await db.update(customers).set({ loyaltyPoints: newTotal }).where(eq(customers.id, order.customerId))
 
   await db.insert(pointTransactions).values({
     outletId,
@@ -221,6 +225,10 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     }
   }
 
+  if (discountAmount > subtotal + taxTotal) {
+    return c.json({ error: "Discount cannot exceed the bill total" }, 400)
+  }
+
   const total = subtotal + taxTotal - discountAmount
 
   const existingBills = await db.query.bills.findMany({ where: eq(bills.outletId, outletId) })
@@ -380,10 +388,16 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
 
+  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  const remaining = Number(bill.total) - paidSoFar
+  if (data.amount > remaining + 0.01) {
+    return c.json({ error: `Payment amount exceeds the remaining balance of ₹${remaining.toFixed(2)}` }, 400)
+  }
+
   const [payment] = await db.insert(billPayments).values({ billId, ...data, amount: String(data.amount) }).returning()
 
-  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0) + data.amount
-  if (paidSoFar >= Number(bill.total)) {
+  const totalPaid = paidSoFar + data.amount
+  if (totalPaid >= Number(bill.total)) {
     await db.update(bills).set({ isPaid: true }).where(eq(bills.id, billId))
 
     const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })

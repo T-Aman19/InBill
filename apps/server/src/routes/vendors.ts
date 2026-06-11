@@ -12,11 +12,15 @@ export const vendorsRouter = new Hono<AppEnv>()
 vendorsRouter.use("*", requireAuth, requireRole("owner", "manager"))
 
 const vendorBody = z.object({
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
-  gstin: z.string().optional(),
-  address: z.string().optional(),
+  name: z.string().min(1).max(100).transform((s) => s.trim()),
+  phone: z.string().regex(/^[6-9]\d{9}$/, "Phone must be a valid 10-digit Indian mobile number").optional().or(z.literal("")),
+  email: z.string().email().max(254).optional().or(z.literal("")),
+  gstin: z
+    .string()
+    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "GSTIN must be a valid 15-character Indian GST number")
+    .optional()
+    .or(z.literal("")),
+  address: z.string().max(500).optional(),
 })
 
 vendorsRouter.get("/", async (c) => {

@@ -52,9 +52,12 @@ export const api = {
         itemModifierGroups: ItemModLink[]
       }>("/menu"),
   },
+  queue: {
+    listSeated: () => get<{ id: string; tableId: string | null; customerId: string | null }[]>("/queue?status=seated"),
+  },
   orders: {
     get: (id: string) => get<Order>(`/orders/${id}`),
-    create: (body: { type: string; tableId?: string }) => post<Order>("/orders", body),
+    create: (body: { type: string; tableId?: string; customerId?: string }) => post<Order>("/orders", body),
     addItem: (orderId: string, body: AddItemBody) => post<unknown>(`/orders/${orderId}/items`, body),
     decrementItem: (orderId: string, itemId: string) =>
       patch<unknown>(`/orders/${orderId}/items/${itemId}/decrement`, {}),

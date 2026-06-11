@@ -58,6 +58,11 @@ export default function FloorPage() {
         queryKey: ["tables"],
         queryFn: () => api.tables.getAll(),
     });
+    const { data: seatedEntries = [] } = useQuery({
+        queryKey: ["queue-seated"],
+        queryFn: () => api.queue.listSeated(),
+        refetchOnWindowFocus: false,
+    });
     const floors = data?.floors ?? [];
     const tables = data?.tables ?? [];
     // Set initial active floor
@@ -69,6 +74,7 @@ export default function FloorPage() {
     useEffect(() => {
         const unsub = ws.on("*", () => {
             qc.invalidateQueries({ queryKey: ["tables"] });
+            qc.invalidateQueries({ queryKey: ["queue-seated"] });
         });
         return unsub;
     }, [qc]);
@@ -76,10 +82,11 @@ export default function FloorPage() {
         if (table.status === "billed")
             return; // captain can't bill
         if (table.currentOrderId) {
-            navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined } });
+            navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined, customerId: undefined } });
         }
         else {
-            navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id } });
+            const seatedEntry = seatedEntries.find((e) => e.tableId === table.id);
+            navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: seatedEntry?.customerId ?? undefined } });
         }
     }
     const floorTables = tables.filter((t) => t.floorId === activeFloor);

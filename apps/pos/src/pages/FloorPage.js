@@ -78,6 +78,7 @@ function QueuePanel({ tables }) {
         mutationFn: ({ entryId, tableId }) => api.queue.seat(entryId, tableId),
         onSuccess: (data, { tableId }) => {
             qc.invalidateQueries({ queryKey: ["queue"] });
+            qc.invalidateQueries({ queryKey: ["queue-seated"] });
             qc.invalidateQueries({ queryKey: ["tables"] });
             setSeatEntry(null);
             navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId, customerId: data.customerId ?? undefined } });
@@ -170,10 +171,15 @@ export default function FloorPage() {
         const u3 = ws.on("order.created", () => { invalidateTables(); invalidateCounter(); });
         return () => { u1(); u2(); u3(); };
     }, [qc]);
+    const { data: seatedEntries = [] } = useQuery({
+        queryKey: ["queue-seated"],
+        queryFn: () => api.queue.list("seated"),
+        refetchOnWindowFocus: false,
+    });
     function handleTableClick(table) {
         if (table.status === "available" || table.status === "reserved") {
-            // "reserved" = host seated a customer but no order yet — waiter opens it to start the order
-            navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: undefined } });
+            const seatedEntry = seatedEntries.find((e) => e.tableId === table.id);
+            navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: seatedEntry?.customerId ?? undefined } });
         }
         else if (table.currentOrderId) {
             navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined, customerId: undefined } });
@@ -187,7 +193,7 @@ export default function FloorPage() {
         billed: tables.filter((t) => t.status === "billed").length,
     };
     const lowStockCount = lowStockData?.count ?? 0;
-    const displaySetupCode = setupCode ?? null;
+    const displaySetupCode = setupCode ?? outlet?.setupCode ?? null;
     function copyCode() {
         if (!displaySetupCode)
             return;
@@ -215,6 +221,8 @@ export default function FloorPage() {
                                 icon: _jsxs("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }) },
                             { id: "manager", label: "Manager", path: "/manager", show: isManagerOrOwner,
                                 icon: _jsxs("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("circle", { cx: "12", cy: "12", r: "3" }), _jsx("path", { d: "M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z" })] }) },
+                            { id: "inventory", label: "Inventory", path: "/inventory", show: isManagerOrOwner,
+                                icon: _jsxs("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2" }), _jsx("path", { d: "M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" }), _jsx("path", { d: "M10 12h4M10 16h4M8 12v.01M8 16v.01" })] }) },
                         ].filter((n) => n.show).map((n) => {
                             const active = n.id === "floor";
                             return (_jsxs("button", { onClick: () => navigate({ to: n.path }), style: {
@@ -225,7 +233,7 @@ export default function FloorPage() {
                                     color: active ? "var(--color-ink)" : "var(--color-ink-3)",
                                     fontSize: 13, fontWeight: 500, cursor: "pointer",
                                     position: "relative",
-                                }, children: [n.icon, n.label, n.id === "manager" && lowStockCount > 0 && (_jsx("span", { style: { background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }, children: lowStockCount }))] }, n.id));
+                                }, children: [n.icon, n.label, n.id === "inventory" && lowStockCount > 0 && (_jsx("span", { style: { background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }, children: lowStockCount }))] }, n.id));
                         }) }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, paddingLeft: 14, borderLeft: "1px solid var(--color-line)", flexShrink: 0 }, children: [_jsx("div", { style: { width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }, children: initials(user?.name ?? "?") }), _jsxs("div", { style: { lineHeight: 1.2 }, children: [_jsx("div", { style: { fontSize: 12, fontWeight: 600, color: "var(--color-ink)" }, children: user?.name }), _jsx("div", { style: { fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }, children: user?.role })] }), _jsx("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, title: "Logout", style: { background: "transparent", border: "none", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }, onMouseEnter: (e) => { e.currentTarget.style.background = "var(--color-surface-2)"; e.currentTarget.style.color = "var(--color-ink)"; }, onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-ink-3)"; }, children: _jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3M10 17l-5-5 5-5M5 12h11" }) }) })] })] }), _jsx(QueuePanel, { tables: tables }), counterOrders.length > 0 && (_jsxs("div", { style: { flexShrink: 0, borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)", padding: "12px 24px" }, children: [_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }, children: [_jsxs("svg", { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none", stroke: "var(--color-amber)", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" }), _jsx("line", { x1: "3", y1: "6", x2: "21", y2: "6" }), _jsx("path", { d: "M16 10a4 4 0 01-8 0" })] }), _jsx("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--color-ink-2)" }, children: "Counter" }), _jsx("span", { style: { fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 600, background: "rgba(251,146,60,.12)", color: "var(--color-amber)", border: "1px solid rgba(251,146,60,.25)", borderRadius: 20, padding: "1px 7px" }, children: counterOrders.length })] }), _jsx("div", { style: { display: "flex", gap: 10, overflowX: "auto", paddingBottom: 2 }, children: counterOrders.map((order) => {
                             const isPaid = order.bill?.isPaid ?? false;
                             const isBuilding = order.status === "open";

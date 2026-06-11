@@ -121,16 +121,6 @@ queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "capta
   if (!table) return c.json({ error: "Table not found" }, 404)
   if (table.status !== "available") return c.json({ error: "Table is not available" }, 400)
 
-  const [updated] = await db.update(queueEntries)
-    .set({ status: "seated", tableId, seatedAt: new Date() })
-    .where(and(eq(queueEntries.id, id), eq(queueEntries.outletId, outletId)))
-    .returning()
-
-  // Mark the table as reserved so the floor view shows it's taken
-  // (it becomes "occupied" once the waiter creates an order for it)
-  await db.update(tables).set({ status: "reserved" }).where(eq(tables.id, tableId))
-  broadcastOutlet(outletId, { type: "table.status", payload: { id: tableId, status: "reserved", currentOrderId: null } })
-
   // Upsert customer record if phone is known, so the order can be pre-linked
   let customerId: string | null = null
   if (entry.customerPhone) {
@@ -149,6 +139,16 @@ queueRouter.patch("/:id/seat", requireRole("manager", "owner", "cashier", "capta
       customerId = created!.id
     }
   }
+
+  const [updated] = await db.update(queueEntries)
+    .set({ status: "seated", tableId, seatedAt: new Date(), customerId })
+    .where(and(eq(queueEntries.id, id), eq(queueEntries.outletId, outletId)))
+    .returning()
+
+  // Mark the table as reserved so the floor view shows it's taken
+  // (it becomes "occupied" once the waiter creates an order for it)
+  await db.update(tables).set({ status: "reserved" }).where(eq(tables.id, tableId))
+  broadcastOutlet(outletId, { type: "table.status", payload: { id: tableId, status: "reserved", currentOrderId: null } })
 
   await broadcastQueue(outletId)
   return c.json({ ...serializeEntry({ ...updated!, table }), customerId })

@@ -1,6 +1,7 @@
 import { pgTable, text, uuid, integer, pgEnum, timestamp } from "drizzle-orm/pg-core"
 import { outlets } from "./owners.js"
 import { tables } from "./tables.js"
+import { customers } from "./orders.js"
 
 export const queueStatusEnum = pgEnum("queue_status", ["waiting", "seated", "cancelled", "no_show"])
 export const reservationStatusEnum = pgEnum("reservation_status", ["pending", "confirmed", "seated", "no_show", "cancelled"])
@@ -10,6 +11,7 @@ export const queueEntries = pgTable("queue_entries", {
   outletId: uuid("outlet_id").notNull().references(() => outlets.id),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
+  customerId: uuid("customer_id").references(() => customers.id),
   partySize: integer("party_size").notNull(),
   token: text("token").notNull(),
   status: queueStatusEnum("status").notNull().default("waiting"),

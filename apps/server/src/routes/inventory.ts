@@ -15,10 +15,10 @@ inventoryRouter.use("*", requireAuth)
 // ── Ingredients ──────────────────────────────────────────────────────────────
 
 const ingredientSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(100),
   unit: z.enum(["kg", "g", "L", "mL", "pcs"]),
-  reorderLevel: z.number().nonnegative().default(0),
-  costPerUnit: z.number().nonnegative().default(0),
+  reorderLevel: z.number().nonnegative().max(1_000_000).default(0),
+  costPerUnit: z.number().nonnegative().max(1_000_000).default(0),
 })
 
 inventoryRouter.get("/ingredients", async (c) => {
@@ -57,10 +57,10 @@ inventoryRouter.patch(
   zValidator(
     "json",
     z.object({
-      name: z.string().min(1).optional(),
+      name: z.string().min(1).max(100).optional(),
       unit: z.enum(["kg", "g", "L", "mL", "pcs"]).optional(),
-      reorderLevel: z.number().nonnegative().optional(),
-      costPerUnit: z.number().nonnegative().optional(),
+      reorderLevel: z.number().nonnegative().max(1_000_000).optional(),
+      costPerUnit: z.number().nonnegative().max(1_000_000).optional(),
       isActive: z.boolean().optional(),
     }),
   ),
@@ -225,8 +225,8 @@ inventoryRouter.post(
     z.object({
       ingredientId: z.string().uuid(),
       type: z.enum(["purchase", "waste", "adjustment"]),
-      delta: z.number(),
-      note: z.string().optional(),
+      delta: z.number().min(-1_000_000).max(1_000_000).refine((n) => n !== 0, { message: "delta must be non-zero" }),
+      note: z.string().max(200).optional(),
     }),
   ),
   async (c) => {
@@ -237,6 +237,11 @@ inventoryRouter.post(
       where: and(eq(ingredients.id, body.ingredientId), eq(ingredients.outletId, outletId)),
     })
     if (!ingredient) return c.json({ error: "Ingredient not found" }, 404)
+
+    const projectedStock = Number(ingredient.currentStock) + body.delta
+    if (projectedStock < 0) {
+      return c.json({ error: `Adjustment would result in negative stock (current: ${ingredient.currentStock} ${ingredient.unit})` }, 400)
+    }
 
     const [movement] = await db
       .insert(stockMovements)

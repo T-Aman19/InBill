@@ -1,10 +1,11 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, isNull, inArray, gte } from "drizzle-orm"
+import { z } from "zod"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills } from "../db/schema/index.js"
+import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills, queueEntries } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
@@ -12,6 +13,10 @@ import { fetchOrderWithKotStatus } from "../lib/queries.js"
 export const ordersRouter = new Hono<AppEnv>()
 
 ordersRouter.use("*", requireAuth)
+
+const transferSchema = z.object({ newTableId: z.string().uuid() })
+const mergeSchema = z.object({ sourceOrderId: z.string().uuid() })
+const linkCustomerSchema = z.object({ customerId: z.string().uuid() })
 
 ordersRouter.get("/", async (c) => {
   const { outletId } = c.get("user")
@@ -54,7 +59,6 @@ ordersRouter.get("/counter", async (c) => {
   }
 
   const result = counterOrders
-    // Skip empty orders (created by tapping Takeaway before adding any items)
     .filter((o) => o.items.length > 0)
     .map((o) => {
       const bill = billMap.get(o.id) ?? null
@@ -84,9 +88,19 @@ ordersRouter.post("/", requireRole("owner", "manager", "cashier", "captain"), zV
     }
   }
 
+  // If no customer supplied but the table is reserved, inherit the customer from the seated queue entry
+  let customerId = data.customerId ?? null
+  if (data.tableId && !customerId) {
+    const seatedEntry = await db.query.queueEntries.findFirst({
+      where: and(eq(queueEntries.tableId, data.tableId), eq(queueEntries.status, "seated")),
+      columns: { customerId: true },
+    })
+    if (seatedEntry?.customerId) customerId = seatedEntry.customerId
+  }
+
   const [order] = await db
     .insert(orders)
-    .values({ ...data, outletId, serverId: userId, updatedAt: new Date() })
+    .values({ ...data, customerId, outletId, serverId: userId, updatedAt: new Date() })
     .returning()
 
   if (order && data.tableId) {
@@ -111,8 +125,10 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
     return c.json({ error: "Order is closed" }, 400)
   }
 
-  // Snapshot item/variant name and price at time of order
-  const item = await db.query.menuItems.findFirst({ where: eq(menuItems.id, data.menuItemId) })
+  // Validate item belongs to this outlet
+  const item = await db.query.menuItems.findFirst({
+    where: and(eq(menuItems.id, data.menuItemId), eq(menuItems.outletId, outletId)),
+  })
   if (!item) return c.json({ error: "Item not found" }, 404)
 
   let unitPrice = Number(item.basePrice)
@@ -136,9 +152,11 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
 
   let orderItem: typeof orderItems.$inferSelect
   if (existing) {
+    const newQty = existing.quantity + (data.quantity ?? 1)
+    if (newQty > 999) return c.json({ error: "Quantity cannot exceed 999" }, 400)
     const [updated] = await db
       .update(orderItems)
-      .set({ quantity: existing.quantity + (data.quantity ?? 1) })
+      .set({ quantity: newQty })
       .where(eq(orderItems.id, existing.id))
       .returning()
     orderItem = updated!
@@ -253,10 +271,10 @@ ordersRouter.delete("/:id/items/:itemId", requireRole("manager", "owner", "cashi
 })
 
 // Link a customer to an existing order (used when customer details are collected at billing time)
-ordersRouter.patch("/:id/customer", requireRole("owner", "manager", "cashier", "captain"), async (c) => {
+ordersRouter.patch("/:id/customer", requireRole("owner", "manager", "cashier", "captain"), zValidator("json", linkCustomerSchema), async (c) => {
   const { outletId } = c.get("user")
   const orderId = c.req.param("id")
-  const { customerId } = await c.req.json() as { customerId: string }
+  const { customerId } = c.req.valid("json")
 
   const order = await db.query.orders.findFirst({
     where: and(eq(orders.id, orderId), eq(orders.outletId, outletId)),
@@ -268,17 +286,18 @@ ordersRouter.patch("/:id/customer", requireRole("owner", "manager", "cashier", "
 })
 
 // Transfer order to a different table
-ordersRouter.patch("/:id/transfer", requireRole("owner", "manager", "cashier"), async (c) => {
+ordersRouter.patch("/:id/transfer", requireRole("owner", "manager", "cashier"), zValidator("json", transferSchema), async (c) => {
   const { outletId } = c.get("user")
   const orderId = c.req.param("id")
-  const { newTableId } = await c.req.json() as { newTableId: string }
+  const { newTableId } = c.req.valid("json")
 
   const order = await db.query.orders.findFirst({
     where: and(eq(orders.id, orderId), eq(orders.outletId, outletId)),
   })
   if (!order) return c.json({ error: "Not found" }, 404)
 
-  const newTable = await db.query.tables.findFirst({ where: eq(tables.id, newTableId) })
+  // Validate target table belongs to same outlet
+  const newTable = await db.query.tables.findFirst({ where: and(eq(tables.id, newTableId), eq(tables.outletId, outletId)) })
   if (!newTable) return c.json({ error: "Target table not found" }, 404)
   if (newTable.status !== "available") return c.json({ error: "Target table is not available" }, 400)
 
@@ -298,10 +317,14 @@ ordersRouter.patch("/:id/transfer", requireRole("owner", "manager", "cashier"), 
 })
 
 // Merge sourceOrder into targetOrder (moves items, frees source table, cancels source order)
-ordersRouter.post("/:id/merge", requireRole("owner", "manager", "cashier"), async (c) => {
+ordersRouter.post("/:id/merge", requireRole("owner", "manager", "cashier"), zValidator("json", mergeSchema), async (c) => {
   const { outletId } = c.get("user")
   const targetOrderId = c.req.param("id")
-  const { sourceOrderId } = await c.req.json() as { sourceOrderId: string }
+  const { sourceOrderId } = c.req.valid("json")
+
+  if (sourceOrderId === targetOrderId) {
+    return c.json({ error: "Cannot merge an order with itself" }, 400)
+  }
 
   const [targetOrder, sourceOrder] = await Promise.all([
     db.query.orders.findFirst({ where: and(eq(orders.id, targetOrderId), eq(orders.outletId, outletId)) }),

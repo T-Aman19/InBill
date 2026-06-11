@@ -47,8 +47,9 @@ await db.insert(users).values([
   { outletId: outlet!.id, name: "Cashier",  pin: "2222", role: "cashier"  },
   { outletId: outlet!.id, name: "Captain",  pin: "3333", role: "captain"  },
   { outletId: outlet!.id, name: "Kitchen",  pin: "4444", role: "kitchen"  },
+  { outletId: outlet!.id, name: "Host",     pin: "5555", role: "host"     },
 ])
-console.log("Staff: pins 1111 / 2222 / 3333 / 4444")
+console.log("Staff: pins 1111 / 2222 / 3333 / 4444 / 5555")
 
 // Menu
 const [starters] = await db.insert(categories).values({ outletId: outlet!.id, name: "Starters", sortOrder: 1 }).returning()

@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
+import { z } from "zod"
 import { eq, and } from "drizzle-orm"
 import {
   createMenuItemSchema, updateMenuItemSchema, updateItemAvailabilitySchema,
@@ -179,8 +180,8 @@ menuRouter.delete("/modifiers/:id", requireRole("manager", "owner"), async (c) =
 })
 
 // ── Item ↔ Modifier group links ─────────────────────────────────────────────
-menuRouter.post("/items/:id/modifier-groups", requireRole("manager", "owner"), async (c) => {
-  const { groupId } = await c.req.json() as { groupId: string }
+menuRouter.post("/items/:id/modifier-groups", requireRole("manager", "owner"), zValidator("json", z.object({ groupId: z.string().uuid() })), async (c) => {
+  const { groupId } = c.req.valid("json")
   const itemId = c.req.param("id")
   const existing = await db.query.menuItemModifierGroups.findFirst({
     where: and(eq(menuItemModifierGroups.itemId, itemId), eq(menuItemModifierGroups.groupId, groupId)),

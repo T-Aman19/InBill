@@ -10,7 +10,7 @@ export const loginSchema = z.object({
 
 export const ownerLoginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(8).max(128),
 })
 
 export const tokenPayloadSchema = z.object({
@@ -20,25 +20,28 @@ export const tokenPayloadSchema = z.object({
   role: roleSchema,
 })
 
+// Indian mobile number: 10 digits, starts with 6-9
+export const phoneSchema = z.string().regex(/^[6-9]\d{9}$/, "Phone must be a valid 10-digit Indian mobile number")
+
 export const ownerRegisterSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
-  phone: z.string().min(10),
+  name: z.string().min(1).max(100).transform((s) => s.trim()),
+  email: z.string().email().max(254),
+  password: z.string().min(8).max(128),
+  phone: phoneSchema,
 })
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().max(254),
 })
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  newPassword: z.string().min(8),
+  newPassword: z.string().min(8).max(128),
 })
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
+  newPassword: z.string().min(8).max(128),
 })
 
 export type TokenPayload = z.infer<typeof tokenPayloadSchema>

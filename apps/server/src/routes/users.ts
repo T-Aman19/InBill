@@ -11,22 +11,30 @@ export const usersRouter = new Hono<AppEnv>()
 
 usersRouter.use("*", requireAuth)
 
+const WEAK_PINS = new Set(["0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999", "1234", "4321", "1212", "0101", "1122"])
+
+const pinSchema = z
+  .string()
+  .length(4)
+  .regex(/^\d+$/, "PIN must be 4 digits")
+  .refine((p) => !WEAK_PINS.has(p), { message: "PIN is too easy to guess — choose a less predictable one" })
+
 const createUserSchema = z.object({
-  name: z.string().min(1),
-  pin: z.string().length(4).regex(/^\d+$/),
+  name: z.string().min(1).max(100).transform((s) => s.trim()),
+  pin: pinSchema,
   role: z.enum(["manager", "cashier", "captain", "kitchen", "host"]),
 })
 
 const updateUserSchema = z.object({
-  name: z.string().min(1).optional(),
-  pin: z.string().length(4).regex(/^\d+$/).optional(),
+  name: z.string().min(1).max(100).transform((s) => s.trim()).optional(),
+  pin: pinSchema.optional(),
   role: z.enum(["manager", "cashier", "captain", "kitchen", "host"]).optional(),
   isActive: z.boolean().optional(),
 })
 
 const changeSelfPinSchema = z.object({
   currentPin: z.string().length(4),
-  newPin: z.string().length(4).regex(/^\d+$/),
+  newPin: pinSchema,
 })
 
 // List all staff for this outlet

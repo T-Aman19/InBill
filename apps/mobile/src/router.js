@@ -37,6 +37,7 @@ const orderRoute = createRoute({
     beforeLoad: requireAuth,
     validateSearch: (search) => ({
         tableId: search["tableId"],
+        customerId: search["customerId"],
     }),
     component: OrderPage,
 });

@@ -40,7 +40,8 @@ const orderRoute = createRoute({
   path: "/order/$orderId",
   beforeLoad: requireAuth,
   validateSearch: (search: Record<string, unknown>) => ({
-    tableId: search["tableId"] as string | undefined,
+    tableId:    search["tableId"]    as string | undefined,
+    customerId: search["customerId"] as string | undefined,
   }),
   component: OrderPage,
 })

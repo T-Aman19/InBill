@@ -1,6 +1,8 @@
 import { Hono } from "hono"
+import { zValidator } from "@hono/zod-validator"
 import { networkInterfaces } from "os"
 import { eq, and, isNull } from "drizzle-orm"
+import { z } from "zod"
 import { db } from "../db/index.js"
 import {
   outlets, categories, menuItems,
@@ -79,18 +81,26 @@ publicRouter.get("/menu/:outletId", async (c) => {
   return c.json({ outlet, categories: cats, items: enrichedItems })
 })
 
-// POST /api/public/orders — place or append a QR-sourced order, then auto-fire KOT
-publicRouter.post("/orders", async (c) => {
-  const body = await c.req.json() as {
-    outletId: string
-    tableId: string
-    items: { menuItemId: string; variantId?: string; quantity: number; notes?: string; modifierIds?: string[] }[]
-  }
+const publicOrderSchema = z.object({
+  outletId: z.string().uuid(),
+  tableId: z.string().uuid(),
+  items: z
+    .array(
+      z.object({
+        menuItemId: z.string().uuid(),
+        variantId: z.string().uuid().optional(),
+        quantity: z.number().int().positive().max(999),
+        notes: z.string().max(500).optional(),
+        modifierIds: z.array(z.string().uuid()).max(20).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+})
 
-  const { outletId, tableId, items: cartItems } = body
-  if (!outletId || !tableId || !Array.isArray(cartItems) || cartItems.length === 0) {
-    return c.json({ error: "outletId, tableId and items are required" }, 400)
-  }
+// POST /api/public/orders — place or append a QR-sourced order, then auto-fire KOT
+publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) => {
+  const { outletId, tableId, items: cartItems } = c.req.valid("json")
 
   const [outlet, table] = await Promise.all([
     db.query.outlets.findFirst({ where: and(eq(outlets.id, outletId), eq(outlets.isActive, true)) }),

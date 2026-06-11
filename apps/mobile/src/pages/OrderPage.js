@@ -116,7 +116,7 @@ function OrderSheet({ order, onDecrement, onKot, kotLoading, onClose, }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function OrderPage() {
     const { orderId: routeOrderId } = useParams({ from: "/order/$orderId" });
-    const { tableId } = useSearch({ from: "/order/$orderId" });
+    const { tableId, customerId } = useSearch({ from: "/order/$orderId" });
     const navigate = useNavigate();
     const qc = useQueryClient();
     const isNew = routeOrderId === "new";
@@ -157,7 +157,7 @@ export default function OrderPage() {
         try {
             let oid = orderIdRef.current;
             if (!oid) {
-                const newOrder = await api.orders.create({ type: "dine_in", tableId });
+                const newOrder = await api.orders.create({ type: "dine_in", tableId, customerId });
                 oid = newOrder.id;
                 setCurrentOrderId(oid);
                 orderIdRef.current = oid;
@@ -165,7 +165,7 @@ export default function OrderPage() {
             await api.orders.addItem(oid, { menuItemId: item.id, quantity: 1, variantId, modifiers: modifiers ?? [] });
             qc.invalidateQueries({ queryKey: ["order", oid] });
             if (isNew)
-                navigate({ to: "/order/$orderId", params: { orderId: oid }, search: { tableId: undefined }, replace: true });
+                navigate({ to: "/order/$orderId", params: { orderId: oid }, search: { tableId: undefined, customerId: undefined }, replace: true });
         }
         finally {
             setAddingItem(null);

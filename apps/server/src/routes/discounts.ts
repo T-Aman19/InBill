@@ -52,6 +52,13 @@ discountsRouter.patch("/:id", requireRole("owner"), zValidator("json", updateDis
   const existing = await db.query.discounts.findFirst({ where: and(eq(discounts.id, id), eq(discounts.outletId, outletId)) })
   if (!existing) return c.json({ error: "Not found" }, 404)
 
+  if (data.code) {
+    const conflict = await db.query.discounts.findFirst({
+      where: and(eq(discounts.outletId, outletId), eq(discounts.code, data.code)),
+    })
+    if (conflict && conflict.id !== id) return c.json({ error: "A discount with this code already exists" }, 409)
+  }
+
   const updates: Record<string, unknown> = {}
   if (data.name !== undefined) updates.name = data.name
   if (data.type !== undefined) updates.type = data.type

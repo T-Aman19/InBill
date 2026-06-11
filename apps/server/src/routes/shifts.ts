@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, isNull, inArray, gte, lte } from "drizzle-orm"
+import { z } from "zod"
 import { openShiftSchema, closeShiftSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
@@ -10,6 +11,12 @@ import { requireAuth, requireRole } from "../middleware/auth.js"
 export const shiftsRouter = new Hono<AppEnv>()
 
 shiftsRouter.use("*", requireAuth)
+
+const cashEntrySchema = z.object({
+  type: z.enum(["in", "out"]),
+  amount: z.number().positive().max(1_000_000),
+  note: z.string().max(200).optional(),
+})
 
 shiftsRouter.get("/active", async (c) => {
   const { outletId } = c.get("user")
@@ -71,9 +78,9 @@ shiftsRouter.get("/cash-entries", async (c) => {
   return c.json(entries)
 })
 
-shiftsRouter.post("/cash-entries", requireRole("manager", "owner", "cashier"), async (c) => {
+shiftsRouter.post("/cash-entries", requireRole("manager", "owner", "cashier"), zValidator("json", cashEntrySchema), async (c) => {
   const { outletId } = c.get("user")
-  const { type, amount, note } = await c.req.json() as { type: "in" | "out"; amount: number; note?: string }
+  const { type, amount, note } = c.req.valid("json")
 
   const activeShift = await db.query.shifts.findFirst({
     where: and(eq(shifts.outletId, outletId), isNull(shifts.closedAt)),

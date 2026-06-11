@@ -100,6 +100,12 @@ export default function FloorPage() {
     queryFn: () => api.tables.getAll(),
   })
 
+  const { data: seatedEntries = [] } = useQuery({
+    queryKey: ["queue-seated"],
+    queryFn: () => api.queue.listSeated(),
+    refetchOnWindowFocus: false,
+  })
+
   const floors: Floor[]  = data?.floors  ?? []
   const tables: Table[]  = data?.tables  ?? []
 
@@ -112,6 +118,7 @@ export default function FloorPage() {
   useEffect(() => {
     const unsub = ws.on("*", () => {
       qc.invalidateQueries({ queryKey: ["tables"] })
+      qc.invalidateQueries({ queryKey: ["queue-seated"] })
     })
     return unsub
   }, [qc])
@@ -119,9 +126,10 @@ export default function FloorPage() {
   function handleTableTap(table: Table) {
     if (table.status === "billed") return // captain can't bill
     if (table.currentOrderId) {
-      navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined } })
+      navigate({ to: "/order/$orderId", params: { orderId: table.currentOrderId }, search: { tableId: undefined, customerId: undefined } })
     } else {
-      navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id } })
+      const seatedEntry = seatedEntries.find((e) => e.tableId === table.id)
+      navigate({ to: "/order/$orderId", params: { orderId: "new" }, search: { tableId: table.id, customerId: seatedEntry?.customerId ?? undefined } })
     }
   }
 

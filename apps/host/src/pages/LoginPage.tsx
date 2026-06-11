@@ -50,6 +50,35 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [tmpCode, setTmpCode] = useState("")
   const [setupError, setSetupError] = useState("")
   const [saving,  setSaving]  = useState(false)
+  const [failCount, setFailCount] = useState(0)
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null)
+
+  // Auto-resolve setup code from URL param (e.g. /host/?setup=DEMO01)
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get("setup")
+    if (param && !localStorage.getItem(OUTLET_ID_KEY)) {
+      setTmpCode(param.toUpperCase())
+      void autoSaveOutlet(param.toUpperCase())
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function autoSaveOutlet(code: string) {
+    setSaving(true)
+    try {
+      const res = await api.auth.resolveSetupCode(code)
+      localStorage.setItem(OUTLET_ID_KEY,   res.id)
+      localStorage.setItem(OUTLET_NAME_KEY, res.name)
+      setOutletId(res.id)
+      setOutletName(res.name)
+      setSetup(false)
+      // Clean up the URL so refreshing doesn't re-trigger
+      window.history.replaceState({}, "", window.location.pathname)
+    } catch {
+      setSetupError("Invalid setup code in QR — ask your manager for a new one")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (pin.length === 4) void doLogin(pin)
@@ -66,12 +95,22 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
   async function doLogin(p: string) {
     if (!outletId) return
+    if (lockedUntil && Date.now() < lockedUntil) {
+      const secs = Math.ceil((lockedUntil - Date.now()) / 1000)
+      setError(`Too many attempts — try again in ${secs}s`)
+      setPin("")
+      setShake(true)
+      setTimeout(() => { setShake(false); setError("") }, 1200)
+      return
+    }
     setLoading(true)
     try {
       const res = await api.auth.login(p, outletId)
       if (res.user.role !== "host") {
         throw new Error("This PIN is not for the host app")
       }
+      setFailCount(0)
+      setLockedUntil(null)
       localStorage.setItem("inbill_host_token", res.token)
       ws.connect(outletId)
       onLogin()
@@ -82,6 +121,11 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
           : e instanceof Error
             ? e.message
             : "Login failed"
+      setFailCount((n) => {
+        const next = n + 1
+        if (next >= 5) setLockedUntil(Date.now() + 30_000)
+        return next
+      })
       setError(msg)
       setPin("")
       setShake(true)
@@ -197,7 +241,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         {/* Numpad */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%" }}>
           {["1","2","3","4","5","6","7","8","9"].map((d) => (
-            <NumKey key={d} d={d} onPress={press} disabled={loading || pin.length >= 4} />
+            <NumKey key={d} d={d} onPress={press} disabled={loading || pin.length >= 4 || (lockedUntil != null && Date.now() < lockedUntil)} />
           ))}
 
           <button
@@ -207,7 +251,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
             CLEAR
           </button>
 
-          <NumKey d="0" onPress={press} disabled={loading || pin.length >= 4} />
+          <NumKey d="0" onPress={press} disabled={loading || pin.length >= 4 || (lockedUntil != null && Date.now() < lockedUntil)} />
 
           <button
             onClick={back}

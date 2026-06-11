@@ -34,6 +34,33 @@ export default function LoginPage({ onLogin }) {
     const [tmpCode, setTmpCode] = useState("");
     const [setupError, setSetupError] = useState("");
     const [saving, setSaving] = useState(false);
+    // Auto-resolve setup code from URL param (e.g. /host/?setup=DEMO01)
+    useEffect(() => {
+        const param = new URLSearchParams(window.location.search).get("setup");
+        if (param && !localStorage.getItem(OUTLET_ID_KEY)) {
+            setTmpCode(param.toUpperCase());
+            void autoSaveOutlet(param.toUpperCase());
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    async function autoSaveOutlet(code) {
+        setSaving(true);
+        try {
+            const res = await api.auth.resolveSetupCode(code);
+            localStorage.setItem(OUTLET_ID_KEY, res.id);
+            localStorage.setItem(OUTLET_NAME_KEY, res.name);
+            setOutletId(res.id);
+            setOutletName(res.name);
+            setSetup(false);
+            // Clean up the URL so refreshing doesn't re-trigger
+            window.history.replaceState({}, "", window.location.pathname);
+        }
+        catch {
+            setSetupError("Invalid setup code in QR — ask your manager for a new one");
+        }
+        finally {
+            setSaving(false);
+        }
+    }
     useEffect(() => {
         if (pin.length === 4)
             void doLogin(pin);
