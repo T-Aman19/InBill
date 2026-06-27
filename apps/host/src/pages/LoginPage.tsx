@@ -50,7 +50,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [tmpCode, setTmpCode] = useState("")
   const [setupError, setSetupError] = useState("")
   const [saving,  setSaving]  = useState(false)
-  const [failCount, setFailCount] = useState(0)
+  const [, setFailCount] = useState(0)
   const [lockedUntil, setLockedUntil] = useState<number | null>(null)
 
   // Auto-resolve setup code from URL param (e.g. /host/?setup=DEMO01)

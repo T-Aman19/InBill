@@ -116,6 +116,7 @@ export default function OwnerDashboardPage() {
   function handleChangePw(e: React.FormEvent) {
     e.preventDefault()
     setChangePwErr("")
+    if (changePwForm.newPassword.length < 8) { setChangePwErr("New password must be at least 8 characters"); return }
     if (changePwForm.newPassword !== changePwForm.confirm) { setChangePwErr("Passwords do not match"); return }
     changePwMutation.mutate()
   }
@@ -130,7 +131,18 @@ export default function OwnerDashboardPage() {
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setCreateErr("")
-    createMutation.mutate(createForm)
+    if (!createForm.name.trim()) { setCreateErr("Outlet name is required"); return }
+    if (!createForm.address.trim()) { setCreateErr("Address is required"); return }
+    if (!/^[6-9]\d{9}$/.test(createForm.phone)) { setCreateErr("Enter a valid 10-digit Indian mobile number"); return }
+    if (createForm.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(createForm.gstin)) {
+      setCreateErr("GSTIN must be a valid 15-character Indian GST number")
+      return
+    }
+    createMutation.mutate({
+      ...createForm,
+      name: createForm.name.trim(),
+      address: createForm.address.trim(),
+    })
   }
 
   function logout() {
@@ -561,19 +573,32 @@ export default function OwnerDashboardPage() {
           <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 440, padding: 28 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: "0 0 20px" }}>Add Outlet</h2>
             <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {(["name", "address", "phone", "gstin"] as const).map((field) => (
-                <div key={field}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 5, textTransform: "capitalize" }}>
-                    {field === "gstin" ? "GSTIN (optional)" : field}
-                  </label>
-                  <input
-                    style={{ width: "100%", height: 42, border: "1px solid var(--color-line-strong)", borderRadius: 10, padding: "0 14px", fontSize: 14, fontFamily: "var(--font-sans)", outline: "none", boxSizing: "border-box", color: "var(--color-ink)" }}
-                    value={createForm[field]}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, [field]: e.target.value }))}
-                    required={field !== "gstin"}
-                  />
-                </div>
-              ))}
+              {(["name", "address", "phone", "gstin"] as const).map((field) => {
+                const labels: Record<typeof field, string> = { name: "Name", address: "Address", phone: "Phone", gstin: "GSTIN (optional)" }
+                const maxLengths: Record<typeof field, number> = { name: 100, address: 500, phone: 10, gstin: 15 }
+                const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                  let v = e.target.value
+                  if (field === "phone") v = v.replace(/\D/g, "").slice(0, 10)
+                  else if (field === "gstin") v = v.toUpperCase().slice(0, 15)
+                  setCreateForm((f) => ({ ...f, [field]: v }))
+                }
+                return (
+                  <div key={field}>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 5 }}>
+                      {labels[field]}
+                    </label>
+                    <input
+                      style={{ width: "100%", height: 42, border: "1px solid var(--color-line-strong)", borderRadius: 10, padding: "0 14px", fontSize: 14, fontFamily: "var(--font-sans)", outline: "none", boxSizing: "border-box", color: "var(--color-ink)" }}
+                      value={createForm[field]}
+                      onChange={onChange}
+                      maxLength={maxLengths[field]}
+                      inputMode={field === "phone" ? "numeric" : undefined}
+                      placeholder={field === "phone" ? "10-digit mobile number" : field === "gstin" ? "e.g. 29ABCDE1234F1Z5" : undefined}
+                      required={field !== "gstin"}
+                    />
+                  </div>
+                )
+              })}
               {createErr && <p style={{ fontSize: 13, color: "var(--color-red)", margin: 0 }}>{createErr}</p>}
               <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
                 <button type="button" className="btn ghost" onClick={() => setShowCreate(false)} style={{ flex: 1, justifyContent: "center", height: 40 }}>Cancel</button>
@@ -614,6 +639,8 @@ export default function OwnerDashboardPage() {
                         value={changePwForm[key]}
                         onChange={(e) => setChangePwForm((f) => ({ ...f, [key]: e.target.value }))}
                         required
+                        minLength={key === "newPassword" ? 8 : undefined}
+                        maxLength={key === "currentPassword" ? undefined : 128}
                         placeholder={key === "newPassword" ? "Min 8 characters" : ""}
                       />
                     </div>

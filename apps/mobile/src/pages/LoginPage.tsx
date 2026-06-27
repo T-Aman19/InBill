@@ -194,6 +194,7 @@ export default function LoginPage() {
             onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeErr("") }}
             onKeyDown={(e) => e.key === "Enter" && resolveCode()}
             placeholder="Setup code (e.g. ABC-123)"
+            maxLength={8}
             style={{
               width: "100%", height: 52, borderRadius: 12,
               border: `1.5px solid ${codeErr ? "var(--color-red)" : "var(--color-line-strong)"}`,

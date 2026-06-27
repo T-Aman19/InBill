@@ -12,18 +12,30 @@ export default function OwnerLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
 
   function set(k: keyof typeof form) {
-    return (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value
+      const value = k === "phone" ? raw.replace(/\D/g, "").slice(0, 10) : raw
+      setForm((f) => ({ ...f, [k]: value }))
+    }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr("")
+
+    if (tab === "register") {
+      if (!form.name.trim()) { setErr("Please enter your name"); return }
+      if (!/^[6-9]\d{9}$/.test(form.phone)) { setErr("Enter a valid 10-digit Indian mobile number"); return }
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { setErr("Enter a valid email address"); return }
+    if (form.password.length < 8) { setErr("Password must be at least 8 characters"); return }
+
     setLoading(true)
     try {
       const res =
         tab === "login"
           ? await api.owner.login(form.email, form.password)
-          : await api.owner.register(form)
+          : await api.owner.register({ ...form, name: form.name.trim() })
       localStorage.setItem("inbill_owner_token", res.token)
       navigate({ to: "/owner/dashboard" })
     } catch (e: unknown) {
@@ -130,6 +142,7 @@ export default function OwnerLoginPage() {
                     placeholder="Your name"
                     value={form.name}
                     onChange={set("name")}
+                    maxLength={100}
                     required
                   />
                 </div>
@@ -140,6 +153,8 @@ export default function OwnerLoginPage() {
                     placeholder="10-digit mobile number"
                     value={form.phone}
                     onChange={set("phone")}
+                    inputMode="numeric"
+                    maxLength={10}
                     required
                   />
                 </div>
@@ -154,6 +169,7 @@ export default function OwnerLoginPage() {
                 placeholder="you@example.com"
                 value={form.email}
                 onChange={set("email")}
+                maxLength={254}
                 required
               />
             </div>
@@ -178,6 +194,8 @@ export default function OwnerLoginPage() {
                   placeholder="Min 8 characters"
                   value={form.password}
                   onChange={set("password")}
+                  minLength={8}
+                  maxLength={128}
                   required
                 />
                 <button

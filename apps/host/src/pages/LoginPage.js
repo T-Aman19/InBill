@@ -34,6 +34,8 @@ export default function LoginPage({ onLogin }) {
     const [tmpCode, setTmpCode] = useState("");
     const [setupError, setSetupError] = useState("");
     const [saving, setSaving] = useState(false);
+    const [, setFailCount] = useState(0);
+    const [lockedUntil, setLockedUntil] = useState(null);
     // Auto-resolve setup code from URL param (e.g. /host/?setup=DEMO01)
     useEffect(() => {
         const param = new URLSearchParams(window.location.search).get("setup");
@@ -78,12 +80,22 @@ export default function LoginPage({ onLogin }) {
     async function doLogin(p) {
         if (!outletId)
             return;
+        if (lockedUntil && Date.now() < lockedUntil) {
+            const secs = Math.ceil((lockedUntil - Date.now()) / 1000);
+            setError(`Too many attempts — try again in ${secs}s`);
+            setPin("");
+            setShake(true);
+            setTimeout(() => { setShake(false); setError(""); }, 1200);
+            return;
+        }
         setLoading(true);
         try {
             const res = await api.auth.login(p, outletId);
             if (res.user.role !== "host") {
                 throw new Error("This PIN is not for the host app");
             }
+            setFailCount(0);
+            setLockedUntil(null);
             localStorage.setItem("inbill_host_token", res.token);
             ws.connect(outletId);
             onLogin();
@@ -94,6 +106,12 @@ export default function LoginPage({ onLogin }) {
                 : e instanceof Error
                     ? e.message
                     : "Login failed";
+            setFailCount((n) => {
+                const next = n + 1;
+                if (next >= 5)
+                    setLockedUntil(Date.now() + 30_000);
+                return next;
+            });
             setError(msg);
             setPin("");
             setShake(true);
@@ -148,5 +166,5 @@ export default function LoginPage({ onLogin }) {
                             opacity: tmpCode.trim() && !saving ? 1 : .4,
                         }, children: saving ? "Verifying…" : "Continue" })] }) }));
     // ── PIN screen ───────────────────────────────────────────────
-    return (_jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)", padding: 24 }, children: _jsxs("div", { className: shake ? "animate-shake" : "", style: { width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", alignItems: "center" }, children: [_jsx("div", { style: { width: 56, height: 56, borderRadius: 16, background: "var(--color-surface)", border: "1px solid var(--color-line)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, boxShadow: "var(--shadow-1)" }, children: _jsxs("svg", { width: "26", height: "26", viewBox: "0 0 24 24", fill: "none", stroke: "var(--color-ink-2)", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), _jsx("circle", { cx: "9", cy: "7", r: "4" }), _jsx("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" })] }) }), _jsx("div", { style: { fontSize: 11, color: "var(--color-ink-4)", letterSpacing: ".07em", textTransform: "uppercase", fontWeight: 600 }, children: "Host App" }), _jsx("div", { style: { fontSize: 13, color: "var(--color-ink-3)", marginTop: 4, marginBottom: 4 }, children: outletName }), _jsx("div", { style: { fontSize: 20, fontWeight: 600, color: "var(--color-ink)", marginBottom: 28 }, children: "Enter your PIN" }), _jsx("div", { style: { display: "flex", gap: 18, marginBottom: 6 }, children: [0, 1, 2, 3].map((i) => _jsx(PinDot, { filled: pin.length > i, error: !!error }, i)) }), _jsx("div", { style: { height: 20, fontSize: 13, color: "var(--color-red)", fontWeight: 500, marginBottom: 20 }, children: error }), _jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%" }, children: [["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (_jsx(NumKey, { d: d, onPress: press, disabled: loading || pin.length >= 4 }, d))), _jsx("button", { onClick: clear, style: { height: 72, background: "transparent", border: "1px solid var(--color-line)", borderRadius: 16, fontSize: 12, color: "var(--color-ink-3)", cursor: "pointer", fontWeight: 600, letterSpacing: ".04em" }, children: "CLEAR" }), _jsx(NumKey, { d: "0", onPress: press, disabled: loading || pin.length >= 4 }), _jsx("button", { onClick: back, style: { height: 72, background: "transparent", border: "1px solid var(--color-line)", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-2)" }, children: _jsx("svg", { width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M21 12H9M15 6l-6 6 6 6" }) }) })] }), _jsx("button", { onClick: () => setSetup(true), style: { marginTop: 28, fontSize: 12, color: "var(--color-ink-3)", background: "none", border: "none", cursor: "pointer" }, children: "Change outlet" })] }) }));
+    return (_jsx("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)", padding: 24 }, children: _jsxs("div", { className: shake ? "animate-shake" : "", style: { width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", alignItems: "center" }, children: [_jsx("div", { style: { width: 56, height: 56, borderRadius: 16, background: "var(--color-surface)", border: "1px solid var(--color-line)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, boxShadow: "var(--shadow-1)" }, children: _jsxs("svg", { width: "26", height: "26", viewBox: "0 0 24 24", fill: "none", stroke: "var(--color-ink-2)", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), _jsx("circle", { cx: "9", cy: "7", r: "4" }), _jsx("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" })] }) }), _jsx("div", { style: { fontSize: 11, color: "var(--color-ink-4)", letterSpacing: ".07em", textTransform: "uppercase", fontWeight: 600 }, children: "Host App" }), _jsx("div", { style: { fontSize: 13, color: "var(--color-ink-3)", marginTop: 4, marginBottom: 4 }, children: outletName }), _jsx("div", { style: { fontSize: 20, fontWeight: 600, color: "var(--color-ink)", marginBottom: 28 }, children: "Enter your PIN" }), _jsx("div", { style: { display: "flex", gap: 18, marginBottom: 6 }, children: [0, 1, 2, 3].map((i) => _jsx(PinDot, { filled: pin.length > i, error: !!error }, i)) }), _jsx("div", { style: { height: 20, fontSize: 13, color: "var(--color-red)", fontWeight: 500, marginBottom: 20 }, children: error }), _jsxs("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%" }, children: [["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (_jsx(NumKey, { d: d, onPress: press, disabled: loading || pin.length >= 4 || (lockedUntil != null && Date.now() < lockedUntil) }, d))), _jsx("button", { onClick: clear, style: { height: 72, background: "transparent", border: "1px solid var(--color-line)", borderRadius: 16, fontSize: 12, color: "var(--color-ink-3)", cursor: "pointer", fontWeight: 600, letterSpacing: ".04em" }, children: "CLEAR" }), _jsx(NumKey, { d: "0", onPress: press, disabled: loading || pin.length >= 4 || (lockedUntil != null && Date.now() < lockedUntil) }), _jsx("button", { onClick: back, style: { height: 72, background: "transparent", border: "1px solid var(--color-line)", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-2)" }, children: _jsx("svg", { width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M21 12H9M15 6l-6 6 6 6" }) }) })] }), _jsx("button", { onClick: () => setSetup(true), style: { marginTop: 28, fontSize: 12, color: "var(--color-ink-3)", background: "none", border: "none", cursor: "pointer" }, children: "Change outlet" })] }) }));
 }

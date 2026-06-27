@@ -15,6 +15,10 @@ export default function ResetPasswordPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr("")
+    if (form.newPassword.length < 8) {
+      setErr("Password must be at least 8 characters")
+      return
+    }
     if (form.newPassword !== form.confirm) {
       setErr("Passwords do not match")
       return
@@ -99,6 +103,8 @@ export default function ResetPasswordPage() {
                       value={form.newPassword}
                       onChange={(e) => setForm((f) => ({ ...f, newPassword: e.target.value }))}
                       required
+                      minLength={8}
+                      maxLength={128}
                       autoFocus
                     />
                     <button

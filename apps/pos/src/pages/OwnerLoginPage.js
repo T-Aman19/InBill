@@ -11,16 +11,38 @@ export default function OwnerLoginPage() {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     function set(k) {
-        return (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+        return (e) => {
+            const raw = e.target.value;
+            const value = k === "phone" ? raw.replace(/\D/g, "").slice(0, 10) : raw;
+            setForm((f) => ({ ...f, [k]: value }));
+        };
     }
     async function submit(e) {
         e.preventDefault();
         setErr("");
+        if (tab === "register") {
+            if (!form.name.trim()) {
+                setErr("Please enter your name");
+                return;
+            }
+            if (!/^[6-9]\d{9}$/.test(form.phone)) {
+                setErr("Enter a valid 10-digit Indian mobile number");
+                return;
+            }
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+            setErr("Enter a valid email address");
+            return;
+        }
+        if (form.password.length < 8) {
+            setErr("Password must be at least 8 characters");
+            return;
+        }
         setLoading(true);
         try {
             const res = tab === "login"
                 ? await api.owner.login(form.email, form.password)
-                : await api.owner.register(form);
+                : await api.owner.register({ ...form, name: form.name.trim() });
             localStorage.setItem("inbill_owner_token", res.token);
             navigate({ to: "/owner/dashboard" });
         }
@@ -73,7 +95,7 @@ export default function OwnerLoginPage() {
                                         color: tab === t ? "var(--color-ink)" : "var(--color-ink-3)",
                                         transition: "color 0.18s ease",
                                         fontFamily: "var(--font-sans)",
-                                    }, children: t === "login" ? "Sign In" : "Create Account" }, t)))] }), _jsxs("div", { style: { marginBottom: 4 }, children: [_jsx("div", { style: { fontSize: 22, fontWeight: 600, color: "var(--color-ink)" }, children: tab === "login" ? "Welcome back" : "Create account" }), _jsx("div", { style: { fontSize: 13, color: "var(--color-ink-3)", marginTop: 4 }, children: tab === "login" ? "Sign in to manage your outlets." : "Get started with InBill Owner." })] }), _jsxs("form", { onSubmit: submit, style: { display: "flex", flexDirection: "column", gap: 14, marginTop: 22 }, children: [tab === "register" && (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Name" }), _jsx("input", { style: inputStyle, placeholder: "Your name", value: form.name, onChange: set("name"), required: true })] }), _jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Phone" }), _jsx("input", { style: inputStyle, placeholder: "10-digit mobile number", value: form.phone, onChange: set("phone"), required: true })] })] })), _jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Email" }), _jsx("input", { type: "email", style: inputStyle, placeholder: "you@example.com", value: form.email, onChange: set("email"), required: true })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }, children: [_jsx("label", { style: { ...labelStyle, marginBottom: 0 }, children: "Password" }), tab === "login" && (_jsx("button", { type: "button", onClick: () => navigate({ to: "/owner/forgot-password" }), style: { fontSize: 12, color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }, children: "Forgot password?" }))] }), _jsxs("div", { style: { position: "relative" }, children: [_jsx("input", { type: showPassword ? "text" : "password", style: { ...inputStyle, paddingRight: 42 }, placeholder: "Min 8 characters", value: form.password, onChange: set("password"), required: true }), _jsx("button", { type: "button", onClick: () => setShowPassword((v) => !v), style: {
+                                    }, children: t === "login" ? "Sign In" : "Create Account" }, t)))] }), _jsxs("div", { style: { marginBottom: 4 }, children: [_jsx("div", { style: { fontSize: 22, fontWeight: 600, color: "var(--color-ink)" }, children: tab === "login" ? "Welcome back" : "Create account" }), _jsx("div", { style: { fontSize: 13, color: "var(--color-ink-3)", marginTop: 4 }, children: tab === "login" ? "Sign in to manage your outlets." : "Get started with InBill Owner." })] }), _jsxs("form", { onSubmit: submit, style: { display: "flex", flexDirection: "column", gap: 14, marginTop: 22 }, children: [tab === "register" && (_jsxs(_Fragment, { children: [_jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Name" }), _jsx("input", { style: inputStyle, placeholder: "Your name", value: form.name, onChange: set("name"), maxLength: 100, required: true })] }), _jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Phone" }), _jsx("input", { style: inputStyle, placeholder: "10-digit mobile number", value: form.phone, onChange: set("phone"), inputMode: "numeric", maxLength: 10, required: true })] })] })), _jsxs("div", { children: [_jsx("label", { style: labelStyle, children: "Email" }), _jsx("input", { type: "email", style: inputStyle, placeholder: "you@example.com", value: form.email, onChange: set("email"), maxLength: 254, required: true })] }), _jsxs("div", { children: [_jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }, children: [_jsx("label", { style: { ...labelStyle, marginBottom: 0 }, children: "Password" }), tab === "login" && (_jsx("button", { type: "button", onClick: () => navigate({ to: "/owner/forgot-password" }), style: { fontSize: 12, color: "var(--color-accent)", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }, children: "Forgot password?" }))] }), _jsxs("div", { style: { position: "relative" }, children: [_jsx("input", { type: showPassword ? "text" : "password", style: { ...inputStyle, paddingRight: 42 }, placeholder: "Min 8 characters", value: form.password, onChange: set("password"), minLength: 8, maxLength: 128, required: true }), _jsx("button", { type: "button", onClick: () => setShowPassword((v) => !v), style: {
                                                         position: "absolute",
                                                         right: 12,
                                                         top: "50%",

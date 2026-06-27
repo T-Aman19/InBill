@@ -40,7 +40,11 @@ export const outletSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
-export const createOutletSchema = outletSchema.omit({ id: true, createdAt: true, ownerId: true })
+export const createOutletSchema = outletSchema
+  .omit({ id: true, createdAt: true, ownerId: true })
+  // Allow an empty GSTIN string from the create form (field is optional); a
+  // provided value must still match the full GSTIN format.
+  .extend({ gstin: gstinSchema.optional().or(z.literal("")) })
 
 export const outletSettingsSchema = z.object({
   deliveryEnabled: z.boolean().optional(),

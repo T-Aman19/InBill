@@ -6,6 +6,62 @@ import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
 import { LogoMark } from "@/components/ui/LogoMark"
+import { GuidedTour, type TourStep } from "@/components/ui/GuidedTour"
+
+const TOUR_SEEN_KEY = "inbill_tour_seen"
+
+const FLOOR_TOUR: TourStep[] = [
+  {
+    title: "Welcome to InBill 👋",
+    body: "Let's take a quick 30-second tour so you know where everything lives. You can replay it anytime from the ? button.",
+    primaryLabel: "Start tour",
+  },
+  {
+    target: "nav-floor",
+    title: "Floor — your live table map",
+    body: "Every table shows its status at a glance: green is free, amber has an open order, red is ready to bill. Tap a free table to seat guests and start taking their order.",
+    placement: "bottom",
+  },
+  {
+    target: "takeaway",
+    title: "Takeaway & delivery",
+    body: "Start counter orders that aren't tied to a table. They appear in a strip above the floor so you never lose track of them.",
+    placement: "bottom",
+  },
+  {
+    target: "nav-kds",
+    title: "Kitchen display",
+    body: "Every item sent to the kitchen shows up here in real time. Cooks tap to mark dishes ready — no printed tickets needed.",
+    placement: "bottom",
+  },
+  {
+    target: "nav-manager",
+    title: "Manager — start here",
+    body: "Set up your menu, tables, taxes, discounts and staff. On day one this is where you'll spend your time before taking the first order.",
+    placement: "bottom",
+  },
+  {
+    target: "nav-inventory",
+    title: "Inventory",
+    body: "Track stock levels, record purchases, and get low-stock alerts right in the top bar so you never run out mid-service.",
+    placement: "bottom",
+  },
+  {
+    title: "Ready to set up your outlet?",
+    body: "Head to Manager to add your menu and tables — there's a setup checklist waiting to guide you through the rest.",
+    primaryLabel: "Go to Manager",
+  },
+]
+
+// For staff who can't open Manager (cashier / captain) the tour closes on the floor instead.
+const FLOOR_TOUR_STAFF: TourStep[] = [
+  ...FLOOR_TOUR.slice(0, -1),
+  {
+    title: "You're all set 🎉",
+    body: "That's the lay of the land. Tap any free table to take your first order — and hit the ? button anytime to replay this tour.",
+    primaryLabel: "Got it",
+  },
+]
 
 type TableStatus = "available" | "occupied" | "reserved" | "billed"
 type Table = { id: string; name: string; capacity: number; status: TableStatus; currentOrderId: string | null; floorId: string; source?: string; openedAt?: string; total?: number; items?: number }
@@ -367,8 +423,24 @@ export default function FloorPage() {
   const { user, outletName, setupCode, logout } = useAuthStore()
   const [creating, setCreating] = useState(false)
   const [copied,   setCopied]   = useState(false)
+  const [runTour,  setRunTour]  = useState(false)
 
   const isManagerOrOwner = user?.role === "manager" || user?.role === "owner"
+
+  // First-run guided tour — auto-start once, then never again unless replayed.
+  useEffect(() => {
+    if (!user) return
+    if (localStorage.getItem(TOUR_SEEN_KEY)) return
+    // Give the top bar a beat to paint so the tour can measure nav anchors.
+    const t = setTimeout(() => setRunTour(true), 400)
+    return () => clearTimeout(t)
+  }, [user])
+
+  function finishTour(goToManager = false) {
+    localStorage.setItem(TOUR_SEEN_KEY, "1")
+    setRunTour(false)
+    if (goToManager) navigate({ to: "/manager" })
+  }
 
   async function startOrder(type: "takeaway" | "delivery") {
     if (creating) return
@@ -499,6 +571,7 @@ export default function FloorPage() {
         <button
           onClick={() => startOrder("takeaway")}
           disabled={creating}
+          data-tour="takeaway"
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 9, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontWeight: 500, cursor: creating ? "not-allowed" : "pointer", flexShrink: 0, opacity: creating ? .6 : 1 }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.5 12a2 2 0 01-2 2h-9a2 2 0 01-2-2L5 8z"/><path d="M8 8V6a4 4 0 018 0v2"/><path d="M9 13h6"/></svg>
@@ -531,7 +604,7 @@ export default function FloorPage() {
           ].filter((n) => n.show).map((n) => {
             const active = n.id === "floor"
             return (
-              <button key={n.id} onClick={() => navigate({ to: n.path })} style={{
+              <button key={n.id} onClick={() => navigate({ to: n.path })} data-tour={`nav-${n.id}`} style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 12px", borderRadius: 8,
                 border: "1px solid " + (active ? "var(--color-line)" : "transparent"),
@@ -549,6 +622,17 @@ export default function FloorPage() {
             )
           })}
         </div>
+
+        {/* Help / replay tour */}
+        <button
+          onClick={() => setRunTour(true)}
+          title="Replay the guided tour"
+          style={{ background: "transparent", border: "1px solid var(--color-line)", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
 
         {/* User chip */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14, borderLeft: "1px solid var(--color-line)", flexShrink: 0 }}>
@@ -661,6 +745,14 @@ export default function FloorPage() {
           })
         )}
       </div>
+
+      {runTour && (
+        <GuidedTour
+          steps={isManagerOrOwner ? FLOOR_TOUR : FLOOR_TOUR_STAFF}
+          onFinish={() => finishTour(isManagerOrOwner)}
+          onSkip={() => finishTour(false)}
+        />
+      )}
 
     </div>
   )
