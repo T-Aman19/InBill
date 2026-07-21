@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { zValidator } from "@hono/zod-validator"
-import { eq, sql } from "drizzle-orm"
+import { eq, and, sql } from "drizzle-orm"
 import { GoogleGenAI, Type, MediaResolution } from "@google/genai"
 import { extractedMenuSchema, commitMenuImportSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
@@ -217,7 +217,11 @@ menuImportRouter.post("/commit", zValidator("json", commitMenuImportSchema), asy
       }
     }
 
-    const existing = await tx.query.categories.findMany({ where: eq(categories.outletId, outletId) })
+    // Only match against active categories — matching a soft-deleted one (see
+    // the DELETE /categories/:id handler in menu.ts, which sets isActive:false
+    // rather than removing the row) would silently reuse it, still-inactive,
+    // dumping new items into a category nothing ever displays.
+    const existing = await tx.query.categories.findMany({ where: and(eq(categories.outletId, outletId), eq(categories.isActive, true)) })
     const byName = new Map(existing.map((cat) => [cat.name.trim().toLowerCase(), cat]))
 
     for (const importCat of importCategories) {
