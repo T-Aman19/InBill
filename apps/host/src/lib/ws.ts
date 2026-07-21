@@ -1,3 +1,7 @@
+// Marker subprotocol paired with the JWT on the WS handshake — keep in sync with
+// WS_PROTOCOL in @inbill/shared (host has no dependency on that package).
+const WS_PROTOCOL = "inbill.jwt"
+
 type WsEvent = { type: string; payload: unknown }
 type Listener = (event: WsEvent) => void
 
@@ -6,19 +10,21 @@ class WsClient {
   private listeners = new Map<string, Set<Listener>>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private shouldConnect = false
-  private outletId = ""
 
-  connect(outletId?: string) {
-    if (outletId) this.outletId = outletId
+  // outletId arg kept for call-site compatibility; the server now derives the
+  // outlet from the authenticated token, so the client no longer sends it.
+  connect(_outletId?: string) {
     this.shouldConnect = true
     this._connect()
   }
 
   private _connect() {
+    // Authenticate the handshake: the server derives the outlet from this token.
+    const token = localStorage.getItem("inbill_host_token")
+    if (!token) return
     const wsHost = location.port === "5174" ? "localhost:3005" : location.host
     const proto  = location.protocol === "https:" ? "wss" : "ws"
-    const params = this.outletId ? `?outletId=${this.outletId}` : ""
-    this.ws = new WebSocket(`${proto}://${wsHost}/ws${params}`)
+    this.ws = new WebSocket(`${proto}://${wsHost}/ws`, [WS_PROTOCOL, token])
 
     this.ws.onopen = () => {
       this.ws?.send(JSON.stringify({ action: "subscribe", room: "outlet" }))

@@ -57,7 +57,9 @@ async function upload<T>(path: string, file: File): Promise<T> {
 export type ExtractedVariant = { name: string; price: number }
 export type ExtractedItem = { name: string; description: string | null; price: number; isVeg: boolean; variants: ExtractedVariant[] }
 export type ExtractedCategory = { name: string; items: ExtractedItem[] }
-export type ExtractedMenu = { categories: ExtractedCategory[] }
+export type ExtractedModifier = { name: string; price: number }
+export type ExtractedModifierGroup = { name: string; options: ExtractedModifier[] }
+export type ExtractedMenu = { categories: ExtractedCategory[]; modifierGroups: ExtractedModifierGroup[] }
 
 async function ownerRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("inbill_owner_token")
@@ -119,7 +121,7 @@ export const api = {
     createSchedule: (body: unknown) => post<unknown>("/menu/schedules", body),
     // Import from image/PDF (Gemini vision extraction)
     importExtract: (file: File) => upload<ExtractedMenu>("/menu-import/extract", file),
-    importCommit: (payload: ExtractedMenu) => post<{ categoriesCreated: number; itemsCreated: number }>("/menu-import/commit", payload),
+    importCommit: (payload: ExtractedMenu) => post<{ categoriesCreated: number; itemsCreated: number; modifierGroupsCreated: number }>("/menu-import/commit", payload),
     updateSchedule: (id: string, body: unknown) => patch<unknown>(`/menu/schedules/${id}`, body),
     deleteSchedule: (id: string) => del(`/menu/schedules/${id}`),
   },

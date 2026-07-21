@@ -4,6 +4,10 @@ import type { Kot } from "./order.js"
 import type { Table } from "./table.js"
 import type { QueueEntry, Reservation } from "./queue.js"
 
+// Marker subprotocol offered alongside the JWT on the WebSocket handshake.
+// Clients connect with: new WebSocket(url, [WS_PROTOCOL, <token>])
+export const WS_PROTOCOL = "inbill.jwt"
+
 export const wsEventTypeSchema = z.enum([
   "order.created",
   "order.updated",

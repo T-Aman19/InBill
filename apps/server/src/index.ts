@@ -5,6 +5,8 @@ import { serveStatic } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
 import { config } from "./config.js"
 import { wsHandlers } from "./services/ws.js"
+import { verifyToken } from "./middleware/auth.js"
+import { WS_PROTOCOL } from "@inbill/shared"
 import { authRouter } from "./routes/auth.js"
 import { menuRouter } from "./routes/menu.js"
 import { tablesRouter } from "./routes/tables.js"
@@ -123,13 +125,32 @@ const server = Bun.serve({
   port: config.port,
   hostname: '0.0.0.0',
 
-  fetch(req, srv) {
+  async fetch(req, srv) {
     const url = new URL(req.url)
 
-    // Intercept WebSocket upgrade before Hono sees it
+    // Intercept WebSocket upgrade before Hono sees it.
     if (url.pathname === "/ws" && req.headers.get("upgrade") === "websocket") {
-      const outletId = url.searchParams.get("outletId") ?? "unknown"
-      const upgraded = srv.upgrade(req, { data: { outletId, rooms: new Set<string>() } })
+      // Authenticate the handshake. Browsers can't set Authorization headers on a
+      // WebSocket, so the JWT rides in Sec-WebSocket-Protocol alongside a marker:
+      //   new WebSocket(url, ["inbill.jwt", <token>])
+      // The outletId is derived from the verified token — never trusted from the client.
+      const protocols = (req.headers.get("sec-websocket-protocol") ?? "")
+        .split(",").map((p) => p.trim()).filter(Boolean)
+      const token = protocols.find((p) => p !== WS_PROTOCOL)
+      if (!token) return new Response("Unauthorized", { status: 401 })
+
+      let outletId: string
+      try {
+        outletId = (await verifyToken(token)).outletId
+      } catch {
+        return new Response("Unauthorized", { status: 401 })
+      }
+
+      const upgraded = srv.upgrade(req, {
+        // Echo the marker back so the browser's handshake completes.
+        headers: { "Sec-WebSocket-Protocol": WS_PROTOCOL },
+        data: { outletId, rooms: new Set<string>() },
+      })
       if (upgraded) return undefined
       return new Response("WebSocket upgrade failed", { status: 400 })
     }

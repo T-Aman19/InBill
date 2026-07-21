@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { QRCode } from "react-qr-code"
-import { api, ApiError, type ExtractedMenu, type ExtractedItem } from "@/lib/api"
+import { api, ApiError, type ExtractedMenu, type ExtractedItem, type ExtractedModifierGroup } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
@@ -544,7 +544,10 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
   })
 
   const commitMutation = useMutation({
-    mutationFn: () => api.menu.importCommit({ categories: (menu?.categories ?? []).filter((c) => c.items.length > 0) }),
+    mutationFn: () => api.menu.importCommit({
+      categories: (menu?.categories ?? []).filter((c) => c.items.length > 0),
+      modifierGroups: (menu?.modifierGroups ?? []).filter((g) => g.options.length > 0),
+    }),
     onMutate: () => { setStep("committing"); setError("") },
     onSuccess: () => { onImported(); onClose() },
     onError: (e: unknown) => { setError(e instanceof ApiError ? e.message : "Import failed — please try again"); setStep("review") },
@@ -558,16 +561,16 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
   }
 
   function updateItem(catIdx: number, itemIdx: number, patch: Partial<ExtractedItem>) {
-    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.map((it, ii) => (ii !== itemIdx ? it : { ...it, ...patch })) })) })
+    setMenu((m) => m && { ...m, categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.map((it, ii) => (ii !== itemIdx ? it : { ...it, ...patch })) })) })
   }
   function deleteItem(catIdx: number, itemIdx: number) {
-    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.filter((_, ii) => ii !== itemIdx) })) })
+    setMenu((m) => m && { ...m, categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.filter((_, ii) => ii !== itemIdx) })) })
   }
   function updateCategoryName(catIdx: number, name: string) {
-    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, name })) })
+    setMenu((m) => m && { ...m, categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, name })) })
   }
   function deleteCategory(catIdx: number) {
-    setMenu((m) => m && { categories: m.categories.filter((_, ci) => ci !== catIdx) })
+    setMenu((m) => m && { ...m, categories: m.categories.filter((_, ci) => ci !== catIdx) })
   }
   function deleteVariant(catIdx: number, itemIdx: number, vIdx: number) {
     const item = menu?.categories[catIdx]?.items[itemIdx]
@@ -575,8 +578,22 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
     updateItem(catIdx, itemIdx, { variants: item.variants.filter((_, vi) => vi !== vIdx) })
   }
 
+  function updateModifierGroup(gIdx: number, patch: Partial<ExtractedModifierGroup>) {
+    setMenu((m) => m && { ...m, modifierGroups: m.modifierGroups.map((g, gi) => (gi !== gIdx ? g : { ...g, ...patch })) })
+  }
+  function deleteModifierGroup(gIdx: number) {
+    setMenu((m) => m && { ...m, modifierGroups: m.modifierGroups.filter((_, gi) => gi !== gIdx) })
+  }
+  function deleteModifierOption(gIdx: number, oIdx: number) {
+    const group = menu?.modifierGroups[gIdx]
+    if (!group) return
+    updateModifierGroup(gIdx, { options: group.options.filter((_, oi) => oi !== oIdx) })
+  }
+
   const totalItems = menu?.categories.reduce((n, c) => n + c.items.length, 0) ?? 0
+  const totalModifierGroups = menu?.modifierGroups.length ?? 0
   const isBusy = step === "extracting" || step === "committing"
+  const hasNothingToPush = totalItems === 0 && totalModifierGroups === 0
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }} onClick={isBusy ? undefined : onClose}>
@@ -587,7 +604,7 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
             <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>
               {step === "upload" && "Upload a photo or PDF of your existing menu"}
               {step === "extracting" && "Reading your menu…"}
-              {step === "review" && `Review ${totalItems} item${totalItems !== 1 ? "s" : ""} across ${menu?.categories.length ?? 0} categories before pushing`}
+              {step === "review" && `Review ${totalItems} item${totalItems !== 1 ? "s" : ""} across ${menu?.categories.length ?? 0} categories${totalModifierGroups > 0 ? ` and ${totalModifierGroups} add-on group${totalModifierGroups !== 1 ? "s" : ""}` : ""} before pushing`}
               {step === "committing" && "Adding to your menu…"}
             </div>
           </div>
@@ -657,13 +674,43 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
                   </div>
                 </div>
               ))}
+
+              {menu.modifierGroups.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em", color: "var(--color-ink-3)", marginBottom: 8 }}>Add-on groups</div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 12 }}>Priced extras like flavour shots or toppings — not linked to any item yet. Attach each group to the items it applies to from that item's Edit panel after importing.</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {menu.modifierGroups.map((group, gi) => (
+                      <div key={gi} style={{ border: "1px solid var(--color-line)", borderRadius: 14, overflow: "hidden" }}>
+                        <div style={{ padding: "10px 14px", background: "var(--color-surface-2)", display: "flex", alignItems: "center", gap: 8 }}>
+                          <input value={group.name} onChange={(e) => updateModifierGroup(gi, { name: e.target.value })} style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, fontWeight: 600, color: "var(--color-ink)", fontFamily: "inherit" }} />
+                          <span style={{ fontSize: 11, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{group.options.length} options</span>
+                          <ActionBtn onClick={() => deleteModifierGroup(gi)} title="Delete" danger />
+                        </div>
+                        <div style={{ padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {group.options.map((opt, oi) => (
+                            <div key={oi} style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--color-surface-2)", borderRadius: 8, padding: "4px 8px" }}>
+                              <input value={opt.name} onChange={(e) => updateModifierGroup(gi, { options: group.options.map((o, k) => (k === oi ? { ...o, name: e.target.value } : o)) })} style={{ width: 90, background: "transparent", border: "none", outline: "none", fontSize: 12, color: "var(--color-ink-2)", fontFamily: "inherit" }} />
+                              <input type="number" min="0" value={opt.price} onChange={(e) => updateModifierGroup(gi, { options: group.options.map((o, k) => (k === oi ? { ...o, price: Number(e.target.value) || 0 } : o)) })} style={{ width: 56, background: "transparent", border: "none", outline: "none", fontSize: 12, color: "var(--color-ink-2)", fontFamily: "var(--font-mono)", textAlign: "right" }} />
+                              <button onClick={() => deleteModifierOption(gi, oi)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-ink-3)", padding: 0, display: "flex" }}>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                              </button>
+                            </div>
+                          ))}
+                          {group.options.length === 0 && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>No options left — this group will be skipped.</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div style={{ padding: 18, borderTop: "1px solid var(--color-line)", display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <CancelBtn onClose={onClose} />
-          {step === "review" && <SaveBtn onClick={() => commitMutation.mutate()} disabled={totalItems === 0} label={`Push ${totalItems} item${totalItems !== 1 ? "s" : ""} to menu`} />}
+          {step === "review" && <SaveBtn onClick={() => commitMutation.mutate()} disabled={hasNothingToPush} label={`Push to menu${totalItems > 0 ? ` (${totalItems} item${totalItems !== 1 ? "s" : ""})` : ""}${totalModifierGroups > 0 ? ` + ${totalModifierGroups} add-on group${totalModifierGroups !== 1 ? "s" : ""}` : ""}`} />}
           {step === "committing" && <SaveBtn disabled label="Adding…" />}
         </div>
       </div>
