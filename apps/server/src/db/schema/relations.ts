@@ -4,7 +4,7 @@ import { users } from "./users.js"
 import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs } from "./menu.js"
 import { floors, tables } from "./tables.js"
 import { orders, orderItems, orderItemModifiers, kots, customers } from "./orders.js"
-import { bills, billPayments, billDiscounts, discounts } from "./billing.js"
+import { bills, billPayments, billDiscounts, discounts, billCharges, charges } from "./billing.js"
 import { shifts, shiftCashEntries } from "./shifts.js"
 import { ingredients, recipes, recipeIngredients, stockMovements, vendors, purchaseOrders, purchaseOrderItems } from "./inventory.js"
 import { queueEntries, reservations } from "./queue.js"
@@ -116,6 +116,7 @@ export const billsRelations = relations(bills, ({ one, many }) => ({
   createdBy: one(users, { fields: [bills.createdById], references: [users.id] }),
   payments: many(billPayments),
   discountLines: many(billDiscounts),
+  chargeLines: many(billCharges),
 }))
 
 export const billPaymentsRelations = relations(billPayments, ({ one }) => ({
@@ -130,6 +131,16 @@ export const discountsRelations = relations(discounts, ({ one, many }) => ({
 export const billDiscountsRelations = relations(billDiscounts, ({ one }) => ({
   bill: one(bills, { fields: [billDiscounts.billId], references: [bills.id] }),
   discount: one(discounts, { fields: [billDiscounts.discountId], references: [discounts.id] }),
+}))
+
+export const chargesRelations = relations(charges, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [charges.outletId], references: [outlets.id] }),
+  billLines: many(billCharges),
+}))
+
+export const billChargesRelations = relations(billCharges, ({ one }) => ({
+  bill: one(bills, { fields: [billCharges.billId], references: [bills.id] }),
+  charge: one(charges, { fields: [billCharges.chargeId], references: [charges.id] }),
 }))
 
 export const shiftsRelations = relations(shifts, ({ one, many }) => ({

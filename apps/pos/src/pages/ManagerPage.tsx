@@ -22,6 +22,7 @@ type ItemModifierGroupLink = { itemId: string; groupId: string }
 type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null }
 
 type DiscountRow = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; validFrom?: string | null; validTo?: string | null; usageLimit?: number | null; usageCount: number; isActive: boolean }
+type ChargeRow = { id: string; name: string; type: "percentage" | "flat"; value: string; isActive: boolean }
 
 type Floor = { id: string; name: string; sortOrder: number }
 type TableRow = { id: string; floorId: string; name: string; capacity: number; status: string }
@@ -909,6 +910,8 @@ function TaxTab() {
   const [name, setName] = useState("Default")
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [editingCharge, setEditingCharge] = useState<Partial<ChargeRow> & { _new?: boolean } | null>(null)
+  const [chargeErr, setChargeErr] = useState("")
 
   const { data: config } = useQuery({
     queryKey: ["tax"],
@@ -928,10 +931,35 @@ function TaxTab() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax"] }); setSaved(true); setTimeout(() => setSaved(false), 2000) },
   })
 
+  const { data: chargeRows = [] } = useQuery({ queryKey: ["charges"], queryFn: () => api.charges.list() as Promise<ChargeRow[]> })
+  const invalidateCharges = () => { qc.invalidateQueries({ queryKey: ["charges"] }); setEditingCharge(null); setChargeErr("") }
+  const createChargeMutation = useMutation({ mutationFn: (d: object) => api.charges.create(d), onSuccess: invalidateCharges, onError: (e: Error) => setChargeErr(e.message) })
+  const updateChargeMutation = useMutation({ mutationFn: ({ id, ...d }: { id: string } & object) => api.charges.update(id, d), onSuccess: invalidateCharges, onError: (e: Error) => setChargeErr(e.message) })
+  const deleteChargeMutation = useMutation({ mutationFn: (id: string) => api.charges.delete(id), onSuccess: invalidateCharges, onError: (e: Error) => setChargeErr(e.message) })
+  const toggleChargeMutation = useMutation({ mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => api.charges.update(id, { isActive }), onSuccess: invalidateCharges })
+
+  function handleSaveCharge() {
+    if (!editingCharge) return
+    const { _new, id, ...rest } = editingCharge
+    if (!rest.name?.trim() || !rest.value) { setChargeErr("Name and value are required"); return }
+    if (rest.name.trim().length > 100) { setChargeErr("Name must be 100 characters or less"); return }
+    const numVal = parseFloat(String(rest.value))
+    if (isNaN(numVal) || numVal <= 0) { setChargeErr("Value must be a positive number"); return }
+    if ((rest.type ?? "percentage") === "percentage" && numVal > 100) { setChargeErr("Percentage charge cannot exceed 100%"); return }
+    if ((rest.type ?? "percentage") === "flat" && numVal > 1_000_000) { setChargeErr("Flat charge cannot exceed ₹10,00,000"); return }
+    const payload = { name: rest.name.trim(), type: rest.type ?? "percentage", value: numVal, isActive: rest.isActive ?? true }
+    if (_new) createChargeMutation.mutate(payload)
+    else updateChargeMutation.mutate({ id: id!, ...payload })
+  }
+  const chargeSaving = createChargeMutation.isPending || updateChargeMutation.isPending
+
   const subtotalExample = 1000
   const cgstAmt = subtotalExample * (parseFloat(cgst || "0") / 100)
   const sgstAmt = subtotalExample * (parseFloat(sgst || "0") / 100)
-  const totalAmt = subtotalExample + cgstAmt + sgstAmt
+  const activeCharges = chargeRows.filter((c) => c.isActive)
+  const chargeAmts = activeCharges.map((c) => ({ row: c, amt: c.type === "percentage" ? subtotalExample * (Number(c.value) / 100) : Number(c.value) }))
+  const chargeAmtTotal = chargeAmts.reduce((s, c) => s + c.amt, 0)
+  const totalAmt = subtotalExample + cgstAmt + sgstAmt + chargeAmtTotal
 
   return (
     <>
@@ -964,7 +992,7 @@ function TaxTab() {
 
             <div style={{ padding: 18, background: "var(--color-surface-2)", borderRadius: 12, border: "1px solid var(--color-line)" }}>
               <div style={{ fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".05em", textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>Preview on ₹1,000 order</div>
-              {[["Subtotal", formatCurrency(subtotalExample)], ...(cgstAmt > 0 ? [[`CGST (${cgst}%)`, formatCurrency(cgstAmt)]] : []), ...(sgstAmt > 0 ? [[`SGST (${sgst}%)`, formatCurrency(sgstAmt)]] : [])].map(([label, val]) => (
+              {[["Subtotal", formatCurrency(subtotalExample)], ...(cgstAmt > 0 ? [[`CGST (${cgst}%)`, formatCurrency(cgstAmt)]] : []), ...(sgstAmt > 0 ? [[`SGST (${sgst}%)`, formatCurrency(sgstAmt)]] : []), ...chargeAmts.map((c) => [c.row.type === "percentage" ? `${c.row.name} (${c.row.value}%)` : c.row.name, formatCurrency(c.amt)])].map(([label, val]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--color-ink-2)", padding: "3px 0" }}>
                   <span>{label}</span><span style={{ fontFamily: "var(--font-mono)" }}>{val}</span>
                 </div>
@@ -978,9 +1006,60 @@ function TaxTab() {
             <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} style={{ alignSelf: "flex-start", padding: "12px 24px", borderRadius: 10, border: "none", background: saved ? "var(--color-green)" : "var(--color-ink)", color: "var(--color-bg)", fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", transition: "background .2s" }}>
               {saved ? "Saved!" : saveMutation.isPending ? "Saving…" : "Save tax settings"}
             </button>
+
+            <div style={{ height: 1, background: "var(--color-line)", margin: "8px 0" }} />
+
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Charges</div>
+                <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>Service charge, packaging charge, etc. — not taxable, added after GST, waivable per bill</div>
+              </div>
+              <button onClick={() => { setEditingCharge({ _new: true, type: "percentage", value: "", isActive: true }); setChargeErr("") }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer", flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>New charge
+              </button>
+            </div>
+
+            {chargeRows.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)" }}>No charges configured</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {chargeRows.map((row) => (
+                  <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12, opacity: row.isActive ? 1 : .5 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>{row.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>{row.type === "percentage" ? `${row.value}%` : formatCurrency(row.value)}</div>
+                    </div>
+                    <button onClick={() => toggleChargeMutation.mutate({ id: row.id, isActive: !row.isActive })} style={{ padding: "4px 10px", borderRadius: 20, border: "1px solid " + (row.isActive ? "var(--color-green)" : "var(--color-line)"), background: row.isActive ? "var(--color-green-soft)" : "var(--color-surface-2)", color: row.isActive ? "var(--color-green)" : "var(--color-ink-3)", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+                      {row.isActive ? "Active" : "Off"}
+                    </button>
+                    <ActionBtn onClick={() => { setEditingCharge({ ...row }); setChargeErr("") }} title="Edit" />
+                    <ActionBtn onClick={() => { if (confirm(`Delete "${row.name}"?`)) deleteChargeMutation.mutate(row.id) }} title="Delete" danger />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {editingCharge && (
+        <SlidePanel title={editingCharge._new ? "New charge" : `Edit "${editingCharge.name}"`} onClose={() => setEditingCharge(null)}
+          footer={<><CancelBtn onClose={() => setEditingCharge(null)} /><SaveBtn onClick={handleSaveCharge} disabled={chargeSaving} label={chargeSaving ? "Saving…" : editingCharge._new ? "Create" : "Save"} /></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {chargeErr && <div style={{ padding: "10px 14px", background: "var(--color-red-soft)", color: "var(--color-red)", borderRadius: 8, fontSize: 13 }}>{chargeErr}</div>}
+            {field("Charge name", <input value={editingCharge.name ?? ""} onChange={(e) => setEditingCharge((d) => ({ ...d!, name: e.target.value }))} placeholder="e.g. Service Charge, Packaging Charge" maxLength={100} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {field("Type", (
+                <select value={editingCharge.type ?? "percentage"} onChange={(e) => setEditingCharge((d) => ({ ...d!, type: e.target.value as "percentage" | "flat" }))} style={{ ...inputStyle(), appearance: "none" }}>
+                  <option value="percentage">Percentage (%)</option>
+                  <option value="flat">Flat amount (₹)</option>
+                </select>
+              ))}
+              {field(editingCharge.type === "flat" ? "Amount (₹)" : "Percentage (%)", <input type="number" min="0" max={editingCharge.type === "flat" ? 1_000_000 : 100} step="0.01" value={editingCharge.value ?? ""} onChange={(e) => setEditingCharge((d) => ({ ...d!, value: e.target.value }))} placeholder={editingCharge.type === "flat" ? "e.g. 20" : "e.g. 10"} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+            </div>
+          </div>
+        </SlidePanel>
+      )}
     </>
   )
 }

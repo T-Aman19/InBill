@@ -6,7 +6,7 @@ import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchem
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { dayStart, dayEnd } from "../lib/dateRange.js"
-import { bills, billPayments, billDiscounts, discounts, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions, customers } from "../db/schema/index.js"
+import { bills, billPayments, billDiscounts, discounts, billCharges, charges, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions, customers } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { logAudit } from "../services/audit.js"
@@ -239,11 +239,23 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     }
   }
 
-  if (discountAmount > subtotal + taxTotal) {
+  // Charges (service charge, packaging charge, etc.) — not taxable, computed
+  // on subtotal only, added after tax. Auto-applied from the outlet's active
+  // presets; removable per bill afterward via DELETE /bills/:id/charges/:lineId.
+  const activeCharges = await db.query.charges.findMany({ where: and(eq(charges.outletId, outletId), eq(charges.isActive, true)) })
+  const chargeAmounts = activeCharges.map((charge) => ({
+    charge,
+    amount: charge.type === "percentage"
+      ? parseFloat(((subtotal * Number(charge.value)) / 100).toFixed(2))
+      : Number(charge.value),
+  }))
+  const chargeTotal = chargeAmounts.reduce((s, ca) => s + ca.amount, 0)
+
+  if (discountAmount > subtotal + taxTotal + chargeTotal) {
     return c.json({ error: "Discount cannot exceed the bill total" }, 400)
   }
 
-  const total = subtotal + taxTotal - discountAmount
+  const total = subtotal + taxTotal + chargeTotal - discountAmount
 
   const [billAgg] = await db.select({ maxNum: max(bills.billNumber) }).from(bills).where(eq(bills.outletId, outletId))
   const billNumber = (billAgg?.maxNum ?? 0) + 1
@@ -259,11 +271,18 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
       taxTotal: String(taxTotal.toFixed(2)),
       discountAmount: String(Number(discountAmount).toFixed(2)),
       discountNote,
+      chargeTotal: String(chargeTotal.toFixed(2)),
       total: String(total.toFixed(2)),
       createdById: c.get("user").userId,
     })
     .returning()
   const bill = billRows[0]!
+
+  if (chargeAmounts.length > 0) {
+    await db.insert(billCharges).values(
+      chargeAmounts.map((ca) => ({ billId: bill.id, chargeId: ca.charge.id, label: ca.charge.name, amount: String(ca.amount) })),
+    )
+  }
 
   await db.update(orders).set({ status: "billed", updatedAt: new Date() }).where(eq(orders.id, orderId))
 
@@ -357,7 +376,7 @@ billingRouter.get("/:id", async (c) => {
   const { outletId } = c.get("user")
   const bill = await db.query.bills.findFirst({
     where: and(eq(bills.id, c.req.param("id")), eq(bills.outletId, outletId)),
-    with: { payments: true, discountLines: true, order: { with: { items: { with: { modifiers: true } } } } },
+    with: { payments: true, discountLines: true, chargeLines: true, order: { with: { items: { with: { modifiers: true } } } } },
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   const items = (bill.order?.items ?? [])
@@ -420,7 +439,7 @@ billingRouter.patch("/:id/discount", requireRole("owner", "manager", "cashier"),
   // Recompute discountAmount and total from all discount lines
   const allLines = [...bill.discountLines, line]
   const totalDiscount = allLines.reduce((s, l) => s + Number(l?.amount ?? 0), 0)
-  const newTotal = Number(bill.subtotal) + Number(bill.taxTotal) - totalDiscount
+  const newTotal = Number(bill.subtotal) + Number(bill.taxTotal) + Number(bill.chargeTotal) - totalDiscount
 
   await db.update(bills).set({
     discountAmount: String(totalDiscount.toFixed(2)),
@@ -467,10 +486,49 @@ billingRouter.delete("/:id/discount/:lineId", requireRole("owner", "manager", "c
 
   const remaining = bill.discountLines.filter((l) => l.id !== lineId)
   const totalDiscount = remaining.reduce((s, l) => s + Number(l.amount), 0)
-  const newTotal = Number(bill.subtotal) + Number(bill.taxTotal) - totalDiscount
+  const newTotal = Number(bill.subtotal) + Number(bill.taxTotal) + Number(bill.chargeTotal) - totalDiscount
 
   await db.update(bills).set({
     discountAmount: String(totalDiscount.toFixed(2)),
+    total: String(Math.max(0, newTotal).toFixed(2)),
+  }).where(eq(bills.id, billId))
+
+  return c.json({ ok: true })
+})
+
+// Remove a charge line from an unpaid bill with no payments — this is what
+// makes a charge "waivable on request" rather than a fixed add-on.
+billingRouter.delete("/:id/charges/:lineId", requireRole("owner", "manager", "cashier"), async (c) => {
+  const { outletId, userId } = c.get("user")
+  const billId = c.req.param("id")
+  const lineId = c.req.param("lineId")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true, chargeLines: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isPaid) return c.json({ error: "Cannot modify a paid bill" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
+  if (bill.payments.length > 0) return c.json({ error: "Cannot remove a charge after payment has started" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
+
+  const line = bill.chargeLines.find((l) => l.id === lineId)
+  if (!line) return c.json({ error: "Charge line not found" }, 404)
+
+  await db.delete(billCharges).where(eq(billCharges.id, lineId))
+
+  logAudit({
+    outletId, userId, action: "charge.remove", entity: "bill", entityId: billId,
+    details: { billNumber: bill.billNumber, label: line.label, amount: Number(line.amount) },
+  })
+
+  const remaining = bill.chargeLines.filter((l) => l.id !== lineId)
+  const totalCharge = remaining.reduce((s, l) => s + Number(l.amount), 0)
+  const newTotal = Number(bill.subtotal) + Number(bill.taxTotal) + totalCharge - Number(bill.discountAmount)
+
+  await db.update(bills).set({
+    chargeTotal: String(totalCharge.toFixed(2)),
     total: String(Math.max(0, newTotal).toFixed(2)),
   }).where(eq(bills.id, billId))
 

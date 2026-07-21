@@ -19,6 +19,7 @@ import { usersRouter } from "./routes/users.js"
 import { outletRouter } from "./routes/outlet.js"
 import { customersRouter } from "./routes/customers.js"
 import { discountsRouter } from "./routes/discounts.js"
+import { chargesRouter } from "./routes/charges.js"
 import { ownerRouter } from "./routes/owner.js"
 import { inventoryRouter } from "./routes/inventory.js"
 import { vendorsRouter } from "./routes/vendors.js"
@@ -62,6 +63,7 @@ api.route("/users", usersRouter)
 api.route("/outlet", outletRouter)
 api.route("/customers", customersRouter)
 api.route("/discounts", discountsRouter)
+api.route("/charges", chargesRouter)
 api.route("/owner", ownerRouter)
 api.route("/inventory", inventoryRouter)
 api.route("/vendors", vendorsRouter)

@@ -95,6 +95,51 @@ export type Discount = z.infer<typeof discountSchema>
 export type CreateDiscount = z.infer<typeof createDiscountSchema>
 export type ApplyDiscount = z.infer<typeof applyDiscountSchema>
 
+// ── Charges (service charge, packaging charge, etc.) — not taxable, computed
+// on the bill subtotal and added after GST ─────────────────────────────────
+
+export const chargeTypeSchema = z.enum(["percentage", "flat"])
+export type ChargeType = z.infer<typeof chargeTypeSchema>
+
+const chargePercentageRefinement = (schema: z.ZodTypeAny) =>
+  schema.refine(
+    (d: { type: string; value: number }) => {
+      if (d.type !== "percentage") return true
+      return d.value <= 100
+    },
+    { message: "Percentage charge value cannot exceed 100%", path: ["value"] },
+  )
+
+export const chargeSchema = chargePercentageRefinement(
+  z.object({
+    id: z.string().uuid(),
+    outletId: z.string().uuid(),
+    name: z.string().min(1).max(100),
+    type: chargeTypeSchema,
+    value: z.number().positive().max(1_000_000),
+    isActive: z.boolean().default(true),
+  }),
+)
+
+export const createChargeSchema = chargePercentageRefinement(
+  z.object({
+    name: z.string().min(1).max(100),
+    type: chargeTypeSchema,
+    value: z.number().positive().max(1_000_000),
+    isActive: z.boolean().default(true),
+  }),
+)
+
+export const updateChargeSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  type: chargeTypeSchema.optional(),
+  value: z.number().positive().max(1_000_000).optional(),
+  isActive: z.boolean().optional(),
+})
+
+export type Charge = z.infer<typeof chargeSchema>
+export type CreateCharge = z.infer<typeof createChargeSchema>
+
 export const paymentModeSchema = z.enum(["cash", "card", "upi", "credit"])
 export type PaymentMode = z.infer<typeof paymentModeSchema>
 
@@ -122,6 +167,7 @@ export const billSchema = z.object({
   taxTotal: z.number().nonnegative(),
   discountAmount: z.number().nonnegative().default(0),
   discountNote: z.string().max(200).optional(),
+  chargeTotal: z.number().nonnegative().default(0),
   total: z.number().nonnegative(),
   payments: z.array(billPaymentSchema).default([]),
   isPaid: z.boolean().default(false),

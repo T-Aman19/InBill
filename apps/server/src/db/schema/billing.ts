@@ -5,6 +5,20 @@ import { users } from "./users.js"
 
 export const paymentModeEnum = pgEnum("payment_mode", ["cash", "card", "upi", "credit"])
 export const discountTypeEnum = pgEnum("discount_type", ["percentage", "flat"])
+export const chargeTypeEnum = pgEnum("charge_type", ["percentage", "flat"])
+
+// Outlet-level charge presets (service charge, packaging charge, etc.) —
+// not taxable: computed on the bill subtotal, added after GST, never part
+// of the taxable base.
+export const charges = pgTable("charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  outletId: uuid("outlet_id").notNull().references(() => outlets.id),
+  name: text("name").notNull(),
+  type: chargeTypeEnum("type").notNull(),
+  value: numeric("value", { precision: 10, scale: 2 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
 
 export const discounts = pgTable("discounts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -34,6 +48,7 @@ export const bills = pgTable("bills", {
   taxTotal: numeric("tax_total", { precision: 10, scale: 2 }).notNull().default("0"),
   discountAmount: numeric("discount_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   discountNote: text("discount_note"),
+  chargeTotal: numeric("charge_total", { precision: 10, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   isPaid: boolean("is_paid").notNull().default(false),
   // Void/refund: a voided unpaid bill reopens its order; a refunded paid bill
@@ -61,6 +76,15 @@ export const billDiscounts = pgTable("bill_discounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   billId: uuid("bill_id").notNull().references(() => bills.id),
   discountId: uuid("discount_id").references(() => discounts.id),
+  label: text("label").notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const billCharges = pgTable("bill_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  billId: uuid("bill_id").notNull().references(() => bills.id),
+  chargeId: uuid("charge_id").references(() => charges.id),
   label: text("label").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

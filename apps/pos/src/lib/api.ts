@@ -169,6 +169,7 @@ export const api = {
     addPayment: (billId: string, body: unknown) => post<unknown>(`/bills/${billId}/payments`, body),
     applyDiscount: (billId: string, body: unknown) => patch<unknown>(`/bills/${billId}/discount`, body),
     removeDiscount: (billId: string, lineId: string) => del<unknown>(`/bills/${billId}/discount/${lineId}`),
+    removeCharge: (billId: string, lineId: string) => del<unknown>(`/bills/${billId}/charges/${lineId}`),
     voidBill: (billId: string, reason?: string) => post<{ ok: boolean }>(`/bills/${billId}/void`, { reason }),
     refundBill: (billId: string, reason?: string) => post<{ ok: boolean }>(`/bills/${billId}/refund`, { reason }),
     initiateUpi: (billId: string) => post<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string }>(`/bills/${billId}/payments/upi`, {}),
@@ -182,6 +183,12 @@ export const api = {
     update: (id: string, body: unknown) => patch<unknown>(`/discounts/${id}`, body),
     delete: (id: string) => del<unknown>(`/discounts/${id}`),
     validate: (code: string, orderTotal: number) => post<unknown>("/discounts/validate", { code, orderTotal }),
+  },
+  charges: {
+    list: () => get<unknown[]>("/charges"),
+    create: (body: unknown) => post<unknown>("/charges", body),
+    update: (id: string, body: unknown) => patch<unknown>(`/charges/${id}`, body),
+    delete: (id: string) => del<unknown>(`/charges/${id}`),
   },
   shifts: {
     getActive: () => get<unknown | null>("/shifts/active"),

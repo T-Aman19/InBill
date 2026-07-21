@@ -8,11 +8,13 @@ import { formatCurrency, triggerPrint } from "@/lib/utils"
 type TaxLine = { name: string; rate: number; amount: number }
 type Payment = { id: string; mode: string; amount: string }
 type DiscountLine = { id: string; discountId?: string | null; label: string; amount: string }
+type ChargeLine = { id: string; chargeId?: string | null; label: string; amount: string }
 type BillModifier = { name: string; price: string }
 type BillItem = { name: string; quantity: number; unitPrice: string; isVeg?: boolean; modifiers?: BillModifier[] }
 type Bill = {
   id: string; orderId: string; billNumber: number; subtotal: string; taxLines: TaxLine[]
-  taxTotal: string; discountAmount: string; discountLines?: DiscountLine[]; total: string; isPaid: boolean
+  taxTotal: string; discountAmount: string; discountLines?: DiscountLine[]
+  chargeTotal?: string; chargeLines?: ChargeLine[]; total: string; isPaid: boolean
   payments: Payment[]; items?: BillItem[]; orderType?: string | null; createdAt?: string
 }
 type DiscountPreset = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; isActive: boolean }
@@ -200,6 +202,11 @@ export default function BillingPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["bill", billId] }),
   })
 
+  const removeChargeMutation = useMutation({
+    mutationFn: (lineId: string) => api.bills.removeCharge(billId, lineId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bill", billId] }),
+  })
+
   function calcSavings(preset: DiscountPreset, orderTotal: number): number {
     let amount = preset.type === "percentage"
       ? (orderTotal * Number(preset.value)) / 100
@@ -295,6 +302,7 @@ export default function BillingPage() {
             {bill.taxLines.map((line, i) => (
               <Row key={i} label={`${line.name} (${line.rate}%)`} value={formatCurrency(line.amount)} dim />
             ))}
+            {(bill.chargeLines ?? []).map((line, i) => <Row key={i} label={line.label} value={formatCurrency(line.amount)} />)}
             <div style={{ height: 1, background: "var(--color-line-strong)", margin: "12px 0" }} />
             <Row label="Total" value={formatCurrency(bill.total)} big />
           </div>
@@ -508,6 +516,7 @@ export default function BillingPage() {
               {bill.taxLines.map((line, i) => (
                 <Row key={i} label={`${line.name} (${line.rate}%)`} value={formatCurrency(line.amount)} dim />
               ))}
+              {(bill.chargeLines ?? []).map((line, i) => <Row key={i} label={line.label} value={formatCurrency(line.amount)} />)}
               <div style={{ height: 1, background: "var(--color-line-strong)", margin: "12px 0" }} />
               <Row label="Total" value={formatCurrency(bill.total)} big />
             </div>
@@ -604,6 +613,24 @@ export default function BillingPage() {
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-green)", fontWeight: 600 }}>− {formatCurrency(line.amount)}</span>
                   {bill.payments.length === 0 && (
                     <button onClick={() => removeDiscountMutation.mutate(line.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-green)", padding: 2, display: "flex", alignItems: "center" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Applied charges — removable per bill (service charge etc. must be waivable on request) */}
+          {(bill.chargeLines ?? []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(bill.chargeLines ?? []).map((line) => (
+                <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--color-blue-soft)", borderRadius: 8 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                  <span style={{ flex: 1, fontSize: 13, color: "var(--color-blue)", fontWeight: 500 }}>{line.label}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-blue)", fontWeight: 600 }}>{formatCurrency(line.amount)}</span>
+                  {bill.payments.length === 0 && (
+                    <button onClick={() => removeChargeMutation.mutate(line.id)} title="Waive this charge" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-blue)", padding: 2, display: "flex", alignItems: "center" }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                     </button>
                   )}
