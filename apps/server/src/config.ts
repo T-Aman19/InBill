@@ -7,6 +7,9 @@ export const config = {
 
   port: Number(process.env["PORT"] ?? 3005),
 
+  // Business timezone used for report/date-range day boundaries (bills are stored in UTC)
+  timezone: process.env["APP_TIMEZONE"] ?? "Asia/Kolkata",
+
   db: {
     url: process.env["DATABASE_URL"] ?? "postgresql://postgres:postgres@localhost:5433/inbill",
   },
@@ -24,7 +27,11 @@ export const config = {
   },
 
   ai: {
-    anthropicApiKey: process.env["ANTHROPIC_API_KEY"] ?? "",
+    geminiApiKey: process.env["GEMINI_API_KEY"] ?? "",
+    // Fast/cheap tier — menu descriptions, menu-import vision extraction
+    geminiModel: process.env["GEMINI_MODEL"] ?? "gemini-2.5-flash",
+    // Deeper-reasoning tier — reports Q&A over a data snapshot
+    geminiProModel: process.env["GEMINI_PRO_MODEL"] ?? "gemini-2.5-pro",
   },
 
   email: {
@@ -40,3 +47,8 @@ export const config = {
     host: process.env["HOST_DIST_PATH"] ?? "../host/dist",
   },
 } as const
+
+// Never ship the built-in dev secret to a cloud deployment — anyone could forge tokens.
+if (config.isCloud && config.jwt.secret === "dev-secret-change-in-production") {
+  throw new Error("JWT_SECRET must be set to a strong secret when DEPLOYMENT_MODE=cloud")
+}

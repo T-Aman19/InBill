@@ -6,6 +6,8 @@ import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { users } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { logAudit } from "../services/audit.js"
+import { hashPin, verifyPin } from "../lib/pin.js"
 
 export const usersRouter = new Hono<AppEnv>()
 
@@ -56,15 +58,21 @@ usersRouter.post("/", requireRole("manager", "owner"), zValidator("json", create
     return c.json({ error: "Only the owner can create manager accounts" }, 403)
   }
 
-  const existing = await db.query.users.findFirst({
-    where: and(eq(users.outletId, outletId), eq(users.pin, data.pin)),
-  })
-  if (existing) return c.json({ error: "PIN already in use by another staff member" }, 409)
+  // PINs are hashed, so uniqueness can't be an equality query — verify against each
+  const outletUsers = await db.query.users.findMany({ where: eq(users.outletId, outletId), columns: { id: true, pin: true } })
+  for (const u of outletUsers) {
+    if (await verifyPin(data.pin, u.pin)) return c.json({ error: "PIN already in use by another staff member" }, 409)
+  }
 
   const [user] = await db
     .insert(users)
-    .values({ ...data, outletId })
+    .values({ ...data, pin: await hashPin(data.pin), outletId })
     .returning({ id: users.id, name: users.name, role: users.role, isActive: users.isActive, createdAt: users.createdAt })
+
+  logAudit({
+    outletId, userId: c.get("user").userId, action: "staff.create", entity: "user", entityId: user?.id,
+    details: { name: data.name, role: data.role },
+  })
 
   return c.json(user, 201)
 })
@@ -82,22 +90,31 @@ usersRouter.patch("/:id", requireRole("manager", "owner"), zValidator("json", up
     return c.json({ error: "Only the owner can assign the manager role" }, 403)
   }
 
+  const updateData: Record<string, unknown> = { ...data }
   if (data.pin) {
-    const conflict = await db.query.users.findFirst({
-      where: and(eq(users.outletId, outletId), eq(users.pin, data.pin)),
-    })
-    if (conflict && conflict.id !== id) {
-      return c.json({ error: "PIN already in use by another staff member" }, 409)
+    const outletUsers = await db.query.users.findMany({ where: eq(users.outletId, outletId), columns: { id: true, pin: true } })
+    for (const u of outletUsers) {
+      if (u.id !== id && await verifyPin(data.pin, u.pin)) {
+        return c.json({ error: "PIN already in use by another staff member" }, 409)
+      }
     }
+    updateData.pin = await hashPin(data.pin)
   }
 
   const [updated] = await db
     .update(users)
-    .set(data)
+    .set(updateData)
     .where(and(eq(users.id, id), eq(users.outletId, outletId)))
     .returning({ id: users.id, name: users.name, role: users.role, isActive: users.isActive })
 
   if (!updated) return c.json({ error: "Not found" }, 404)
+
+  // Never log the PIN itself — only that it was reset
+  logAudit({
+    outletId, userId: c.get("user").userId, action: "staff.update", entity: "user", entityId: updated.id,
+    details: { name: updated.name, role: data.role, isActive: data.isActive, pinReset: !!data.pin },
+  })
+
   return c.json(updated)
 })
 
@@ -109,14 +126,14 @@ usersRouter.patch("/me/pin", zValidator("json", changeSelfPinSchema), async (c) 
   const user = await db.query.users.findFirst({
     where: and(eq(users.id, userId), eq(users.outletId, outletId)),
   })
-  if (!user || user.pin !== currentPin) return c.json({ error: "Current PIN is incorrect" }, 401)
+  if (!user || !(await verifyPin(currentPin, user.pin))) return c.json({ error: "Current PIN is incorrect" }, 401)
 
-  const conflict = await db.query.users.findFirst({
-    where: and(eq(users.outletId, outletId), eq(users.pin, newPin)),
-  })
-  if (conflict && conflict.id !== userId) return c.json({ error: "PIN already in use" }, 409)
+  const outletUsers = await db.query.users.findMany({ where: eq(users.outletId, outletId), columns: { id: true, pin: true } })
+  for (const u of outletUsers) {
+    if (u.id !== userId && await verifyPin(newPin, u.pin)) return c.json({ error: "PIN already in use" }, 409)
+  }
 
-  await db.update(users).set({ pin: newPin }).where(eq(users.id, userId))
+  await db.update(users).set({ pin: await hashPin(newPin) }).where(eq(users.id, userId))
   return c.json({ message: "PIN updated" })
 })
 
@@ -129,8 +146,14 @@ usersRouter.delete("/:id", requireRole("manager", "owner"), async (c) => {
     .update(users)
     .set({ isActive: false })
     .where(and(eq(users.id, id), eq(users.outletId, outletId)))
-    .returning({ id: users.id })
+    .returning({ id: users.id, name: users.name })
 
   if (!updated) return c.json({ error: "Not found" }, 404)
+
+  logAudit({
+    outletId, userId: c.get("user").userId, action: "staff.disable", entity: "user", entityId: updated.id,
+    details: { name: updated.name },
+  })
+
   return c.body(null, 204)
 })

@@ -1,15 +1,36 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { networkInterfaces } from "os"
-import { eq, and, isNull } from "drizzle-orm"
+import { eq, and, isNull, max } from "drizzle-orm"
 import { z } from "zod"
 import { db } from "../db/index.js"
+import { config } from "../config.js"
 import {
   outlets, categories, menuItems,
-  modifierGroups, modifiers,
+  modifierGroups, modifiers, menuSchedules,
   orders, orderItems, orderItemModifiers, tables, kots,
 } from "../db/schema/index.js"
 import { broadcastOutlet } from "../services/ws.js"
+import { isScheduleActiveNow } from "../lib/schedule.js"
+
+// Effective schedule for an item: its own wins, else its category's.
+// Returns null when the item has no (active) schedule attached.
+async function buildScheduleResolver(outletId: string) {
+  const [scheduleRows, catRows] = await Promise.all([
+    db.query.menuSchedules.findMany({ where: eq(menuSchedules.outletId, outletId) }),
+    db.query.categories.findMany({ where: eq(categories.outletId, outletId), columns: { id: true, scheduleId: true } }),
+  ])
+  const scheduleMap = new Map(scheduleRows.map((s) => [s.id, { ...s, activeNow: isScheduleActiveNow(s) }]))
+  const catScheduleMap = new Map(catRows.map((cat) => [cat.id, cat.scheduleId]))
+  return (item: { scheduleId: string | null; categoryId: string }) => {
+    const sid = item.scheduleId ?? catScheduleMap.get(item.categoryId) ?? null
+    const schedule = sid ? scheduleMap.get(sid) : null
+    return schedule?.isActive ? schedule : null
+  }
+}
+
+const discounted = (price: string, percentOff: number) =>
+  percentOff > 0 ? (Number(price) * (1 - percentOff / 100)).toFixed(2) : price
 
 export const publicRouter = new Hono()
 
@@ -66,17 +87,30 @@ publicRouter.get("/menu/:outletId", async (c) => {
     itemGroupIds.set(link.itemId, ids)
   }
 
-  const enrichedItems = items.map((item) => ({
-    id: item.id,
-    categoryId: item.categoryId,
-    name: item.name,
-    description: item.description,
-    basePrice: item.basePrice,
-    isVeg: item.isVeg,
-    imageUrl: item.imageUrl,
-    variants: item.variants,
-    modifierGroups: (itemGroupIds.get(item.id) ?? []).map((gid) => groupMap.get(gid)).filter(Boolean),
-  }))
+  // Hide items whose schedule window is closed right now; reprice happy-hour items
+  const scheduleFor = await buildScheduleResolver(outletId)
+
+  const enrichedItems = items
+    .filter((item) => {
+      const schedule = scheduleFor(item)
+      return !schedule || schedule.activeNow
+    })
+    .map((item) => {
+      const schedule = scheduleFor(item)
+      const percentOff = schedule ? Number(schedule.percentOff) : 0
+      return {
+        id: item.id,
+        categoryId: item.categoryId,
+        name: item.name,
+        description: item.description,
+        basePrice: discounted(item.basePrice, percentOff),
+        isVeg: item.isVeg,
+        imageUrl: item.imageUrl,
+        variants: item.variants.map((v) => ({ ...v, price: discounted(v.price, percentOff) })),
+        modifierGroups: (itemGroupIds.get(item.id) ?? []).map((gid) => groupMap.get(gid)).filter(Boolean),
+        scheduleName: schedule && percentOff > 0 ? schedule.name : null,
+      }
+    })
 
   return c.json({ outlet, categories: cats, items: enrichedItems })
 })
@@ -118,8 +152,20 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
   })
   const menuMap = new Map(menuItemRows.map((m) => [m.id, m]))
 
+  const scheduleFor = await buildScheduleResolver(outletId)
+
   for (const item of cartItems) {
-    if (!menuMap.has(item.menuItemId)) return c.json({ error: `Item not found: ${item.menuItemId}` }, 400)
+    const mi = menuMap.get(item.menuItemId)
+    if (!mi) return c.json({ error: `Item not found: ${item.menuItemId}` }, 400)
+    // A supplied variant must actually belong to (and be active on) this item —
+    // otherwise it would be stored at the base price with no variant name.
+    if (item.variantId && !mi.variants.some((v) => v.id === item.variantId && v.isActive)) {
+      return c.json({ error: "Selected variant is not available for this item" }, 400)
+    }
+    const schedule = scheduleFor(mi)
+    if (schedule && !schedule.activeNow) {
+      return c.json({ error: `"${mi.name}" is only available during ${schedule.name} (${schedule.startTime}–${schedule.endTime})` }, 400)
+    }
   }
 
   // Re-use existing order if table is already occupied, otherwise create a new one
@@ -150,7 +196,9 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
   for (const cartItem of cartItems) {
     const menuItem = menuMap.get(cartItem.menuItemId)!
     const variant = cartItem.variantId ? menuItem.variants.find((v) => v.id === cartItem.variantId) : null
-    const unitPrice = variant ? variant.price : menuItem.basePrice
+    const schedule = scheduleFor(menuItem)
+    const percentOff = schedule?.activeNow ? Number(schedule.percentOff) : 0
+    const unitPrice = discounted(variant ? variant.price : menuItem.basePrice, percentOff)
     const name = menuItem.name
     const variantName = variant?.name ?? null
 
@@ -175,8 +223,8 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
   }
 
   // Auto-fire KOT for the newly added items
-  const existingKots = await db.query.kots.findMany({ where: eq(kots.outletId, outletId) })
-  const kotNumber = existingKots.length + 1
+  const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
+  const kotNumber = (kotAgg?.maxNum ?? 0) + 1
   const [kot] = await db.insert(kots).values({ outletId, orderId: order.id, kotNumber }).returning()
 
   if (kot) {
@@ -239,9 +287,14 @@ publicRouter.get("/orders/:id/status", async (c) => {
 })
 
 // GET /api/public/lan-url — returns the server's LAN base URL so the QR modal
-// can generate a URL reachable from phones on the same network
+// can generate a URL reachable from phones on the same network. Local mode
+// only: in cloud mode the server's own network interfaces are the container's
+// private address, not reachable from a customer's device — callers should
+// fall back to the request's public origin instead.
 publicRouter.get("/lan-url", (c) => {
   const port = new URL(c.req.url).port || "3000"
+  if (config.isCloud) return c.json({ urls: [], port })
+
   const nets = networkInterfaces()
   const lanIps: string[] = []
 

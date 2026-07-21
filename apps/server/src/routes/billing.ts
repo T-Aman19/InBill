@@ -1,12 +1,16 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, inArray, isNull } from "drizzle-orm"
-import { createBillSchema, addPaymentSchema, applyDiscountSchema } from "@inbill/shared"
+import { z } from "zod"
+import { eq, and, inArray, isNull, max, gte, lte, count } from "drizzle-orm"
+import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
+import { dayStart, dayEnd } from "../lib/dateRange.js"
 import { bills, billPayments, billDiscounts, discounts, orders, orderItems, taxConfigs, tables, kots, outlets, ingredients, stockMovements, loyaltyPrograms, customerPoints, pointTransactions, customers } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
+import { logAudit } from "../services/audit.js"
+import { isDayClosed, DAY_CLOSED_ERROR } from "../services/dayClose.js"
 
 export const billingRouter = new Hono<AppEnv>()
 
@@ -124,6 +128,16 @@ async function deductInventoryForBill(
   }
 }
 
+// Deduct recipe inventory for a bill once it's actually paid (fetches the order's
+// active items). Kept off the bill-creation path so abandoned/unpaid bills don't
+// wrongly consume stock.
+async function deductInventoryForPaidBill(outletId: string, billId: string, orderId: string, recordedById: string) {
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId), with: { items: true } })
+  if (!order) return
+  const activeItems = order.items.filter((i) => !i.isVoided).map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
+  await deductInventoryForBill(outletId, billId, activeItems, recordedById)
+}
+
 billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("json", createBillSchema), async (c) => {
   const { outletId } = c.get("user")
   const { orderId, discountAmount = 0, discountNote } = c.req.valid("json")
@@ -153,8 +167,8 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     // Counter order (takeaway/delivery): customer pays first, kitchen prepares after
     // Auto-fire KOT for any unsent items so the kitchen is notified on payment
     if (unsentItems.length > 0) {
-      const existingKots = await db.query.kots.findMany({ where: eq(kots.outletId, outletId) })
-      const kotNumber = existingKots.length + 1
+      const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
+      const kotNumber = (kotAgg?.maxNum ?? 0) + 1
       const [kot] = await db.insert(kots).values({ outletId, orderId, kotNumber }).returning()
       if (kot) {
         await db
@@ -231,8 +245,8 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
 
   const total = subtotal + taxTotal - discountAmount
 
-  const existingBills = await db.query.bills.findMany({ where: eq(bills.outletId, outletId) })
-  const billNumber = existingBills.length + 1
+  const [billAgg] = await db.select({ maxNum: max(bills.billNumber) }).from(bills).where(eq(bills.outletId, outletId))
+  const billNumber = (billAgg?.maxNum ?? 0) + 1
 
   const billRows = await db
     .insert(bills)
@@ -258,12 +272,85 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "billed", currentOrderId: orderId } })
   }
 
-  // Auto-deduct inventory (non-blocking — failures should not abort billing)
-  deductInventoryForBill(outletId, bill.id, activeItems, c.get("user").userId).catch((err) =>
-    console.error("[inventory] auto-deduct failed for bill", bill.id, err),
-  )
+  // Inventory is deducted when the bill is paid (see the payment handlers), not
+  // here — so an abandoned/unpaid bill never consumes stock.
 
   return c.json(bill, 201)
+})
+
+// ── Bill history ─────────────────────────────────────────────────────────────
+
+const listBillsQuerySchema = dateRangeSchema.extend({
+  q: z.string().optional(),
+  status: z.enum(["all", "paid", "unpaid"]).default("all"),
+  page: z.coerce.number().int().positive().default(1),
+})
+
+const BILLS_PAGE_SIZE = 50
+
+billingRouter.get("/", requireRole("owner", "manager", "cashier"), zValidator("query", listBillsQuerySchema), async (c) => {
+  const { outletId } = c.get("user")
+  const { from, to, q, status, page } = c.req.valid("query")
+
+  const conditions = [
+    eq(bills.outletId, outletId),
+    gte(bills.createdAt, dayStart(from)),
+    lte(bills.createdAt, dayEnd(to)),
+  ]
+  if (status === "paid") conditions.push(eq(bills.isPaid, true))
+  if (status === "unpaid") conditions.push(eq(bills.isPaid, false))
+  if (q?.trim()) {
+    const num = Number(q.trim().replace(/^#/, ""))
+    if (!Number.isInteger(num) || num < 0) return c.json({ bills: [], total: 0, page: 1, pageSize: BILLS_PAGE_SIZE })
+    conditions.push(eq(bills.billNumber, num))
+  }
+  const where = and(...conditions)
+
+  const [rows, countRows] = await Promise.all([
+    db.query.bills.findMany({
+      where,
+      with: {
+        payments: { columns: { mode: true, amount: true } },
+        createdBy: { columns: { name: true } },
+        order: {
+          columns: { type: true, source: true },
+          with: {
+            table: { columns: { name: true } },
+            customer: { columns: { name: true, phone: true } },
+            items: { columns: { quantity: true, isVoided: true } },
+          },
+        },
+      },
+      orderBy: (b, { desc }) => [desc(b.createdAt)],
+      limit: BILLS_PAGE_SIZE,
+      offset: (page - 1) * BILLS_PAGE_SIZE,
+    }),
+    db.select({ value: count() }).from(bills).where(where),
+  ])
+
+  return c.json({
+    bills: rows.map((b) => ({
+      id: b.id,
+      billNumber: b.billNumber,
+      createdAt: b.createdAt,
+      subtotal: b.subtotal,
+      taxTotal: b.taxTotal,
+      discountAmount: b.discountAmount,
+      total: b.total,
+      isPaid: b.isPaid,
+      isVoided: b.isVoided,
+      paymentModes: [...new Set(b.payments.map((p) => p.mode))],
+      orderType: b.order?.type ?? null,
+      source: b.order?.source ?? null,
+      tableName: b.order?.table?.name ?? null,
+      customerName: b.order?.customer?.name ?? b.order?.customer?.phone ?? null,
+      createdByName: b.createdBy?.name ?? null,
+      itemCount: (b.order?.items ?? []).filter((i) => !i.isVoided).reduce((s, i) => s + i.quantity, 0),
+    })),
+    total: Number(countRows[0]?.value ?? 0),
+    page,
+    pageSize: BILLS_PAGE_SIZE,
+  })
 })
 
 billingRouter.get("/:id", async (c) => {
@@ -287,7 +374,7 @@ billingRouter.get("/:id", async (c) => {
 
 // Apply a discount to an unpaid bill that has no payments yet
 billingRouter.patch("/:id/discount", requireRole("owner", "manager", "cashier"), zValidator("json", applyDiscountSchema), async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, userId } = c.get("user")
   const billId = c.req.param("id")
   const { discountId, code, label, amount } = c.req.valid("json")
 
@@ -297,7 +384,9 @@ billingRouter.patch("/:id/discount", requireRole("owner", "manager", "cashier"),
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Cannot modify a paid bill" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
   if (bill.payments.length > 0) return c.json({ error: "Cannot add discount after payment has started" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
 
   // If referencing a discount preset, validate it
   if (discountId) {
@@ -323,6 +412,11 @@ billingRouter.patch("/:id/discount", requireRole("owner", "manager", "cashier"),
   // Insert discount line
   const [line] = await db.insert(billDiscounts).values({ billId, discountId: resolvedDiscountId, label, amount: String(amount) }).returning()
 
+  logAudit({
+    outletId, userId, action: "discount.apply", entity: "bill", entityId: billId,
+    details: { billNumber: bill.billNumber, label, amount, code: code ?? null },
+  })
+
   // Recompute discountAmount and total from all discount lines
   const allLines = [...bill.discountLines, line]
   const totalDiscount = allLines.reduce((s, l) => s + Number(l?.amount ?? 0), 0)
@@ -347,7 +441,7 @@ billingRouter.patch("/:id/discount", requireRole("owner", "manager", "cashier"),
 
 // Remove a discount line from an unpaid bill with no payments
 billingRouter.delete("/:id/discount/:lineId", requireRole("owner", "manager", "cashier"), async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, userId } = c.get("user")
   const billId = c.req.param("id")
   const lineId = c.req.param("lineId")
 
@@ -357,12 +451,19 @@ billingRouter.delete("/:id/discount/:lineId", requireRole("owner", "manager", "c
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Cannot modify a paid bill" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
   if (bill.payments.length > 0) return c.json({ error: "Cannot remove discount after payment has started" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
 
   const line = bill.discountLines.find((l) => l.id === lineId)
   if (!line) return c.json({ error: "Discount line not found" }, 404)
 
   await db.delete(billDiscounts).where(eq(billDiscounts.id, lineId))
+
+  logAudit({
+    outletId, userId, action: "discount.remove", entity: "bill", entityId: billId,
+    details: { billNumber: bill.billNumber, label: line.label, amount: Number(line.amount) },
+  })
 
   const remaining = bill.discountLines.filter((l) => l.id !== lineId)
   const totalDiscount = remaining.reduce((s, l) => s + Number(l.amount), 0)
@@ -372,6 +473,160 @@ billingRouter.delete("/:id/discount/:lineId", requireRole("owner", "manager", "c
     discountAmount: String(totalDiscount.toFixed(2)),
     total: String(Math.max(0, newTotal).toFixed(2)),
   }).where(eq(bills.id, billId))
+
+  return c.json({ ok: true })
+})
+
+// ── Void / refund ─────────────────────────────────────────────────────────────
+
+const voidBillSchema = z.object({ reason: z.string().max(200).optional() })
+
+// Return loyalty points that were redeemed against this bill
+async function reverseRedemptionsForBill(outletId: string, billId: string) {
+  const redemptions = await db.query.pointTransactions.findMany({
+    where: and(eq(pointTransactions.outletId, outletId), eq(pointTransactions.billId, billId), eq(pointTransactions.type, "redeem")),
+  })
+  for (const txn of redemptions) {
+    const points = Math.abs(txn.delta)
+    if (points === 0) continue
+    const cp = await db.query.customerPoints.findFirst({
+      where: and(eq(customerPoints.outletId, outletId), eq(customerPoints.customerId, txn.customerId)),
+    })
+    if (!cp) continue
+    const newTotal = cp.totalPoints + points
+    await db.update(customerPoints).set({ totalPoints: newTotal, updatedAt: new Date() }).where(eq(customerPoints.id, cp.id))
+    await db.update(customers).set({ loyaltyPoints: newTotal }).where(eq(customers.id, txn.customerId))
+    await db.insert(pointTransactions).values({
+      outletId, customerId: txn.customerId, delta: points, type: "adjust", billId,
+      note: `Returned ${points} pts (bill voided)`,
+    })
+  }
+}
+
+// Void an UNPAID bill (wrong bill raised, discount forgotten, …). Reopens the
+// order so it can be edited and re-billed, frees nothing that wasn't taken:
+// no money moved, no inventory deducted (that happens at payment), and any
+// redeemed points are returned.
+billingRouter.post("/:id/void", requireRole("owner", "manager"), zValidator("json", voidBillSchema), async (c) => {
+  const { outletId, userId } = c.get("user")
+  const billId = c.req.param("id")
+  const { reason } = c.req.valid("json")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isVoided) return c.json({ error: "Bill is already voided" }, 400)
+  if (bill.isPaid) return c.json({ error: "Paid bills must be refunded instead" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
+
+  const settled = bill.payments.filter((p) => p.gatewayStatus !== "pending")
+  if (settled.length > 0) return c.json({ error: "Bill has recorded payments — refund it instead" }, 400)
+
+  // Drop any abandoned pending-UPI rows so nothing dangles on the voided bill
+  await db.delete(billPayments).where(and(eq(billPayments.billId, billId), eq(billPayments.gatewayStatus, "pending")))
+
+  await reverseRedemptionsForBill(outletId, billId)
+
+  await db.update(bills)
+    .set({ isVoided: true, voidReason: reason ?? null, voidedById: userId, voidedAt: new Date() })
+    .where(eq(bills.id, billId))
+
+  // Reopen the order for editing / re-billing
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })
+  if (order && order.status === "billed") {
+    const reopenedStatus = order.type === "dine_in" ? "served" : "open"
+    await db.update(orders).set({ status: reopenedStatus, updatedAt: new Date() }).where(eq(orders.id, order.id))
+    if (order.tableId) {
+      await db.update(tables).set({ status: "occupied", currentOrderId: order.id }).where(eq(tables.id, order.tableId))
+      broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "occupied", currentOrderId: order.id } })
+    }
+  }
+
+  logAudit({
+    outletId, userId, action: "bill.void", entity: "bill", entityId: billId,
+    details: { billNumber: bill.billNumber, total: Number(bill.total), reason: reason ?? null },
+  })
+
+  return c.json({ ok: true })
+})
+
+// Refund a PAID bill (owner only). Reverses what payment triggered: earned
+// loyalty points are clawed back, redeemed points returned, and recipe
+// inventory restored. The bill is excluded from all reports thereafter.
+billingRouter.post("/:id/refund", requireRole("owner"), zValidator("json", voidBillSchema), async (c) => {
+  const { outletId, userId } = c.get("user")
+  const billId = c.req.param("id")
+  const { reason } = c.req.valid("json")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isVoided) return c.json({ error: "Bill is already voided" }, 400)
+  if (!bill.isPaid) return c.json({ error: "Bill is not paid — void it instead" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
+
+  // 1. Claw back points earned on this bill (also undo their lifetime/tier effect)
+  const earns = await db.query.pointTransactions.findMany({
+    where: and(eq(pointTransactions.outletId, outletId), eq(pointTransactions.billId, billId), eq(pointTransactions.type, "earn")),
+  })
+  for (const txn of earns) {
+    const points = txn.delta
+    if (points <= 0) continue
+    const cp = await db.query.customerPoints.findFirst({
+      where: and(eq(customerPoints.outletId, outletId), eq(customerPoints.customerId, txn.customerId)),
+    })
+    if (!cp) continue
+    const newTotal    = Math.max(0, cp.totalPoints - points)
+    const newLifetime = Math.max(0, cp.lifetimePoints - points)
+    const tier = newLifetime >= 10000 ? "gold" : newLifetime >= 3000 ? "silver" : "bronze"
+    await db.update(customerPoints)
+      .set({ totalPoints: newTotal, lifetimePoints: newLifetime, tier, updatedAt: new Date() })
+      .where(eq(customerPoints.id, cp.id))
+    await db.update(customers).set({ loyaltyPoints: newTotal }).where(eq(customers.id, txn.customerId))
+    await db.insert(pointTransactions).values({
+      outletId, customerId: txn.customerId, delta: -points, type: "adjust", billId,
+      note: `Reversed ${points} pts (bill refunded)`,
+    })
+  }
+
+  // 2. Return points that were redeemed as a discount on this bill
+  await reverseRedemptionsForBill(outletId, billId)
+
+  // 3. Restore recipe inventory deducted when the bill was paid
+  const saleMovements = await db.query.stockMovements.findMany({
+    where: and(eq(stockMovements.outletId, outletId), eq(stockMovements.referenceId, billId), eq(stockMovements.type, "sale")),
+  })
+  const restoreByIngredient = new Map<string, number>()
+  for (const m of saleMovements) {
+    const qty = Math.abs(Number(m.delta))
+    restoreByIngredient.set(m.ingredientId, (restoreByIngredient.get(m.ingredientId) ?? 0) + qty)
+  }
+  for (const [ingredientId, qty] of restoreByIngredient) {
+    const ingredient = await db.query.ingredients.findFirst({ where: eq(ingredients.id, ingredientId) })
+    if (!ingredient) continue
+    const newStock = Number(ingredient.currentStock) + qty
+    await db.update(ingredients).set({ currentStock: String(newStock.toFixed(4)) }).where(eq(ingredients.id, ingredientId))
+    await db.insert(stockMovements).values({
+      outletId, ingredientId, type: "adjustment",
+      delta: String(qty.toFixed(4)),
+      referenceId: billId, referenceType: "refund",
+      note: "Stock restored — bill refunded",
+      recordedById: userId,
+    })
+  }
+
+  // 4. Mark voided (excluded from reports; money return is handled physically)
+  await db.update(bills)
+    .set({ isVoided: true, voidReason: reason ?? null, voidedById: userId, voidedAt: new Date() })
+    .where(eq(bills.id, billId))
+
+  logAudit({
+    outletId, userId, action: "bill.refund", entity: "bill", entityId: billId,
+    details: { billNumber: bill.billNumber, total: Number(bill.total), reason: reason ?? null },
+  })
 
   return c.json({ ok: true })
 })
@@ -387,8 +642,11 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
+  if (await isDayClosed(outletId, bill.createdAt)) return c.json({ error: DAY_CLOSED_ERROR }, 400)
 
-  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  // Pending UPI payments are not yet settled — don't count them toward the paid balance
+  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" ? 0 : Number(p.amount)), 0)
   const remaining = Number(bill.total) - paidSoFar
   if (data.amount > remaining + 0.01) {
     return c.json({ error: `Payment amount exceeds the remaining balance of ₹${remaining.toFixed(2)}` }, 400)
@@ -409,6 +667,9 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
     awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
       console.error("[loyalty] award failed for bill", billId, err),
     )
+    deductInventoryForPaidBill(outletId, billId, bill.orderId, c.get("user").userId).catch((err) =>
+      console.error("[inventory] auto-deduct failed for bill", billId, err),
+    )
   }
 
   return c.json(payment, 201)
@@ -425,8 +686,9 @@ billingRouter.post("/:id/payments/upi", requireRole("owner", "manager", "cashier
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
 
-  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" ? 0 : Number(p.amount)), 0)
   const amountDue = Math.max(0, Number(bill.total) - paidSoFar)
   if (amountDue <= 0) return c.json({ error: "Nothing due" }, 400)
 
@@ -489,6 +751,7 @@ billingRouter.delete("/:id/payments/:paymentId", requireRole("owner", "manager",
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Cannot modify a paid bill" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
 
   const payment = await db.query.billPayments.findFirst({
     where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)),
@@ -513,6 +776,7 @@ billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "m
   })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
 
   const payment = await db.query.billPayments.findFirst({ where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)) })
   if (!payment) return c.json({ error: "Payment not found" }, 404)
@@ -520,7 +784,8 @@ billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "m
 
   await db.update(billPayments).set({ gatewayStatus: "success" }).where(eq(billPayments.id, paymentId))
 
-  const paidSoFar = bill.payments.reduce((s, p) => s + Number(p.amount), 0)
+  // Count settled payments plus the one we just marked successful (still "pending" in the pre-update snapshot)
+  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" && p.id !== paymentId ? 0 : Number(p.amount)), 0)
   if (paidSoFar >= Number(bill.total)) {
     await db.update(bills).set({ isPaid: true }).where(eq(bills.id, billId))
     const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })
@@ -531,6 +796,9 @@ billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "m
     broadcastOutlet(outletId, { type: "payment.confirmed", payload: { billId, paymentId } })
     awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
       console.error("[loyalty] award failed for bill", billId, err),
+    )
+    deductInventoryForPaidBill(outletId, billId, bill.orderId, c.get("user").userId).catch((err) =>
+      console.error("[inventory] auto-deduct failed for bill", billId, err),
     )
   }
 

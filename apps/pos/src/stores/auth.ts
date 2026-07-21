@@ -35,7 +35,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         localStorage.removeItem("inbill_token")
-        set({ token: null, user: null, outletId: null, outletName: null })
+        set({ token: null, user: null, outletId: null, outletName: null, setupCode: null })
       },
 
       isLoggedIn: () => !!get().token,

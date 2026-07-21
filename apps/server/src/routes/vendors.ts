@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and } from "drizzle-orm"
+import { eq, and, ne } from "drizzle-orm"
 import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
@@ -53,7 +53,10 @@ vendorsRouter.patch("/:id", zValidator("json", vendorBody.partial()), async (c) 
   const existing = await db.query.vendors.findFirst({ where: and(eq(vendors.id, id), eq(vendors.outletId, outletId)) })
   if (!existing) return c.json({ error: "Not found" }, 404)
 
-  const [row] = await db.update(vendors).set({ ...body, email: body.email || null }).where(eq(vendors.id, id)).returning()
+  // Only touch email when the caller actually sent it (partial update must not wipe it)
+  const updates: Record<string, unknown> = { ...body }
+  if (body.email !== undefined) updates.email = body.email || null
+  const [row] = await db.update(vendors).set(updates).where(eq(vendors.id, id)).returning()
   return c.json(row)
 })
 
@@ -61,11 +64,15 @@ vendorsRouter.delete("/:id", async (c) => {
   const { outletId } = c.get("user")
   const id = c.req.param("id")
 
-  const openPOs = await db.query.purchaseOrders.findFirst({
-    where: and(eq(purchaseOrders.vendorId, id), eq(purchaseOrders.outletId, outletId)),
-    columns: { id: true, status: true },
+  const openPO = await db.query.purchaseOrders.findFirst({
+    where: and(
+      eq(purchaseOrders.vendorId, id),
+      eq(purchaseOrders.outletId, outletId),
+      ne(purchaseOrders.status, "received"),
+    ),
+    columns: { id: true },
   })
-  if (openPOs && openPOs.status !== "received") {
+  if (openPO) {
     return c.json({ error: "Cannot delete vendor with open purchase orders" }, 400)
   }
 

@@ -332,7 +332,12 @@ export default function KdsPage() {
             }
           </span>
           <div style={{ flex: 1 }} />
-          <button style={{ background: "rgba(255,255,255,.18)", color: "white", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          <button
+            onClick={() => { const oldest = overdueKots[0]; if (oldest) doneMutation.mutate(oldest.id) }}
+            disabled={doneMutation.isPending}
+            title="Mark the oldest overdue ticket as done"
+            style={{ background: "rgba(255,255,255,.18)", color: "white", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", opacity: doneMutation.isPending ? .6 : 1 }}
+          >
             Bump now
           </button>
         </div>

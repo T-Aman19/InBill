@@ -36,6 +36,29 @@ const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PA
 const put  = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) })
 const del  = <T>(path: string) => request<T>(path, { method: "DELETE" })
 
+// Multipart upload — must NOT set Content-Type manually, the browser sets the
+// multipart boundary itself when the body is a FormData instance.
+async function upload<T>(path: string, file: File): Promise<T> {
+  const token = localStorage.getItem("inbill_token")
+  const formData = new FormData()
+  formData.append("file", file)
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(res.status, body.error ?? res.statusText)
+  }
+  return res.json()
+}
+
+export type ExtractedVariant = { name: string; price: number }
+export type ExtractedItem = { name: string; description: string | null; price: number; isVeg: boolean; variants: ExtractedVariant[] }
+export type ExtractedCategory = { name: string; items: ExtractedItem[] }
+export type ExtractedMenu = { categories: ExtractedCategory[] }
+
 async function ownerRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("inbill_owner_token")
   const res = await fetch(`${BASE}${path}`, {
@@ -65,7 +88,7 @@ export const api = {
     resolveSetupCode: (code: string) => get<{ id: string; name: string }>(`/auth/outlet-setup/${encodeURIComponent(code)}`),
   },
   menu: {
-    getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[] }>("/menu"),
+    getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[]; schedules: unknown[] }>("/menu"),
     // Items
     createItem: (body: unknown) => post<unknown>("/menu/items", body),
     updateItem: (id: string, body: unknown) => patch<unknown>(`/menu/items/${id}`, body),
@@ -92,6 +115,13 @@ export const api = {
     // Tax
     getTax: () => get<unknown | null>("/menu/tax"),
     saveTax: (body: unknown) => put<unknown>("/menu/tax", body),
+    // Schedules (time windows / happy hours)
+    createSchedule: (body: unknown) => post<unknown>("/menu/schedules", body),
+    // Import from image/PDF (Gemini vision extraction)
+    importExtract: (file: File) => upload<ExtractedMenu>("/menu-import/extract", file),
+    importCommit: (payload: ExtractedMenu) => post<{ categoriesCreated: number; itemsCreated: number }>("/menu-import/commit", payload),
+    updateSchedule: (id: string, body: unknown) => patch<unknown>(`/menu/schedules/${id}`, body),
+    deleteSchedule: (id: string) => del(`/menu/schedules/${id}`),
   },
   tables: {
     getAll: () => get<{ floors: unknown[]; tables: unknown[] }>("/tables"),
@@ -123,11 +153,20 @@ export const api = {
     done: (kotId: string) => patch(`/kots/${kotId}/done`, {}),
   },
   bills: {
+    list: (params: { from: string; to: string; q?: string; status?: "all" | "paid" | "unpaid"; page?: number }) => {
+      const qs = new URLSearchParams({ from: params.from, to: params.to })
+      if (params.q) qs.set("q", params.q)
+      if (params.status && params.status !== "all") qs.set("status", params.status)
+      if (params.page && params.page > 1) qs.set("page", String(params.page))
+      return get<unknown>(`/bills?${qs.toString()}`)
+    },
     create: (body: unknown) => post<unknown>("/bills", body),
     get: (id: string) => get<unknown>(`/bills/${id}`),
     addPayment: (billId: string, body: unknown) => post<unknown>(`/bills/${billId}/payments`, body),
     applyDiscount: (billId: string, body: unknown) => patch<unknown>(`/bills/${billId}/discount`, body),
     removeDiscount: (billId: string, lineId: string) => del<unknown>(`/bills/${billId}/discount/${lineId}`),
+    voidBill: (billId: string, reason?: string) => post<{ ok: boolean }>(`/bills/${billId}/void`, { reason }),
+    refundBill: (billId: string, reason?: string) => post<{ ok: boolean }>(`/bills/${billId}/refund`, { reason }),
     initiateUpi: (billId: string) => post<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string }>(`/bills/${billId}/payments/upi`, {}),
     upiStatus: (billId: string, paymentId: string) => get<{ status: string; isPaid: boolean }>(`/bills/${billId}/payments/${paymentId}/status`),
     simulateUpi: (billId: string, paymentId: string) => patch<{ ok: boolean; isPaid: boolean }>(`/bills/${billId}/payments/${paymentId}/simulate`, {}),
@@ -142,8 +181,21 @@ export const api = {
   },
   shifts: {
     getActive: () => get<unknown | null>("/shifts/active"),
+    summary: () => get<{ shift: { id: string; openingCash: string; openedAt: string }; cashSales: string; cardSales: string; upiSales: string; cashIn: string; cashOut: string; expectedCash: string } | null>("/shifts/summary"),
     open: (openingCash: number) => post<unknown>("/shifts/open", { openingCash }),
     close: (closingCash: number) => post<unknown>("/shifts/close", { closingCash }),
+    getDayClose: (date: string) => get<unknown>(`/shifts/day-close?date=${date}`),
+    closeDay: (body: { date: string; countedCash: number; note?: string }) => post<unknown>("/shifts/day-close", body),
+  },
+  audit: {
+    list: (params: { from: string; to: string; action?: string; page?: number }) => {
+      const qs = new URLSearchParams({ from: params.from, to: params.to })
+      if (params.action) qs.set("action", params.action)
+      if (params.page && params.page > 1) qs.set("page", String(params.page))
+      return get<unknown>(`/audit?${qs.toString()}`)
+    },
+    logEvent: (body: { action: string; entity: string; entityId?: string; details?: Record<string, unknown> }) =>
+      post<{ ok: boolean }>("/audit/events", body),
   },
   users: {
     getAll: () => get<unknown[]>("/users"),
@@ -271,11 +323,12 @@ export const api = {
     createReservation: (body: unknown) => post<unknown>("/queue/reservations", body),
     updateReservation: (id: string, body: unknown) => patch<unknown>(`/queue/reservations/${id}`, body),
     deleteReservation: (id: string) => del<unknown>(`/queue/reservations/${id}`),
+    seatReservation: (id: string, tableId?: string) => post<unknown>(`/queue/reservations/${id}/seat`, tableId ? { tableId } : {}),
   },
   loyalty: {
     getConfig: () => get<{ id: string; pointsPerRupee: string; redeemRate: string; minRedeemPoints: number; isActive: boolean } | null>("/loyalty/config"),
     saveConfig: (body: { pointsPerRupee?: number; redeemRate?: number; minRedeemPoints?: number; isActive?: boolean }) => post<unknown>("/loyalty/config", body),
-    getBillInfo: (billId: string) => get<{ customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } } | null>(`/loyalty/bill/${billId}`),
+    getBillInfo: (billId: string) => get<{ customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } | null } | null>(`/loyalty/bill/${billId}`),
     getCustomerByPhone: (phone: string) => get<{ customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string }>(`/loyalty/customers/${phone}`),
     redeem: (body: { customerId: string; points: number; billId: string }) => post<{ ok: boolean; pointsDeducted: number; discountApplied: number; newBalance: number; discountLineId: string }>("/loyalty/redeem", body),
     topCustomers: (limit = 20) => get<{ id: string; customerId: string; totalPoints: number; lifetimePoints: number; tier: string; customer: { id: string; name?: string | null; phone: string } | null }[]>(`/loyalty/top-customers?limit=${limit}`),

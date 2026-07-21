@@ -34,6 +34,23 @@ const post = (path, body) => request(path, { method: "POST", body: JSON.stringif
 const patch = (path, body) => request(path, { method: "PATCH", body: JSON.stringify(body) });
 const put = (path, body) => request(path, { method: "PUT", body: JSON.stringify(body) });
 const del = (path) => request(path, { method: "DELETE" });
+// Multipart upload — must NOT set Content-Type manually, the browser sets the
+// multipart boundary itself when the body is a FormData instance.
+async function upload(path, file) {
+    const token = localStorage.getItem("inbill_token");
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new ApiError(res.status, body.error ?? res.statusText);
+    }
+    return res.json();
+}
 async function ownerRequest(path, init) {
     const token = localStorage.getItem("inbill_owner_token");
     const res = await fetch(`${BASE}${path}`, {
@@ -89,6 +106,13 @@ export const api = {
         // Tax
         getTax: () => get("/menu/tax"),
         saveTax: (body) => put("/menu/tax", body),
+        // Schedules (time windows / happy hours)
+        createSchedule: (body) => post("/menu/schedules", body),
+        // Import from image/PDF (Gemini vision extraction)
+        importExtract: (file) => upload("/menu-import/extract", file),
+        importCommit: (payload) => post("/menu-import/commit", payload),
+        updateSchedule: (id, body) => patch(`/menu/schedules/${id}`, body),
+        deleteSchedule: (id) => del(`/menu/schedules/${id}`),
     },
     tables: {
         getAll: () => get("/tables"),
@@ -120,11 +144,23 @@ export const api = {
         done: (kotId) => patch(`/kots/${kotId}/done`, {}),
     },
     bills: {
+        list: (params) => {
+            const qs = new URLSearchParams({ from: params.from, to: params.to });
+            if (params.q)
+                qs.set("q", params.q);
+            if (params.status && params.status !== "all")
+                qs.set("status", params.status);
+            if (params.page && params.page > 1)
+                qs.set("page", String(params.page));
+            return get(`/bills?${qs.toString()}`);
+        },
         create: (body) => post("/bills", body),
         get: (id) => get(`/bills/${id}`),
         addPayment: (billId, body) => post(`/bills/${billId}/payments`, body),
         applyDiscount: (billId, body) => patch(`/bills/${billId}/discount`, body),
         removeDiscount: (billId, lineId) => del(`/bills/${billId}/discount/${lineId}`),
+        voidBill: (billId, reason) => post(`/bills/${billId}/void`, { reason }),
+        refundBill: (billId, reason) => post(`/bills/${billId}/refund`, { reason }),
         initiateUpi: (billId) => post(`/bills/${billId}/payments/upi`, {}),
         upiStatus: (billId, paymentId) => get(`/bills/${billId}/payments/${paymentId}/status`),
         simulateUpi: (billId, paymentId) => patch(`/bills/${billId}/payments/${paymentId}/simulate`, {}),
@@ -139,8 +175,22 @@ export const api = {
     },
     shifts: {
         getActive: () => get("/shifts/active"),
+        summary: () => get("/shifts/summary"),
         open: (openingCash) => post("/shifts/open", { openingCash }),
         close: (closingCash) => post("/shifts/close", { closingCash }),
+        getDayClose: (date) => get(`/shifts/day-close?date=${date}`),
+        closeDay: (body) => post("/shifts/day-close", body),
+    },
+    audit: {
+        list: (params) => {
+            const qs = new URLSearchParams({ from: params.from, to: params.to });
+            if (params.action)
+                qs.set("action", params.action);
+            if (params.page && params.page > 1)
+                qs.set("page", String(params.page));
+            return get(`/audit?${qs.toString()}`);
+        },
+        logEvent: (body) => post("/audit/events", body),
     },
     users: {
         getAll: () => get("/users"),
@@ -276,6 +326,7 @@ export const api = {
         createReservation: (body) => post("/queue/reservations", body),
         updateReservation: (id, body) => patch(`/queue/reservations/${id}`, body),
         deleteReservation: (id) => del(`/queue/reservations/${id}`),
+        seatReservation: (id, tableId) => post(`/queue/reservations/${id}/seat`, tableId ? { tableId } : {}),
     },
     loyalty: {
         getConfig: () => get("/loyalty/config"),

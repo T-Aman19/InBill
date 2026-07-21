@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { eq, and, or, inArray } from "drizzle-orm"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { kots, orderItems, orders } from "../db/schema/index.js"
+import { kots, orderItems, orders, tables } from "../db/schema/index.js"
 import { requireAuth } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
@@ -38,11 +38,26 @@ kotsRouter.get("/", async (c) => {
 
   const orderSourceMap = new Map(orderRows.map((o) => [o.id, o.source]))
 
-  return c.json(activeKots.map((kot) => ({
-    ...kot,
-    orderSource: orderSourceMap.get(kot.orderId) ?? "pos",
-    items: items.filter((i) => i.kotId === kot.id),
-  })))
+  // Resolve table names so the kitchen ticket can show which table it's for
+  const tableIds = [...new Set(orderRows.map((o) => o.tableId).filter((id): id is string => id !== null))]
+  const tableRows = tableIds.length > 0
+    ? await db.query.tables.findMany({ where: inArray(tables.id, tableIds), columns: { id: true, name: true } })
+    : []
+  const tableNameById = new Map(tableRows.map((t) => [t.id, t.name]))
+  const orderTableMap = new Map(orderRows.map((o) => [o.id, o.tableId]))
+
+  return c.json(activeKots
+    .map((kot) => {
+      const tableId = orderTableMap.get(kot.orderId) ?? null
+      return {
+        ...kot,
+        orderSource: orderSourceMap.get(kot.orderId) ?? "pos",
+        tableName: tableId ? (tableNameById.get(tableId) ?? null) : null,
+        items: items.filter((i) => i.kotId === kot.id),
+      }
+    })
+    // A ticket whose items were all voided has nothing to cook — don't show an empty card
+    .filter((kot) => kot.items.length > 0))
 })
 
 kotsRouter.patch("/:id/acknowledge", async (c) => {

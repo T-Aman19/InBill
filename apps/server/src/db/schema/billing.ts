@@ -36,6 +36,12 @@ export const bills = pgTable("bills", {
   discountNote: text("discount_note"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   isPaid: boolean("is_paid").notNull().default(false),
+  // Void/refund: a voided unpaid bill reopens its order; a refunded paid bill
+  // reverses loyalty + inventory. Voided bills are excluded from all reports.
+  isVoided: boolean("is_voided").notNull().default(false),
+  voidReason: text("void_reason"),
+  voidedById: uuid("voided_by_id").references(() => users.id),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdById: uuid("created_by_id").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

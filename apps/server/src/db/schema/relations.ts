@@ -113,6 +113,7 @@ export const kotsRelations = relations(kots, ({ one, many }) => ({
 export const billsRelations = relations(bills, ({ one, many }) => ({
   outlet: one(outlets, { fields: [bills.outletId], references: [outlets.id] }),
   order: one(orders, { fields: [bills.orderId], references: [orders.id] }),
+  createdBy: one(users, { fields: [bills.createdById], references: [users.id] }),
   payments: many(billPayments),
   discountLines: many(billDiscounts),
 }))

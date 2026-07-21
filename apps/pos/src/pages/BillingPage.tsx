@@ -13,11 +13,14 @@ type BillItem = { name: string; quantity: number; unitPrice: string; isVeg?: boo
 type Bill = {
   id: string; orderId: string; billNumber: number; subtotal: string; taxLines: TaxLine[]
   taxTotal: string; discountAmount: string; discountLines?: DiscountLine[]; total: string; isPaid: boolean
-  payments: Payment[]; items?: BillItem[]; orderType?: string | null
+  payments: Payment[]; items?: BillItem[]; orderType?: string | null; createdAt?: string
 }
 type DiscountPreset = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; isActive: boolean }
 type OutletInfo = { name: string; address: string; gstin?: string; fssaiNumber?: string }
-type LoyaltyInfo = { customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } }
+// `program` is null when the outlet has no active loyalty program — the linked
+// customer still shows on the bill; only earn/redeem UI is hidden.
+type LoyaltyInfo = { customer: { id: string; name?: string | null; phone: string }; totalPoints: number; lifetimePoints: number; tier: string; pointsToEarn: number; redeemValue: number; program: { minRedeemPoints: number; redeemRate: string } | null }
+type CustomerLite = { id: string; name?: string | null; phone: string; loyaltyPoints?: number }
 
 const PAYMENT_MODES = [
   { id: "cash", label: "Cash",
@@ -57,6 +60,23 @@ export default function BillingPage() {
   const [custErr, setCustErr]       = useState("")
   const [countdown, setCountdown]   = useState(8)
 
+  // Link an already-existing customer chosen from the search dropdown
+  async function handleSelectCustomer(id: string) {
+    if (!bill) return
+    setCustLinking(true)
+    setCustErr("")
+    try {
+      await api.orders.linkCustomer(bill.orderId, id)
+      setCustPhone("")
+      setCustName("")
+      refetchLoyalty()
+    } catch {
+      setCustErr("Could not link customer")
+    } finally {
+      setCustLinking(false)
+    }
+  }
+
   async function handleLinkCustomer() {
     const phone = custPhone.trim()
     if (!phone || !bill) return
@@ -69,6 +89,8 @@ export default function BillingPage() {
     try {
       const cust = await api.customers.upsert({ phone, name: custName.trim() || undefined }) as { id: string }
       await api.orders.linkCustomer(bill.orderId, cust.id)
+      setCustPhone("")
+      setCustName("")
       refetchLoyalty()
     } catch {
       setCustErr("Could not link customer")
@@ -97,6 +119,19 @@ export default function BillingPage() {
     queryKey: ["loyalty-bill", billId],
     queryFn: () => api.loyalty.getBillInfo(billId) as Promise<LoyaltyInfo | null>,
     enabled: !!billId,
+  })
+
+  // Live customer search — as the phone is typed, matching customers surface below the field
+  const [custSearch, setCustSearch] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => setCustSearch(custPhone.trim()), 200)
+    return () => clearTimeout(t)
+  }, [custPhone])
+
+  const { data: custMatches = [] } = useQuery({
+    queryKey: ["customer-search", custSearch],
+    queryFn: () => api.customers.search(custSearch) as Promise<CustomerLite[]>,
+    enabled: custSearch.length >= 2 && !!bill && !bill.isPaid && !loyaltyInfo,
   })
 
   const redeemMutation = useMutation({
@@ -222,7 +257,7 @@ export default function BillingPage() {
 
           <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
             <span>Bill #{bill.billNumber}</span>
-            <span>{new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+            <span>{new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
           </div>
 
           {/* Items */}
@@ -321,7 +356,7 @@ export default function BillingPage() {
           {formatCurrency(bill.total)}
         </div>
         <div style={{ fontSize: 13, color: "oklch(100% 0 0 / .45)", marginTop: 8 }}>
-          Bill #{bill.billNumber} · {new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+          Bill #{bill.billNumber} · {new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
         </div>
 
         {/* Payment breakdown */}
@@ -343,7 +378,9 @@ export default function BillingPage() {
               {loyaltyInfo.customer.name ?? loyaltyInfo.customer.phone}
             </div>
             <div style={{ fontSize: 12, color: "oklch(100% 0 0 / .45)" }}>
-              +{loyaltyInfo.pointsToEarn} pts earned · {loyaltyInfo.totalPoints} total · {loyaltyInfo.tier}
+              {loyaltyInfo.program
+                ? <>+{loyaltyInfo.pointsToEarn} pts earned · {loyaltyInfo.totalPoints} total · {loyaltyInfo.tier}</>
+                : loyaltyInfo.customer.name ? loyaltyInfo.customer.phone : "Customer"}
             </div>
           </div>
         )}
@@ -401,7 +438,7 @@ export default function BillingPage() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Bill #{bill.billNumber}</h2>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-          {new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+          {new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
         </span>
         <button onClick={() => triggerPrint()} title="Print receipt" style={{
           background: "transparent", border: "none",
@@ -427,7 +464,7 @@ export default function BillingPage() {
 
             <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
               <span>Bill #{bill.billNumber}</span>
-              <span>{new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              <span>{new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
             </div>
 
             {/* Items table */}
@@ -525,13 +562,34 @@ export default function BillingPage() {
                   onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
                 />
               </div>
+              {/* Live matches — pick an existing customer instead of re-typing their details */}
+              {custSearch.length >= 2 && custMatches.length > 0 && (
+                <div className="scroll" style={{ border: "1px solid var(--color-line)", borderRadius: 8, overflow: "hidden", maxHeight: 176, overflowY: "auto" }}>
+                  {custMatches.map((cust, i) => (
+                    <button
+                      key={cust.id}
+                      onClick={() => handleSelectCustomer(cust.id)}
+                      disabled={custLinking}
+                      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", border: "none", borderTop: i === 0 ? "none" : "1px solid var(--color-line)", background: "var(--color-bg)", cursor: custLinking ? "wait" : "pointer", textAlign: "left", fontFamily: "inherit" }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cust.name || "Guest"}</div>
+                        <div style={{ fontSize: 12, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{cust.phone}</div>
+                      </div>
+                      {typeof cust.loyaltyPoints === "number" && cust.loyaltyPoints > 0 && (
+                        <span style={{ fontSize: 11, color: "var(--color-amber)", fontWeight: 600, flexShrink: 0 }}>{cust.loyaltyPoints} pts</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
               {custErr && <div style={{ fontSize: 12, color: "var(--color-red)" }}>{custErr}</div>}
               <button
                 onClick={handleLinkCustomer}
                 disabled={!custPhone.trim() || custLinking}
                 style={{ height: 34, borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface-2)", color: "var(--color-ink-2)", fontSize: 13, fontFamily: "inherit", cursor: custPhone.trim() ? "pointer" : "not-allowed", opacity: custPhone.trim() ? 1 : .5 }}
               >
-                {custLinking ? "Linking…" : "Add customer"}
+                {custLinking ? "Linking…" : "Add new customer"}
               </button>
             </div>
           )}
@@ -624,13 +682,17 @@ export default function BillingPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)" }}>
                     {loyaltyInfo.customer.name ?? loyaltyInfo.customer.phone}
-                    <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em", marginLeft: 8, color: "var(--color-amber)", background: "rgba(245,158,11,.12)", padding: "2px 6px", borderRadius: 4 }}>{loyaltyInfo.tier}</span>
+                    {loyaltyInfo.program && (
+                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em", marginLeft: 8, color: "var(--color-amber)", background: "rgba(245,158,11,.12)", padding: "2px 6px", borderRadius: 4 }}>{loyaltyInfo.tier}</span>
+                    )}
                   </div>
                   <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>
-                    {loyaltyInfo.totalPoints} pts · earn +{loyaltyInfo.pointsToEarn} pts · ≈ {formatCurrency(loyaltyInfo.redeemValue)} redeemable
+                    {loyaltyInfo.program
+                      ? <>{loyaltyInfo.totalPoints} pts · earn +{loyaltyInfo.pointsToEarn} pts · ≈ {formatCurrency(loyaltyInfo.redeemValue)} redeemable</>
+                      : loyaltyInfo.customer.phone}
                   </div>
                 </div>
-                {loyaltyInfo.totalPoints >= loyaltyInfo.program.minRedeemPoints && bill.payments.length === 0 && (
+                {loyaltyInfo.program && loyaltyInfo.totalPoints >= loyaltyInfo.program.minRedeemPoints && bill.payments.length === 0 && (
                   <button onClick={() => { setShowRedeemModal(true); setRedeemPoints(String(loyaltyInfo.totalPoints)); setRedeemErr("") }}
                     style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "var(--color-amber)", color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
                     Redeem
@@ -725,7 +787,7 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {showRedeemModal && loyaltyInfo && (
+      {showRedeemModal && loyaltyInfo && loyaltyInfo.program && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={() => setShowRedeemModal(false)}>
           <div style={{ background: "var(--color-surface)", borderRadius: 16, width: 360, padding: 24, boxShadow: "var(--shadow-3)", display: "flex", flexDirection: "column", gap: 16 }} onClick={(e) => e.stopPropagation()}>
             <div>
@@ -754,7 +816,7 @@ export default function BillingPage() {
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => setShowRedeemModal(false)} style={{ flex: 1, height: 44, borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 14, color: "var(--color-ink-2)", fontFamily: "inherit" }}>Cancel</button>
               <button
-                onClick={() => { const p = parseInt(redeemPoints, 10); if (!p || p < loyaltyInfo.program.minRedeemPoints) { setRedeemErr(`Minimum ${loyaltyInfo.program.minRedeemPoints} pts`); return; } redeemMutation.mutate(p) }}
+                onClick={() => { const minPts = loyaltyInfo.program?.minRedeemPoints ?? 1; const p = parseInt(redeemPoints, 10); if (!p || p < minPts) { setRedeemErr(`Minimum ${minPts} pts`); return; } redeemMutation.mutate(p) }}
                 disabled={redeemMutation.isPending}
                 style={{ flex: 2, height: 44, borderRadius: 10, border: "none", background: "var(--color-amber)", cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#fff", fontFamily: "inherit", opacity: redeemMutation.isPending ? .6 : 1 }}>
                 {redeemMutation.isPending ? "Applying…" : "Apply discount"}

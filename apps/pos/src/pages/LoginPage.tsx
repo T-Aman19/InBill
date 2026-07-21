@@ -101,7 +101,7 @@ export default function LoginPage() {
   function clear() { setPin(""); setError("") }
 
   async function saveOutlet() {
-    const code = tmpCode.trim()
+    const code = tmpCode.trim().toUpperCase()
     if (!code) return
     setSaving(true)
     setSetupError("")

@@ -1,0 +1,4 @@
+# Bundled offline Postgres archives are fetched by scripts/prepare-build.ts.
+# ~35 MB each — keep them out of git (including partial downloads).
+*.jar
+*.jar.part

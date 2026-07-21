@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
+import { z } from "zod"
 import { eq, and, gte, lte, count } from "drizzle-orm"
 import {
   createQueueEntrySchema,
@@ -254,6 +255,64 @@ queueRouter.patch("/reservations/:id", requireRole("manager", "owner", "cashier"
   const serialized = serializeReservation(withTable!)
   broadcastOutlet(outletId, { type: "reservation.updated", payload: { reservation: serialized } })
   return c.json(serialized)
+})
+
+// Seat a reservation: the guest has arrived. Upserts the customer (so the
+// order started on this table inherits them for loyalty), marks the table
+// reserved on the floor, and closes the reservation's own loop (status=seated).
+queueRouter.post("/reservations/:id/seat", requireRole("manager", "owner", "cashier", "captain", "host"), zValidator("json", z.object({ tableId: z.string().uuid().optional() }).optional()), async (c) => {
+  const { outletId } = c.get("user")
+  const id = c.req.param("id")
+  const body = c.req.valid("json")
+
+  const reservation = await db.query.reservations.findFirst({
+    where: and(eq(reservations.id, id), eq(reservations.outletId, outletId)),
+  })
+  if (!reservation) return c.json({ error: "Not found" }, 404)
+  if (reservation.status !== "pending" && reservation.status !== "confirmed") {
+    return c.json({ error: "Reservation is no longer active" }, 400)
+  }
+
+  const tableId = body?.tableId ?? reservation.tableId
+  if (!tableId) return c.json({ error: "Assign a table to this reservation first" }, 400)
+
+  const table = await db.query.tables.findFirst({
+    where: and(eq(tables.id, tableId), eq(tables.outletId, outletId)),
+  })
+  if (!table) return c.json({ error: "Table not found" }, 404)
+  if (table.status !== "available") return c.json({ error: "Table is not available" }, 400)
+
+  // Upsert customer by phone so the order can be pre-linked (same as queue seating)
+  let customerId: string | null = null
+  if (reservation.customerPhone) {
+    const existing = await db.query.customers.findFirst({
+      where: and(eq(customers.outletId, outletId), eq(customers.phone, reservation.customerPhone)),
+    })
+    if (existing) {
+      customerId = existing.id
+      if (reservation.customerName && !existing.name) {
+        await db.update(customers).set({ name: reservation.customerName }).where(eq(customers.id, existing.id))
+      }
+    } else {
+      const [created] = await db.insert(customers)
+        .values({ outletId, phone: reservation.customerPhone, name: reservation.customerName })
+        .returning()
+      customerId = created!.id
+    }
+  }
+
+  await db.update(reservations)
+    .set({ status: "seated", tableId, customerId })
+    .where(and(eq(reservations.id, id), eq(reservations.outletId, outletId)))
+
+  // Reserved (not occupied) until the first order is actually taken
+  await db.update(tables).set({ status: "reserved" }).where(eq(tables.id, tableId))
+  broadcastOutlet(outletId, { type: "table.status", payload: { id: tableId, status: "reserved", currentOrderId: null } })
+
+  const withTable = await db.query.reservations.findFirst({ where: eq(reservations.id, id), with: { table: true } })
+  const serialized = serializeReservation(withTable!)
+  broadcastOutlet(outletId, { type: "reservation.updated", payload: { reservation: serialized } })
+  return c.json({ ...serialized, customerId })
 })
 
 queueRouter.delete("/reservations/:id", requireRole("manager", "owner", "cashier"), async (c) => {

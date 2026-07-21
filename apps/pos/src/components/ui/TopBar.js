@@ -33,7 +33,9 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }) {
         enabled: isManagerOrOwner,
         staleTime: Infinity,
     });
-    const displaySetupCode = setupCode ?? outletData?.setupCode ?? null;
+    // Canonical setup code from the outlet record wins over the value typed at
+    // device setup (which may differ in casing and is persisted across sessions).
+    const displaySetupCode = outletData?.setupCode ?? setupCode ?? null;
     const nav = (to) => () => {
         const paths = { floor: "/floor", kds: "/kds", manager: "/manager", inventory: "/inventory" };
         navigate({ to: paths[to] });
@@ -104,7 +106,11 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }) {
                             background: "var(--color-accent-soft)", color: "var(--color-accent-ink)",
                             display: "flex", alignItems: "center", justifyContent: "center",
                             fontSize: 12, fontWeight: 600,
-                        }, children: initials(user?.name ?? "?") }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 12, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }, children: user?.name }), _jsx("div", { style: { fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }, children: user?.role })] }), _jsx("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, title: "Logout", style: {
+                        }, children: initials(user?.name ?? "?") }), _jsxs("div", { children: [_jsx("div", { style: { fontSize: 12, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }, children: user?.name }), _jsx("div", { style: { fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }, children: user?.role })] }), user?.role === "owner" && localStorage.getItem("inbill_owner_token") && (_jsx("button", { onClick: () => navigate({ to: "/owner/dashboard" }), title: "Back to owner dashboard", style: {
+                            background: "transparent", border: "1px solid var(--color-line)",
+                            color: "var(--color-ink-2)", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                            height: 28, padding: "0 10px", borderRadius: 8, cursor: "pointer",
+                        }, children: "Dashboard" })), _jsx("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, title: "Logout", style: {
                             background: "transparent", border: "none",
                             color: "var(--color-ink-3)",
                             width: 32, height: 32, borderRadius: 8,

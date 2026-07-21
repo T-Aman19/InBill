@@ -2,46 +2,40 @@ import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import { eq, and, gte, lte } from "drizzle-orm"
-import Anthropic from "@anthropic-ai/sdk"
+import { GoogleGenAI } from "@google/genai"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { bills, menuItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { config } from "../config.js"
+import { dayStart, dayEnd } from "../lib/dateRange.js"
 
 export const aiRouter = new Hono<AppEnv>()
 
 aiRouter.use("*", requireAuth, requireRole("manager", "owner"))
 
-const client = new Anthropic({ apiKey: config.ai.anthropicApiKey })
+const client = new GoogleGenAI({ apiKey: config.ai.geminiApiKey })
 
 // ── AI1: Menu description generator ─────────────────────────────────────────
 aiRouter.post(
   "/menu-description",
   zValidator("json", z.object({ name: z.string().min(1), category: z.string().default(""), dietaryType: z.enum(["veg", "non-veg"]).default("veg") })),
   async (c) => {
+    if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
     const { name, category, dietaryType } = c.req.valid("json")
 
-    const message = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 150,
-      system: [
-        {
-          type: "text",
-          text: "You are a professional menu copywriter for Indian restaurants. Write a single compelling 1–2 sentence description for a menu item. Be appetizing and concise. Return only the description text, no quotes.",
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: `Write a description for: Name: ${name}, Category: ${category || "General"}, Type: ${dietaryType === "veg" ? "Vegetarian" : "Non-vegetarian"}`,
-        },
-      ],
+    const response = await client.models.generateContent({
+      model: config.ai.geminiModel,
+      contents: `Write a description for: Name: ${name}, Category: ${category || "General"}, Type: ${dietaryType === "veg" ? "Vegetarian" : "Non-vegetarian"}`,
+      config: {
+        systemInstruction: "You are a professional menu copywriter for Indian restaurants. Write a single compelling 1–2 sentence description for a menu item. Be appetizing and concise. Return only the description text, no quotes.",
+        maxOutputTokens: 150,
+        // A one-line description needs no reasoning — skip thinking to keep latency down.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     })
 
-    const text = message.content.find((b) => b.type === "text")?.text ?? ""
-    return c.json({ description: text.trim() })
+    return c.json({ description: (response.text ?? "").trim() })
   },
 )
 
@@ -65,6 +59,7 @@ aiRouter.post(
   "/reports-query",
   zValidator("json", z.object({ question: z.string().min(1), from: z.string().optional(), to: z.string().optional() })),
   async (c) => {
+    if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
     const { outletId } = c.get("user")
     if (!checkRateLimit(outletId)) {
       return c.json({ error: "Daily query limit reached (20/day)" }, 429)
@@ -81,8 +76,9 @@ aiRouter.post(
         where: and(
           eq(bills.outletId, outletId),
           eq(bills.isPaid, true),
-          gte(bills.createdAt, new Date(rangeFrom)),
-          lte(bills.createdAt, new Date(rangeTo + "T23:59:59Z")),
+          eq(bills.isVoided, false),
+          gte(bills.createdAt, dayStart(rangeFrom)),
+          lte(bills.createdAt, dayEnd(rangeTo)),
         ),
         columns: { id: true, total: true, discountAmount: true, taxTotal: true, createdAt: true },
         with: { payments: { columns: { mode: true, amount: true } } },
@@ -119,26 +115,18 @@ Payment modes: ${Object.entries(paymentBreakdown).map(([m, a]) => `${m}: ₹${a.
 Menu items available: ${topItems.length}
 `.trim()
 
-    const message = await client.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 400,
-      thinking: { type: "adaptive" },
-      system: [
-        {
-          type: "text",
-          text: "You are an expert restaurant business analyst. Answer questions about restaurant performance data concisely and helpfully. Use Indian currency (₹). Be direct and actionable. Return a plain text answer without markdown headers.",
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: `Data snapshot:\n${dataSnapshot}\n\nQuestion: ${question}`,
-        },
-      ],
+    const response = await client.models.generateContent({
+      model: config.ai.geminiProModel,
+      contents: `Data snapshot:\n${dataSnapshot}\n\nQuestion: ${question}`,
+      config: {
+        systemInstruction: "You are an expert restaurant business analyst. Answer questions about restaurant performance data concisely and helpfully. Use Indian currency (₹). Be direct and actionable. Return a plain text answer without markdown headers.",
+        // Dynamic thinking consumes output tokens, so the budget must leave room
+        // for the answer after thinking — too tight a cap could return "".
+        maxOutputTokens: 2000,
+        thinkingConfig: { thinkingBudget: -1 },
+      },
     })
 
-    const answer = message.content.find((b) => b.type === "text")?.text ?? ""
-    return c.json({ answer: answer.trim() })
+    return c.json({ answer: (response.text ?? "").trim() })
   },
 )

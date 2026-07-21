@@ -137,12 +137,26 @@ impl PgEmbed {
     ///
     pub async fn acquire_postgres(&self) -> PgResult<()> {
         self.pg_access.mark_acquisition_in_progress().await?;
-        let pg_bin_data = &self.fetch_settings.fetch_postgres().await?;
-        self.pg_access.write_pg_zip(&pg_bin_data).await?;
-        pg_unpack::unpack_postgres(&self.pg_access.zip_file_path, &self.pg_access.cache_dir)
-            .await?;
-        self.pg_access.mark_acquisition_finished().await?;
-        Ok(())
+        // On any failure, clear the in-progress marker so a retry can run instead
+        // of waiting forever on a stuck "InProgress" status.
+        let result: PgResult<()> = async {
+            let pg_bin_data = self.fetch_settings.fetch_postgres().await?;
+            self.pg_access.write_pg_zip(&pg_bin_data).await?;
+            pg_unpack::unpack_postgres(&self.pg_access.zip_file_path, &self.pg_access.cache_dir)
+                .await?;
+            Ok(())
+        }
+        .await;
+        match result {
+            Ok(()) => {
+                self.pg_access.mark_acquisition_finished().await?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.pg_access.mark_acquisition_failed().await;
+                Err(e)
+            }
+        }
     }
 
     ///

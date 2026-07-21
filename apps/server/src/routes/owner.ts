@@ -10,6 +10,8 @@ import { orders } from "../db/schema/orders.js"
 import { tables } from "../db/schema/tables.js"
 import { menuItems } from "../db/schema/menu.js"
 import { requireAuth, requireRole, signToken } from "../middleware/auth.js"
+import { dayStart, dayEnd } from "../lib/dateRange.js"
+import { config } from "../config.js"
 
 export const ownerRouter = new Hono<AppEnv>()
 
@@ -44,12 +46,9 @@ ownerRouter.get("/outlets", async (c) => {
   const fromParam = c.req.query("from")
   const toParam = c.req.query("to")
 
-  const rangeStart = fromParam
-    ? new Date(fromParam + "T00:00:00")
-    : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })()
-  const rangeEnd = toParam
-    ? new Date(toParam + "T23:59:59")
-    : (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d })()
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone }).format(new Date())
+  const rangeStart = dayStart(fromParam ?? todayStr)
+  const rangeEnd = dayEnd(toParam ?? todayStr)
 
   const allOutlets = await db.query.outlets.findMany({
     where: and(eq(outlets.ownerId, ownerId), eq(outlets.isActive, true)),
@@ -61,6 +60,7 @@ ownerRouter.get("/outlets", async (c) => {
         where: and(
           eq(bills.outletId, outlet.id),
           eq(bills.isPaid, true),
+          eq(bills.isVoided, false),
           gte(bills.createdAt, rangeStart),
           lte(bills.createdAt, rangeEnd),
         ),
@@ -149,8 +149,9 @@ ownerRouter.get("/outlets/:id/summary", async (c) => {
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
     with: { payments: true },
   })

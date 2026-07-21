@@ -15,7 +15,7 @@ export const useAuthStore = create()(persist((set, get) => ({
     setSetupCode: (code) => set({ setupCode: code }),
     logout: () => {
         localStorage.removeItem("inbill_token");
-        set({ token: null, user: null, outletId: null, outletName: null });
+        set({ token: null, user: null, outletId: null, outletName: null, setupCode: null });
     },
     isLoggedIn: () => !!get().token,
 }), { name: "inbill_auth" }));

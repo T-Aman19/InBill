@@ -6,6 +6,7 @@ import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { floors, tables, orders } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { broadcastOutlet } from "../services/ws.js"
 
 export const tablesRouter = new Hono<AppEnv>()
 
@@ -99,10 +100,26 @@ tablesRouter.post("/", requireRole("manager", "owner"), zValidator("json", creat
 tablesRouter.patch("/:id", requireRole("manager", "owner"), zValidator("json", updateTableSchema), async (c) => {
   const { outletId } = c.get("user")
   const data = c.req.valid("json")
+
+  // Freeing a table is only allowed from "reserved" (a seated guest who never
+  // ordered and left) — occupied/billed are driven by the order lifecycle.
+  if (data.status === "available") {
+    const existing = await db.query.tables.findFirst({
+      where: and(eq(tables.id, c.req.param("id")), eq(tables.outletId, outletId)),
+    })
+    if (!existing) return c.json({ error: "Not found" }, 404)
+    if (existing.status !== "reserved" || existing.currentOrderId) {
+      return c.json({ error: "Only a reserved table without an order can be marked free" }, 400)
+    }
+  }
+
   const [table] = await db.update(tables).set(data)
     .where(and(eq(tables.id, c.req.param("id")), eq(tables.outletId, outletId)))
     .returning()
   if (!table) return c.json({ error: "Not found" }, 404)
+  if (data.status === "available") {
+    broadcastOutlet(outletId, { type: "table.status", payload: { id: table.id, status: "available", currentOrderId: null } })
+  }
   return c.json(table)
 })
 

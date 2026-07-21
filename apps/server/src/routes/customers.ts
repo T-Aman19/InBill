@@ -5,7 +5,7 @@ import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { customers, customerPoints, pointTransactions } from "../db/schema/index.js"
-import { requireAuth } from "../middleware/auth.js"
+import { requireAuth, requireRole } from "../middleware/auth.js"
 import { phoneSchema } from "@inbill/shared"
 
 export const customersRouter = new Hono<AppEnv>()
@@ -80,7 +80,7 @@ customersRouter.patch("/:id", zValidator("json", updateCustomerSchema), async (c
   return c.json(updated)
 })
 
-customersRouter.post("/:id/loyalty", zValidator("json", loyaltyDeltaSchema), async (c) => {
+customersRouter.post("/:id/loyalty", requireRole("owner", "manager"), zValidator("json", loyaltyDeltaSchema), async (c) => {
   const { outletId } = c.get("user")
   const { delta, note } = c.req.valid("json")
 

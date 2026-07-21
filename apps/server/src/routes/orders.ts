@@ -1,13 +1,15 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, isNull, inArray, gte } from "drizzle-orm"
+import { eq, and, isNull, inArray, gte, max } from "drizzle-orm"
 import { z } from "zod"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills, queueEntries } from "../db/schema/index.js"
+import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills, queueEntries, customers, reservations, categories, menuSchedules } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
+import { logAudit } from "../services/audit.js"
+import { isScheduleActiveNow } from "../lib/schedule.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
 
 export const ordersRouter = new Hono<AppEnv>()
@@ -38,7 +40,7 @@ ordersRouter.get("/counter", async (c) => {
     where: and(
       eq(orders.outletId, outletId),
       inArray(orders.type, ["takeaway", "delivery"]),
-      inArray(orders.status, ["open", "kot_sent", "billed"]),
+      inArray(orders.status, ["open", "kot_sent", "served", "billed"]),
       gte(orders.createdAt, since),
     ),
     with: { items: { where: (i, { eq }) => eq(i.isVoided, false) } },
@@ -91,11 +93,32 @@ ordersRouter.post("/", requireRole("owner", "manager", "cashier", "captain"), zV
   // If no customer supplied but the table is reserved, inherit the customer from the seated queue entry
   let customerId = data.customerId ?? null
   if (data.tableId && !customerId) {
+    // Inherit from the most-recent seated entry for this table (scoped to the
+    // outlet) so a reused table can't attribute the order to an earlier guest.
     const seatedEntry = await db.query.queueEntries.findFirst({
-      where: and(eq(queueEntries.tableId, data.tableId), eq(queueEntries.status, "seated")),
+      where: and(
+        eq(queueEntries.outletId, outletId),
+        eq(queueEntries.tableId, data.tableId),
+        eq(queueEntries.status, "seated"),
+      ),
+      orderBy: (q, { desc }) => [desc(q.seatedAt)],
       columns: { customerId: true },
     })
     if (seatedEntry?.customerId) customerId = seatedEntry.customerId
+
+    // Seated reservations carry their guest onto the order the same way
+    if (!customerId) {
+      const seatedReservation = await db.query.reservations.findFirst({
+        where: and(
+          eq(reservations.outletId, outletId),
+          eq(reservations.tableId, data.tableId),
+          eq(reservations.status, "seated"),
+        ),
+        orderBy: (r, { desc }) => [desc(r.reservedFor)],
+        columns: { customerId: true },
+      })
+      if (seatedReservation?.customerId) customerId = seatedReservation.customerId
+    }
   }
 
   const [order] = await db
@@ -131,6 +154,26 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
   })
   if (!item) return c.json({ error: "Item not found" }, 404)
 
+  // Schedule gate: item's own schedule wins, else its category's. Outside the
+  // window the item can't be ordered; inside, a percentOff schedule reprices it.
+  let effectiveScheduleId = item.scheduleId
+  if (!effectiveScheduleId) {
+    const category = await db.query.categories.findFirst({
+      where: eq(categories.id, item.categoryId), columns: { scheduleId: true },
+    })
+    effectiveScheduleId = category?.scheduleId ?? null
+  }
+  let percentOff = 0
+  if (effectiveScheduleId) {
+    const schedule = await db.query.menuSchedules.findFirst({ where: eq(menuSchedules.id, effectiveScheduleId) })
+    if (schedule && schedule.isActive) {
+      if (!isScheduleActiveNow(schedule)) {
+        return c.json({ error: `"${item.name}" is only available during ${schedule.name} (${schedule.startTime}–${schedule.endTime})` }, 400)
+      }
+      percentOff = Number(schedule.percentOff)
+    }
+  }
+
   let unitPrice = Number(item.basePrice)
   let variantName: string | null = null
 
@@ -138,6 +181,8 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
     const variant = await db.query.itemVariants.findFirst({ where: eq(itemVariants.id, data.variantId) })
     if (variant) { unitPrice = Number(variant.price); variantName = variant.name }
   }
+
+  if (percentOff > 0) unitPrice = Number((unitPrice * (1 - percentOff / 100)).toFixed(2))
 
   // If the same item (same variant, no KOT yet, not voided) already exists, increment quantity
   const existing = await db.query.orderItems.findFirst({
@@ -184,14 +229,26 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
   return c.json(orderItem, 201)
 })
 
-// If all items on an order are voided and none were ever sent to kitchen, cancel + free table
+// If all items on an order are voided, cancel the order and free its table.
+// This also applies when items had already been sent to the kitchen (guests
+// walked out): voids are recorded in voidedItems for reporting, and the
+// kitchen's now-empty KOTs are marked done so they leave the KDS. Without
+// this, a fully-voided order stayed open forever with its table stuck
+// occupied and billing blocked ("Order has no items").
 async function maybeAutoCancel(orderId: string, outletId: string) {
   const allItems = await db.query.orderItems.findMany({ where: eq(orderItems.orderId, orderId) })
   if (allItems.length === 0) return
   const anyActive = allItems.some((i) => !i.isVoided)
   if (anyActive) return
-  const anySentToKitchen = allItems.some((i) => i.kotId !== null)
-  if (anySentToKitchen) return
+
+  // Clear any kitchen tickets that now contain only voided items
+  const kotIds = [...new Set(allItems.map((i) => i.kotId).filter((id): id is string => id !== null))]
+  if (kotIds.length > 0) {
+    await db.update(kots).set({ status: "done" }).where(inArray(kots.id, kotIds))
+    for (const kotId of kotIds) {
+      broadcastOutlet(outletId, { type: "kot.done", payload: { kotId } })
+    }
+  }
 
   await db.update(orders).set({ status: "cancelled", updatedAt: new Date() }).where(eq(orders.id, orderId))
 
@@ -263,6 +320,10 @@ ordersRouter.delete("/:id/items/:itemId", requireRole("manager", "owner", "cashi
       unitPrice: item.unitPrice,
       voidedById: userId,
     })
+    logAudit({
+      outletId, userId, action: "order_item.void", entity: "order", entityId: orderId,
+      details: { itemName: item.name, qty: item.quantity, unitPrice: Number(item.unitPrice) },
+    })
   }
   await maybeAutoCancel(orderId, outletId)
 
@@ -280,6 +341,13 @@ ordersRouter.patch("/:id/customer", requireRole("owner", "manager", "cashier", "
     where: and(eq(orders.id, orderId), eq(orders.outletId, outletId)),
   })
   if (!order) return c.json({ error: "Not found" }, 404)
+
+  // Ensure the customer belongs to this outlet before linking
+  const customer = await db.query.customers.findFirst({
+    where: and(eq(customers.id, customerId), eq(customers.outletId, outletId)),
+    columns: { id: true },
+  })
+  if (!customer) return c.json({ error: "Customer not found" }, 404)
 
   await db.update(orders).set({ customerId, updatedAt: new Date() }).where(eq(orders.id, orderId))
   return c.json({ ok: true })
@@ -335,8 +403,10 @@ ordersRouter.post("/:id/merge", requireRole("owner", "manager", "cashier"), zVal
     return c.json({ error: "Source order is already closed" }, 400)
   }
 
-  // Re-parent all source items to target order
+  // Re-parent all source items — and their KOTs — to the target order so the
+  // kitchen tickets and order status stay consistent after the merge.
   await db.update(orderItems).set({ orderId: targetOrderId }).where(eq(orderItems.orderId, sourceOrderId))
+  await db.update(kots).set({ orderId: targetOrderId }).where(eq(kots.orderId, sourceOrderId))
 
   // Cancel source order and free its table
   await db.update(orders).set({ status: "cancelled", updatedAt: new Date() }).where(eq(orders.id, sourceOrderId))
@@ -368,8 +438,8 @@ ordersRouter.post("/:id/kot", requireRole("owner", "manager", "cashier", "captai
 
   if (unsentItems.length === 0) return c.json({ error: "No new items to send" }, 400)
 
-  const existingKots = await db.query.kots.findMany({ where: eq(kots.outletId, outletId) })
-  const kotNumber = existingKots.length + 1
+  const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
+  const kotNumber = (kotAgg?.maxNum ?? 0) + 1
 
   const [kot] = await db.insert(kots).values({ outletId, orderId, kotNumber }).returning()
   if (!kot) return c.json({ error: "Failed to create KOT" }, 500)

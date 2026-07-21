@@ -184,7 +184,10 @@ purchaseOrdersRouter.post("/:id/receive", zValidator("json", z.object({
   const receivedMap = new Map(receivedItems.map((r) => [r.itemId, r.receivedQty]))
 
   for (const line of po.items) {
-    const received = receivedMap.get(line.id) ?? 0
+    const requested = receivedMap.get(line.id) ?? 0
+    // Never receive more than what's still outstanding on the line
+    const outstanding = Math.max(0, Number(line.orderedQty) - Number(line.receivedQty))
+    const received = Math.min(requested, outstanding)
     if (received <= 0) continue
 
     const ingredient = line.ingredient

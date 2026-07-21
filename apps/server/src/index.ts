@@ -22,9 +22,11 @@ import { inventoryRouter } from "./routes/inventory.js"
 import { vendorsRouter } from "./routes/vendors.js"
 import { purchaseOrdersRouter } from "./routes/purchaseOrders.js"
 import { aiRouter } from "./routes/ai.js"
+import { menuImportRouter } from "./routes/menuImport.js"
 import { publicRouter } from "./routes/public.js"
 import { loyaltyRouter } from "./routes/loyalty.js"
 import { queueRouter } from "./routes/queue.js"
+import { auditRouter } from "./routes/audit.js"
 import { runEmbeddedMigrations } from "./db/embedded-migrate.js"
 
 // Run migrations before accepting requests — safe to call on every startup
@@ -63,9 +65,11 @@ api.route("/inventory", inventoryRouter)
 api.route("/vendors", vendorsRouter)
 api.route("/purchase-orders", purchaseOrdersRouter)
 api.route("/ai", aiRouter)
+api.route("/menu-import", menuImportRouter)
 api.route("/public", publicRouter)
 api.route("/loyalty", loyaltyRouter)
 api.route("/queue", queueRouter)
+api.route("/audit", auditRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

@@ -136,6 +136,7 @@ export default function QrMenuPage() {
   const [orderId, setOrderId] = useState<string | null>(null)
   const [sentItems, setSentItems] = useState<SentItem[]>([])
   const [showSentItems, setShowSentItems] = useState(false)
+  const [orderStatus, setOrderStatus] = useState<string | null>(null)
 
   // Success toast
   const [toast, setToast] = useState<string | null>(null)
@@ -167,6 +168,34 @@ export default function QrMenuPage() {
       })
       .catch(() => { /* silent — don't block menu */ })
   }, [tableId, outletId])
+
+  // Poll the order status so the guest sees "cooking → served" without asking
+  // staff. Stops on terminal states (billed/cancelled) to save battery.
+  useEffect(() => {
+    if (!orderId) return
+    let stopped = false
+    async function poll() {
+      try {
+        const r = await fetch(`${PUBLIC_BASE}/orders/${orderId}/status?outletId=${outletId}`)
+        if (!r.ok) return
+        const data = (await r.json()) as { status: string }
+        if (!stopped) setOrderStatus(data.status)
+      } catch { /* transient network error — keep last known status */ }
+    }
+    void poll()
+    const t = setInterval(() => {
+      void poll()
+    }, 12_000)
+    return () => { stopped = true; clearInterval(t) }
+  }, [orderId, outletId])
+
+  const STATUS_BANNER: Record<string, { label: string; bg: string; fg: string }> = {
+    open:     { label: "Order received",                    bg: "#eef2ff", fg: "#3730a3" },
+    kot_sent: { label: "In the kitchen — being prepared",   bg: "#fff7ed", fg: "#9a3412" },
+    served:   { label: "Served — enjoy your meal!",         bg: "#f0fdf4", fg: "#166534" },
+    billed:   { label: "Bill raised — please pay at the counter or ask your server", bg: "#fafaf9", fg: "#44403c" },
+    cancelled:{ label: "Order cancelled — please ask your server", bg: "#fef2f2", fg: "#991b1b" },
+  }
 
   function showToast(msg: string) {
     setToast(msg)
@@ -223,8 +252,10 @@ export default function QrMenuPage() {
       const data = await res.json() as { orderId?: string; error?: string }
       if (!res.ok) throw new Error(data.error ?? "Order failed")
 
-      // Persist order id for future appends
+      // Persist order id for future appends; the server auto-fires the KOT so
+      // the status banner can show "in the kitchen" immediately.
       if (data.orderId) setOrderId(data.orderId)
+      setOrderStatus("kot_sent")
 
       // Optimistically add cart entries to the "sent" list
       setSentItems((prev) => [
@@ -257,7 +288,7 @@ export default function QrMenuPage() {
   if (loading) return (
     <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ width: 32, height: 32, borderRadius: "50%", border: "3px solid #e5e5e5", borderTopColor: "#111", animation: "spin 1s linear infinite" }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
     </div>
   )
 
@@ -280,6 +311,16 @@ export default function QrMenuPage() {
         <div style={{ fontSize: 20, fontWeight: 700 }}>{outlet?.name}</div>
         {outlet?.address && <div style={{ fontSize: 12, opacity: .65, marginTop: 3 }}>{outlet.address}</div>}
       </div>
+
+      {/* Live order status — the guest sees cooking → served without asking staff */}
+      {orderId && orderStatus && STATUS_BANNER[orderStatus] && (
+        <div style={{ background: STATUS_BANNER[orderStatus]!.bg, color: STATUS_BANNER[orderStatus]!.fg, padding: "10px 16px", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #f0f0f0" }}>
+          {orderStatus === "kot_sent" && (
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block", animation: "pulse 1.5s ease-in-out infinite" }} />
+          )}
+          {STATUS_BANNER[orderStatus]!.label}
+        </div>
+      )}
 
       {/* "Your order so far" collapsible — shown once items have been sent */}
       {sentItems.length > 0 && (
@@ -424,7 +465,7 @@ export default function QrMenuPage() {
         </div>
       )}
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }`}</style>
     </div>
   )
 }

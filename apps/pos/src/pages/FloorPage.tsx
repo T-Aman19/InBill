@@ -87,7 +87,7 @@ function initials(name: string) {
 const TONE: Record<TableStatus, string>  = { available: "green", occupied: "amber", billed: "red", reserved: "blue" }
 const LABEL: Record<TableStatus, string> = { available: "Free", occupied: "Open", billed: "Bill ready", reserved: "Reserved" }
 
-function TableCard({ table, onClick }: { table: Table; onClick: () => void }) {
+function TableCard({ table, onClick, onFree }: { table: Table; onClick: () => void; onFree?: () => void }) {
   const tone     = TONE[table.status]
   const isBilled = table.status === "billed"
   const isOpen   = table.status === "occupied"
@@ -146,7 +146,23 @@ function TableCard({ table, onClick }: { table: Table; onClick: () => void }) {
 
         <div style={{ marginTop: "auto", paddingTop: 10 }}>
           {isFree && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>Tap to seat guests</div>}
-          {isRes  && <div style={{ fontSize: 12, color: "var(--color-blue)" }}>Reserved</div>}
+          {isRes && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 12, color: "var(--color-blue)" }}>Reserved · tap to order</div>
+              {onFree && (
+                // Guest never ordered and left — free the table without starting an order.
+                // (span, not button: nested buttons are invalid HTML)
+                <span
+                  role="button"
+                  onClick={(e) => { e.stopPropagation(); onFree() }}
+                  title="Guest left — mark this table free"
+                  style={{ fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)", border: "1px solid var(--color-line-strong)", borderRadius: 6, padding: "2px 8px", cursor: "pointer" }}
+                >
+                  Mark free
+                </span>
+              )}
+            </div>
+          )}
           {(isOpen || isBilled) && table.openedAt && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>
@@ -427,6 +443,13 @@ export default function FloorPage() {
 
   const isManagerOrOwner = user?.role === "manager" || user?.role === "owner"
 
+  // Free a reserved table whose guest left without ordering (escape hatch —
+  // otherwise the table would stay "reserved" forever).
+  const freeTableMutation = useMutation({
+    mutationFn: (tableId: string) => api.tables.updateTable(tableId, { status: "available" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tables"] }),
+  })
+
   // First-run guided tour — auto-start once, then never again unless replayed.
   useEffect(() => {
     if (!user) return
@@ -509,7 +532,9 @@ export default function FloorPage() {
     billed: tables.filter((t) => t.status === "billed").length,
   }
   const lowStockCount    = lowStockData?.count ?? 0
-  const displaySetupCode = setupCode ?? outlet?.setupCode ?? null
+  // Canonical setup code from the outlet record wins over the value typed at
+  // device setup (which may differ in casing and is persisted across sessions).
+  const displaySetupCode = outlet?.setupCode ?? setupCode ?? null
 
   function copyCode() {
     if (!displaySetupCode) return
@@ -737,7 +762,14 @@ export default function FloorPage() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 12 }}>
                   {floorTables.map((table) => (
-                    <TableCard key={table.id} table={table} onClick={() => handleTableClick(table)} />
+                    <TableCard
+                      key={table.id}
+                      table={table}
+                      onClick={() => handleTableClick(table)}
+                      onFree={isManagerOrOwner && table.status === "reserved"
+                        ? () => freeTableMutation.mutate(table.id)
+                        : undefined}
+                    />
                   ))}
                 </div>
               </div>

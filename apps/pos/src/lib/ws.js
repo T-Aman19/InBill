@@ -5,12 +5,26 @@ class WsClient {
     shouldConnect = false;
     outletId = "";
     connect(outletId) {
+        const changedOutlet = outletId !== undefined && outletId !== this.outletId;
         if (outletId)
             this.outletId = outletId;
         this.shouldConnect = true;
+        // Reuse an existing socket unless the outlet changed — avoids stacking
+        // duplicate connections (and duplicate event delivery) on repeated connect() calls.
+        if (this.ws && !changedOutlet && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))
+            return;
+        if (changedOutlet && this.ws) {
+            this.ws.onclose = null;
+            this.ws.close();
+            this.ws = null;
+        }
         this._connect();
     }
     _connect() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         const isEmbedded = location.protocol === "tauri:" || location.port === "5173";
         const wsHost = isEmbedded ? "localhost:3000" : location.host;
         const proto = location.protocol === "https:" ? "wss" : "ws";

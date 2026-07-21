@@ -87,7 +87,7 @@ export default function LoginPage() {
     function back() { setPin((p) => p.slice(0, -1)); setError(""); }
     function clear() { setPin(""); setError(""); }
     async function saveOutlet() {
-        const code = tmpCode.trim();
+        const code = tmpCode.trim().toUpperCase();
         if (!code)
             return;
         setSaving(true);

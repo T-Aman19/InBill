@@ -29,6 +29,8 @@ export const reservations = pgTable("reservations", {
   partySize: integer("party_size").notNull(),
   reservedFor: timestamp("reserved_for", { withTimezone: true }).notNull(),
   tableId: uuid("table_id").references(() => tables.id),
+  // Linked when the reservation is seated — carries the guest onto the order (and loyalty)
+  customerId: uuid("customer_id").references(() => customers.id),
   status: reservationStatusEnum("status").notNull().default("pending"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

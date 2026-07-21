@@ -206,6 +206,18 @@ impl PgAccess {
     }
 
     ///
+    /// Clear the acquisition marker after a failed acquisition
+    ///
+    /// Without this, a failed download leaves the status `InProgress` forever and
+    /// any retry inside the same process spins in `acquisition_needed`'s wait loop.
+    ///
+    pub async fn mark_acquisition_failed(&self) -> PgResult<()> {
+        let mut lock = ACQUIRED_PG_BINS.lock().await;
+        lock.remove(&self.cache_dir);
+        Ok(())
+    }
+
+    ///
     /// Check postgresql acquisition status
     ///
     pub async fn acquisition_status(&self) -> PgAcquisitionStatus {

@@ -8,6 +8,7 @@ import { users, owners, outlets, ownerPasswordResets } from "../db/schema/index.
 import { signToken, requireAuth } from "../middleware/auth.js"
 import { config } from "../config.js"
 import { sendPasswordResetEmail } from "../lib/email.js"
+import { verifyPin, hashPin, isHashed } from "../lib/pin.js"
 
 export const authRouter = new Hono<AppEnv>()
 
@@ -15,11 +16,22 @@ export const authRouter = new Hono<AppEnv>()
 authRouter.post("/login", zValidator("json", loginSchema), async (c) => {
   const { pin, outletId } = c.req.valid("json")
 
-  const user = await db.query.users.findFirst({
-    where: and(eq(users.outletId, outletId), eq(users.pin, pin), eq(users.isActive, true)),
+  // PINs are hashed at rest, so we can't look up by equality — verify against
+  // each active staff member (legacy plaintext PINs are accepted and upgraded).
+  const candidates = await db.query.users.findMany({
+    where: and(eq(users.outletId, outletId), eq(users.isActive, true)),
   })
+  let user = null
+  for (const u of candidates) {
+    if (await verifyPin(pin, u.pin)) { user = u; break }
+  }
 
   if (!user) return c.json({ error: "Invalid PIN" }, 401)
+
+  // Opportunistically upgrade a legacy plaintext PIN to a hash
+  if (user.pin && !isHashed(user.pin)) {
+    await db.update(users).set({ pin: await hashPin(pin) }).where(eq(users.id, user.id))
+  }
 
   const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
   if (!outlet) return c.json({ error: "Outlet not found" }, 404)
@@ -120,7 +132,13 @@ authRouter.post("/owner/forgot-password", zValidator("json", forgotPasswordSchem
   const expiresAt = new Date(Date.now() + 60 * 60_000) // 1 hour
   await db.insert(ownerPasswordResets).values({ ownerId: owner.id, tokenHash, expiresAt })
 
-  await sendPasswordResetEmail(email, rawToken)
+  // A send failure (e.g. missing/invalid RESEND_API_KEY) must not turn into a
+  // 500 — that both breaks the flow and leaks which emails have accounts.
+  try {
+    await sendPasswordResetEmail(email, rawToken)
+  } catch (e) {
+    console.error("[auth] password reset email failed:", e)
+  }
   return c.json({ ok: true })
 })
 

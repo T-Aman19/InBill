@@ -6,8 +6,9 @@ import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
 
-type Category         = { id: string; name: string; sortOrder: number }
-type MenuItem         = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean }
+type Category         = { id: string; name: string; sortOrder: number; scheduleId?: string | null }
+type MenuItem         = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; scheduleId?: string | null }
+type MenuScheduleInfo = { id: string; name: string; startTime: string; endTime: string; isActive: boolean; activeNow: boolean }
 type ItemVariant      = { id: string; itemId: string; name: string; price: string; isActive: boolean }
 type ModifierGroup    = { id: string; name: string; required: boolean; multiSelect: boolean }
 type Modifier         = { id: string; groupId: string; name: string; price: string; isActive: boolean }
@@ -62,6 +63,7 @@ export default function OrderPage() {
       categories: Category[]; items: MenuItem[]
       variants: ItemVariant[]; modifierGroups: ModifierGroup[]
       modifiers: Modifier[]; itemModifierGroups: ItemModLink[]
+      schedules: MenuScheduleInfo[]
     }>,
   })
 
@@ -96,6 +98,14 @@ export default function OrderPage() {
     })
     return unsub
   }, [currentOrderId, qc])
+
+  // An item 86'd (or re-enabled) on another terminal should update this menu live
+  useEffect(() => {
+    const unsub = ws.on("item.availability", () => {
+      qc.invalidateQueries({ queryKey: ["menu"] })
+    })
+    return unsub
+  }, [qc])
 
   const addItemMutation = useMutation({
     mutationFn: async (params: { menuItemId: string; variantId?: string; modifiers?: string[] }) => {
@@ -223,12 +233,22 @@ export default function OrderPage() {
   const categories     = menu?.categories ?? []
   const menuItemById   = new Map((menu?.items ?? []).map((m) => [m.id, m]))
 
+  // Hide items whose schedule window (own or category's) is closed right now —
+  // the server rejects them on add anyway; this keeps the grid honest.
+  const scheduleById = new Map((menu?.schedules ?? []).map((s) => [s.id, s]))
+  const categoryScheduleId = new Map((menu?.categories ?? []).map((c) => [c.id, c.scheduleId ?? null]))
+  const inScheduleWindow = (i: MenuItem) => {
+    const sid = i.scheduleId ?? categoryScheduleId.get(i.categoryId) ?? null
+    const s = sid ? scheduleById.get(sid) : null
+    return !s || !s.isActive || s.activeNow
+  }
+
   const menuItemsFiltered = (menu?.items ?? []).filter(
-    (i) => i.categoryId === activeCat && i.isAvailable &&
+    (i) => i.categoryId === activeCat && i.isAvailable && inScheduleWindow(i) &&
            (search === "" || i.name.toLowerCase().includes(search.toLowerCase()))
   )
   const searchResults = search !== "" ? (menu?.items ?? []).filter(
-    (i) => i.isAvailable && i.name.toLowerCase().includes(search.toLowerCase())
+    (i) => i.isAvailable && inScheduleWindow(i) && i.name.toLowerCase().includes(search.toLowerCase())
   ) : []
 
   const pendingItemVariants = pendingItem ? (menu?.variants ?? []).filter((v) => v.itemId === pendingItem.id && v.isActive) : []
@@ -450,12 +470,21 @@ export default function OrderPage() {
             </div>
           )}
 
-          {/* Done (ready) items — collapsible hint row */}
+          {/* Done (ready) items */}
           {doneItems.length > 0 && (
-            <div style={{ padding: "8px 18px", borderBottom: "1px solid var(--color-line)", background: "var(--color-green-soft)", flexShrink: 0 }}>
-              <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--color-green)" }}>
+            <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--color-line)", background: "var(--color-green-soft)", flexShrink: 0 }}>
+              <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--color-green)", marginBottom: 6 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7"/></svg>
                 {doneItems.reduce((s, i) => s + i.quantity, 0)} items ready
+              </div>
+              <div className="scroll" style={{ maxHeight: 130, overflowY: "auto" }}>
+                {doneItems.map((line) => (
+                  <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: "var(--color-ink-2)" }}>
+                    <span style={{ minWidth: 22, fontFamily: "var(--font-mono)", flexShrink: 0 }}>{line.quantity}×</span>
+                    <span style={{ flex: 1, lineHeight: 1.2 }}>{line.name}{line.variantName ? ` (${line.variantName})` : ""}</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{formatCurrency(String(Number(line.unitPrice) * line.quantity))}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

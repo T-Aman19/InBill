@@ -6,6 +6,7 @@ import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { bills, menuItems, categories, stockMovements, voidedItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { dayStart, dayEnd, localHour } from "../lib/dateRange.js"
 
 type TaxLine = { name: string; rate: number; amount: number }
 
@@ -21,8 +22,9 @@ reportsRouter.get("/summary", zValidator("query", dateRangeSchema), async (c) =>
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
     with: { payments: true },
   })
@@ -55,20 +57,22 @@ reportsRouter.get("/items", zValidator("query", dateRangeSchema), async (c) => {
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
-    with: { order: { with: { items: true } } },
+    with: { order: { with: { items: { with: { modifiers: true } } } } },
   })
 
   const itemMap = new Map<string, { name: string; quantity: number; revenue: number }>()
   for (const bill of paidBills) {
     for (const item of bill.order.items.filter((i) => !i.isVoided)) {
+      const modTotal = item.modifiers.reduce((s, m) => s + Number(m.price), 0)
       const prev = itemMap.get(item.menuItemId) ?? { name: item.name, quantity: 0, revenue: 0 }
       itemMap.set(item.menuItemId, {
         name: item.name,
         quantity: prev.quantity + item.quantity,
-        revenue: prev.revenue + Number(item.unitPrice) * item.quantity,
+        revenue: prev.revenue + (Number(item.unitPrice) + modTotal) * item.quantity,
       })
     }
   }
@@ -89,10 +93,11 @@ reportsRouter.get("/categories", zValidator("query", dateRangeSchema), async (c)
       where: and(
         eq(bills.outletId, outletId),
         eq(bills.isPaid, true),
-        gte(bills.createdAt, new Date(from)),
-        lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+        eq(bills.isVoided, false),
+        gte(bills.createdAt, dayStart(from)),
+        lte(bills.createdAt, dayEnd(to)),
       ),
-      with: { order: { with: { items: true } } },
+      with: { order: { with: { items: { with: { modifiers: true } } } } },
     }),
     db.query.menuItems.findMany({ where: eq(menuItems.outletId, outletId) }),
     db.query.categories.findMany({ where: eq(categories.outletId, outletId) }),
@@ -130,8 +135,9 @@ reportsRouter.get("/gstr1", zValidator("query", dateRangeSchema), async (c) => {
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
   })
 
@@ -187,8 +193,9 @@ reportsRouter.get("/bills/export", zValidator("query", dateRangeSchema), async (
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
     with: { order: { with: { items: true } }, payments: true },
     orderBy: (b, { asc }) => [asc(b.createdAt)],
@@ -247,14 +254,15 @@ reportsRouter.get("/food-cost", zValidator("query", dateRangeSchema), async (c) 
   const { outletId } = c.get("user")
   const { from, to } = c.req.valid("query")
 
-  const fromDate = new Date(from)
-  const toDate = new Date(to + "T23:59:59Z")
+  const fromDate = dayStart(from)
+  const toDate = dayEnd(to)
 
   // Revenue from paid bills in the period
   const paidBills = await db.query.bills.findMany({
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
+      eq(bills.isVoided, false),
       gte(bills.createdAt, fromDate),
       lte(bills.createdAt, toDate),
     ),
@@ -311,14 +319,15 @@ reportsRouter.get("/hourly", async (c) => {
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(date + "T00:00:00Z")),
-      lte(bills.createdAt, new Date(date + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(date)),
+      lte(bills.createdAt, dayEnd(date)),
     ),
   })
 
   const hourly = Array.from({ length: 24 }, (_, h) => ({ hour: h, revenue: 0, count: 0 }))
   for (const bill of paidBills) {
-    const h = new Date(bill.createdAt).getUTCHours()
+    const h = localHour(new Date(bill.createdAt))
     const slot = hourly[h]!
     slot.revenue += Number(bill.total)
     slot.count++
@@ -333,8 +342,8 @@ reportsRouter.get("/voids", zValidator("query", dateRangeSchema), async (c) => {
   const rows = await db.query.voidedItems.findMany({
     where: and(
       eq(voidedItems.outletId, outletId),
-      gte(voidedItems.createdAt, new Date(from)),
-      lte(voidedItems.createdAt, new Date(to + "T23:59:59Z")),
+      gte(voidedItems.createdAt, dayStart(from)),
+      lte(voidedItems.createdAt, dayEnd(to)),
     ),
     orderBy: (v, { desc }) => [desc(v.createdAt)],
   })
@@ -365,8 +374,9 @@ reportsRouter.get("/staff-performance", zValidator("query", dateRangeSchema), as
     where: and(
       eq(bills.outletId, outletId),
       eq(bills.isPaid, true),
-      gte(bills.createdAt, new Date(from)),
-      lte(bills.createdAt, new Date(to + "T23:59:59Z")),
+      eq(bills.isVoided, false),
+      gte(bills.createdAt, dayStart(from)),
+      lte(bills.createdAt, dayEnd(to)),
     ),
     columns: { id: true, total: true, createdById: true },
   })

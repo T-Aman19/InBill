@@ -47,7 +47,9 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
     enabled: isManagerOrOwner,
     staleTime: Infinity,
   })
-  const displaySetupCode = setupCode ?? outletData?.setupCode ?? null
+  // Canonical setup code from the outlet record wins over the value typed at
+  // device setup (which may differ in casing and is persisted across sessions).
+  const displaySetupCode = outletData?.setupCode ?? setupCode ?? null
 
   const nav = (to: NavId) => () => {
     const paths: Record<NavId, string> = { floor: "/floor", kds: "/kds", manager: "/manager", inventory: "/inventory" }
@@ -206,6 +208,22 @@ export function TopBar({ current, stats, onTakeaway, onDelivery }: Props) {
           <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.1, color: "var(--color-ink)" }}>{user?.name}</div>
           <div style={{ fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }}>{user?.role}</div>
         </div>
+        {/* Owners arrive in the POS via "switch outlet" — give them a way back
+            without typing the URL. The owner token is kept separately, so the
+            dashboard guard still passes. */}
+        {user?.role === "owner" && localStorage.getItem("inbill_owner_token") && (
+          <button
+            onClick={() => navigate({ to: "/owner/dashboard" })}
+            title="Back to owner dashboard"
+            style={{
+              background: "transparent", border: "1px solid var(--color-line)",
+              color: "var(--color-ink-2)", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+              height: 28, padding: "0 10px", borderRadius: 8, cursor: "pointer",
+            }}
+          >
+            Dashboard
+          </button>
+        )}
         <button
           onClick={() => { logout(); navigate({ to: "/login" }) }}
           title="Logout"

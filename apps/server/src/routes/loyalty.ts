@@ -5,7 +5,7 @@ import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { loyaltyPrograms, customerPoints, pointTransactions } from "../db/schema/index.js"
-import { customers, bills, orders } from "../db/schema/index.js"
+import { customers, bills, orders, billPayments, billDiscounts } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { phoneSchema } from "@inbill/shared"
 
@@ -120,11 +120,25 @@ loyaltyRouter.post("/redeem", requireRole("owner", "manager", "cashier"), zValid
   if (!bill) return c.json({ error: "Bill not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Bill is already paid" }, 400)
 
+  // Can't redeem once payment collection has started — it would desync the total from what's paid
+  const payments = await db.query.billPayments.findMany({ where: eq(billPayments.billId, billId) })
+  if (payments.length > 0) return c.json({ error: "Cannot redeem after payment has started" }, 400)
+
+  // Cap the redemption to the bill's remaining discountable value so points aren't
+  // burned for value the bill can't absorb (total would just clamp to 0).
+  const existingLines = await db.query.billDiscounts.findMany({ where: eq(billDiscounts.billId, billId) })
+  const existingDiscount = existingLines.reduce((s, l) => s + Number(l.amount), 0)
+  const billValue = Math.max(0, Number(bill.subtotal) + Number(bill.taxTotal) - existingDiscount)
+  if (billValue <= 0) return c.json({ error: "Bill is already fully discounted" }, 400)
+
   // redeemRate = points per rupee of discount (e.g. 100 pts = ₹10 → rate = 100/10 = 10 pts/₹)
-  const discountRupees = parseFloat((points / Number(program.redeemRate)).toFixed(2))
+  const requestedRupees = points / Number(program.redeemRate)
+  const discountRupees = parseFloat(Math.min(requestedRupees, billValue).toFixed(2))
+  // Only consume the points actually applied (never more than requested)
+  const pointsUsed = Math.min(points, Math.ceil(discountRupees * Number(program.redeemRate)))
 
   // Deduct points from balance
-  const newBalance = cpRow.totalPoints - points
+  const newBalance = cpRow.totalPoints - pointsUsed
   await db
     .update(customerPoints)
     .set({ totalPoints: newBalance, updatedAt: new Date() })
@@ -136,35 +150,30 @@ loyaltyRouter.post("/redeem", requireRole("owner", "manager", "cashier"), zValid
   await db.insert(pointTransactions).values({
     outletId,
     customerId,
-    delta: -points,
+    delta: -pointsUsed,
     type: "redeem",
     billId,
-    note: `Redeemed ${points} pts for ₹${discountRupees} off`,
+    note: `Redeemed ${pointsUsed} pts for ₹${discountRupees} off`,
   })
 
   // Apply discount line to bill
-  const { billDiscounts } = await import("../db/schema/index.js")
   const [line] = await db
     .insert(billDiscounts)
-    .values({ billId, label: `Loyalty (${points} pts)`, amount: String(discountRupees) })
+    .values({ billId, label: `Loyalty (${pointsUsed} pts)`, amount: String(discountRupees) })
     .returning()
 
   // Recompute bill total
-  const allLines = await db.query.billDiscounts.findMany({ where: eq(billDiscounts.billId, billId) })
-  const totalDiscount = allLines.reduce((s, l) => s + Number(l.amount), 0)
+  const totalDiscount = existingDiscount + discountRupees
   const newTotal = Math.max(0, Number(bill.subtotal) + Number(bill.taxTotal) - totalDiscount)
   await db.update(bills).set({ discountAmount: String(totalDiscount.toFixed(2)), total: String(newTotal.toFixed(2)) }).where(eq(bills.id, billId))
 
-  return c.json({ ok: true, pointsDeducted: points, discountApplied: discountRupees, newBalance, discountLineId: line?.id })
+  return c.json({ ok: true, pointsDeducted: pointsUsed, discountApplied: discountRupees, newBalance, discountLineId: line?.id })
 })
 
 // GET /api/loyalty/bill/:billId — customer + points for the bill (used by BillingPage)
 loyaltyRouter.get("/bill/:billId", async (c) => {
   const { outletId } = c.get("user")
   const billId = c.req.param("billId")
-
-  const program = await db.query.loyaltyPrograms.findFirst({ where: and(eq(loyaltyPrograms.outletId, outletId), eq(loyaltyPrograms.isActive, true)) })
-  if (!program) return c.json(null)
 
   const bill = await db.query.bills.findFirst({ where: and(eq(bills.id, billId), eq(bills.outletId, outletId)), columns: { orderId: true, total: true } })
   if (!bill) return c.json(null)
@@ -175,15 +184,20 @@ loyaltyRouter.get("/bill/:billId", async (c) => {
   const customer = await db.query.customers.findFirst({ where: eq(customers.id, order.customerId) })
   if (!customer) return c.json(null)
 
+  // The linked customer is returned even without an active loyalty program —
+  // the billing page uses this to show who the bill belongs to. Loyalty
+  // fields are zeroed and `program` is null when no program is configured.
+  const program = await db.query.loyaltyPrograms.findFirst({ where: and(eq(loyaltyPrograms.outletId, outletId), eq(loyaltyPrograms.isActive, true)) })
+
   const cp = await db.query.customerPoints.findFirst({ where: and(eq(customerPoints.outletId, outletId), eq(customerPoints.customerId, order.customerId)) })
 
   const totalPoints    = cp?.totalPoints    ?? 0
   const lifetimePoints = cp?.lifetimePoints ?? 0
   const tier           = cp?.tier ?? "bronze"
-  const pointsToEarn   = Math.floor(Number(bill.total) * Number(program.pointsPerRupee))
-  const redeemValue    = parseFloat((totalPoints / Number(program.redeemRate)).toFixed(2))
+  const pointsToEarn   = program ? Math.floor(Number(bill.total) * Number(program.pointsPerRupee)) : 0
+  const redeemValue    = program ? parseFloat((totalPoints / Number(program.redeemRate)).toFixed(2)) : 0
 
-  return c.json({ customer, totalPoints, lifetimePoints, tier, pointsToEarn, redeemValue, program })
+  return c.json({ customer, totalPoints, lifetimePoints, tier, pointsToEarn, redeemValue, program: program ?? null })
 })
 
 // GET /api/loyalty/top-customers?limit=20

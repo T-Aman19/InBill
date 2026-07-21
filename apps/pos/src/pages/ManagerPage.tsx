@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { QRCode } from "react-qr-code"
-import { api } from "@/lib/api"
-import { formatCurrency } from "@/lib/utils"
+import { api, ApiError, type ExtractedMenu, type ExtractedItem } from "@/lib/api"
+import { ws } from "@/lib/ws"
+import { formatCurrency, triggerPrint } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
 import { LogoMark } from "@/components/ui/LogoMark"
 
@@ -11,13 +12,14 @@ import { LogoMark } from "@/components/ui/LogoMark"
 type Staff = { id: string; name: string; role: string; isActive: boolean }
 type EditRecord = { _new?: boolean; id?: string; name: string; role: string; pin: string; isActive: boolean }
 
-type Category = { id: string; name: string; sortOrder: number; isActive: boolean }
-type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string; hsnCode?: string; taxConfigId?: string | null }
+type Category = { id: string; name: string; sortOrder: number; isActive: boolean; scheduleId?: string | null }
+type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null }
+type MenuSchedule = { id: string; name: string; days: number[]; startTime: string; endTime: string; percentOff: string; isActive: boolean; activeNow?: boolean }
 type ItemVariant = { id: string; itemId: string; name: string; price: string; isActive: boolean }
 type ModifierGroup = { id: string; name: string; required: boolean; multiSelect: boolean; minSelect: number; maxSelect?: number | null }
 type Modifier = { id: string; groupId: string; name: string; price: string; isActive: boolean }
 type ItemModifierGroupLink = { itemId: string; groupId: string }
-type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null }
+type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null }
 
 type DiscountRow = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; validFrom?: string | null; validTo?: string | null; usageLimit?: number | null; usageCount: number; isActive: boolean }
 
@@ -35,7 +37,7 @@ const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green", host: "gray" }
 const WEAK_PINS = new Set(["0000","1111","2222","3333","4444","5555","6666","7777","8888","9999","1234","4321","1212","0101","1122"])
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only", host: "Queue & seating" }
-type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "shifts" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
+type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "schedules" | "shifts" | "bills" | "dayclose" | "activity" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -220,8 +222,8 @@ function StaffTab() {
 }
 
 // ── Menu tab ─────────────────────────────────────────────────────────────────
-function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
-  item: EditItem; categories: Category[]; taxConfigs: TaxConfig[]
+function ItemEditPanel({ item, categories, taxConfigs, schedules, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
+  item: EditItem; categories: Category[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[]
   variants: ItemVariant[]; allModifierGroups: ModifierGroup[]; itemModifierGroupLinks: ItemModifierGroupLink[]
   onClose: () => void; onSaved: () => void
 }) {
@@ -234,6 +236,7 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
   const [desc, setDesc] = useState(item.description)
   const [hsnCode, setHsnCode] = useState(item.hsnCode ?? "")
   const [taxConfigId, setTaxConfigId] = useState(item.taxConfigId ?? "")
+  const [scheduleId, setScheduleId] = useState(item.scheduleId ?? "")
   const [newVarName, setNewVarName] = useState("")
   const [newVarPrice, setNewVarPrice] = useState("")
   const [generatingDesc, setGeneratingDesc] = useState(false)
@@ -259,7 +262,7 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["menu"] }); onSaved() }
 
-  const itemPayload = () => ({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined, hsnCode: hsnCode.trim() || undefined, taxConfigId: taxConfigId || null })
+  const itemPayload = () => ({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined, hsnCode: hsnCode.trim() || undefined, taxConfigId: taxConfigId || null, scheduleId: scheduleId || null })
   const createMutation = useMutation({ mutationFn: () => api.menu.createItem(itemPayload()), onSuccess: () => { invalidate(); onClose() } })
   const updateMutation = useMutation({ mutationFn: () => api.menu.updateItem(item.id!, itemPayload()), onSuccess: () => { invalidate(); onClose() } })
   const addVariantMutation = useMutation({
@@ -320,6 +323,14 @@ function ItemEditPanel({ item, categories, taxConfigs, variants, allModifierGrou
             </select>
           ))}
         </div>
+        {schedules.length > 0 && field("Availability schedule (optional)", (
+          <select value={scheduleId} onChange={(e) => setScheduleId(e.target.value)} style={{ ...inputStyle(), appearance: "none" }}>
+            <option value="">Always available (or category schedule)</option>
+            {schedules.filter((s) => s.isActive).map((s) => (
+              <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime}{Number(s.percentOff) > 0 ? `, ${Number(s.percentOff)}% off` : ""})</option>
+            ))}
+          </select>
+        ))}
       </form>
 
       {/* Variants — only shown when editing an existing item */}
@@ -378,13 +389,15 @@ function MenuTab() {
   const [editingCatId, setEditingCatId] = useState<string | null>(null)
   const [editingCatName, setEditingCatName] = useState("")
   const [hoveredCatId, setHoveredCatId] = useState<string | null>(null)
+  const [showImport, setShowImport] = useState(false)
 
-  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[]; taxConfigs: TaxConfig[] }> })
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[] }> })
   const cats = menu?.categories ?? []
   const items = menu?.items ?? []
   const allModifierGroups = menu?.modifierGroups ?? []
   const itemModifierGroupLinks = menu?.itemModifierGroups ?? []
   const taxConfigs = (menu?.taxConfigs ?? []) as TaxConfig[]
+  const schedules = menu?.schedules ?? []
   const activeCat = selectedCatId ?? cats.find((c) => c.isActive)?.id ?? null
   const visibleItems = items.filter((i) => i.categoryId === activeCat)
 
@@ -403,9 +416,14 @@ function MenuTab() {
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Menu</h3>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>{items.length} items across {cats.filter((c) => c.isActive).length} categories</div>
         </div>
-        <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "", hsnCode: "", taxConfigId: null })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>Add item
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowImport(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-surface)", border: "1px solid var(--color-line-strong)", color: "var(--color-ink)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import from image/PDF
+          </button>
+          <button onClick={() => setEditingItem({ _new: true, categoryId: activeCat ?? "", name: "", basePrice: "0", isVeg: true, description: "", hsnCode: "", taxConfigId: null })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>Add item
+          </button>
+        </div>
       </div>
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Category sidebar */}
@@ -456,7 +474,17 @@ function MenuTab() {
 
         {/* Items list */}
         <div className="scroll" style={{ flex: 1 }}>
-          {visibleItems.length === 0 ? (
+          {cats.length === 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 14, color: "var(--color-ink-3)", padding: 24, textAlign: "center" }}>
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v13a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></svg>
+              <div style={{ fontSize: 15, color: "var(--color-ink-2)" }}>Your menu is empty</div>
+              <div style={{ fontSize: 12, maxWidth: 280 }}>Already have a printed or PDF menu? Import it instead of typing everything by hand.</div>
+              <button onClick={() => setShowImport(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import from image/PDF
+              </button>
+              <button onClick={() => setAddingCat(true)} style={{ fontSize: 12, color: "var(--color-ink-3)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>or add a category manually</button>
+            </div>
+          ) : visibleItems.length === 0 ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: "var(--color-ink-3)" }}>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h9l4 4v13a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></svg>
               <div style={{ fontSize: 14 }}>No items in this category</div>
@@ -484,7 +512,7 @@ function MenuTab() {
                     </button>
                   </span>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
-                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "", hsnCode: item.hsnCode ?? "", taxConfigId: item.taxConfigId ?? null })} title="Edit" />
+                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "", hsnCode: item.hsnCode ?? "", taxConfigId: item.taxConfigId ?? null, scheduleId: item.scheduleId ?? null })} title="Edit" />
                     <ActionBtn onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteItemMutation.mutate(item.id) }} title="Delete" danger />
                   </div>
                 </div>
@@ -493,8 +521,153 @@ function MenuTab() {
           )}
         </div>
       </div>
-      {editingItem && <ItemEditPanel item={editingItem} categories={cats} taxConfigs={taxConfigs} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
+      {editingItem && <ItemEditPanel item={editingItem} categories={cats} taxConfigs={taxConfigs} schedules={schedules} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
+      {showImport && <MenuImportModal onClose={() => setShowImport(false)} onImported={invalidate} />}
     </>
+  )
+}
+
+// ── Menu import (image/PDF → Gemini extraction) ──────────────────────────────
+type ImportStep = "upload" | "extracting" | "review" | "committing"
+
+function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [step, setStep] = useState<ImportStep>("upload")
+  const [error, setError] = useState("")
+  const [menu, setMenu] = useState<ExtractedMenu | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const extractMutation = useMutation({
+    mutationFn: (file: File) => api.menu.importExtract(file),
+    onMutate: () => { setStep("extracting"); setError("") },
+    onSuccess: (data) => { setMenu(data); setStep("review") },
+    onError: (e: unknown) => { setError(e instanceof ApiError ? e.message : "Extraction failed — please try again"); setStep("upload") },
+  })
+
+  const commitMutation = useMutation({
+    mutationFn: () => api.menu.importCommit({ categories: (menu?.categories ?? []).filter((c) => c.items.length > 0) }),
+    onMutate: () => { setStep("committing"); setError("") },
+    onSuccess: () => { onImported(); onClose() },
+    onError: (e: unknown) => { setError(e instanceof ApiError ? e.message : "Import failed — please try again"); setStep("review") },
+  })
+
+  function handleFile(file: File) {
+    setError("")
+    if (file.size > 15 * 1024 * 1024) { setError("File too large (max 15MB)"); return }
+    if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)) { setError("Upload a JPEG, PNG, WebP, or PDF"); return }
+    extractMutation.mutate(file)
+  }
+
+  function updateItem(catIdx: number, itemIdx: number, patch: Partial<ExtractedItem>) {
+    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.map((it, ii) => (ii !== itemIdx ? it : { ...it, ...patch })) })) })
+  }
+  function deleteItem(catIdx: number, itemIdx: number) {
+    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, items: c.items.filter((_, ii) => ii !== itemIdx) })) })
+  }
+  function updateCategoryName(catIdx: number, name: string) {
+    setMenu((m) => m && { categories: m.categories.map((c, ci) => (ci !== catIdx ? c : { ...c, name })) })
+  }
+  function deleteCategory(catIdx: number) {
+    setMenu((m) => m && { categories: m.categories.filter((_, ci) => ci !== catIdx) })
+  }
+  function deleteVariant(catIdx: number, itemIdx: number, vIdx: number) {
+    const item = menu?.categories[catIdx]?.items[itemIdx]
+    if (!item) return
+    updateItem(catIdx, itemIdx, { variants: item.variants.filter((_, vi) => vi !== vIdx) })
+  }
+
+  const totalItems = menu?.categories.reduce((n, c) => n + c.items.length, 0) ?? 0
+  const isBusy = step === "extracting" || step === "committing"
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }} onClick={isBusy ? undefined : onClose}>
+      <div style={{ background: "var(--color-surface)", borderRadius: 20, width: "min(720px, 92vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-3)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 600 }}>Import menu</div>
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>
+              {step === "upload" && "Upload a photo or PDF of your existing menu"}
+              {step === "extracting" && "Reading your menu…"}
+              {step === "review" && `Review ${totalItems} item${totalItems !== 1 ? "s" : ""} across ${menu?.categories.length ?? 0} categories before pushing`}
+              {step === "committing" && "Adding to your menu…"}
+            </div>
+          </div>
+          <button onClick={onClose} disabled={isBusy} style={{ background: "transparent", border: "none", color: "var(--color-ink-3)", cursor: isBusy ? "default" : "pointer", padding: 6, borderRadius: 8, display: "flex", opacity: isBusy ? .3 : 1 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div className="scroll" style={{ flex: 1, padding: 24, overflow: "auto" }}>
+          {(step === "upload" || step === "extracting") && (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+              style={{ border: "2px dashed var(--color-line-strong)", borderRadius: 16, padding: "48px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center", opacity: step === "extracting" ? .5 : 1, pointerEvents: step === "extracting" ? "none" : "auto" }}
+            >
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <div style={{ fontSize: 14, color: "var(--color-ink-2)" }}>Drag a menu photo or PDF here, or</div>
+              <button onClick={() => fileInputRef.current?.click()} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>
+                Choose file
+              </button>
+              <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>JPEG, PNG, WebP, or PDF · up to 15MB</div>
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            </div>
+          )}
+          {step === "extracting" && (
+            <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "var(--color-ink-3)" }}>This can take up to 20 seconds for multi-page menus…</div>
+          )}
+          {error && <div style={{ marginTop: 14, fontSize: 13, color: "var(--color-red)", background: "var(--color-red-soft)", borderRadius: 10, padding: "10px 14px" }}>{error}</div>}
+
+          {(step === "review" || step === "committing") && menu && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, opacity: step === "committing" ? .5 : 1, pointerEvents: step === "committing" ? "none" : "auto" }}>
+              {menu.categories.map((cat, ci) => (
+                <div key={ci} style={{ border: "1px solid var(--color-line)", borderRadius: 14, overflow: "hidden" }}>
+                  <div style={{ padding: "10px 14px", background: "var(--color-surface-2)", display: "flex", alignItems: "center", gap: 8 }}>
+                    <input value={cat.name} onChange={(e) => updateCategoryName(ci, e.target.value)} style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 14, fontWeight: 600, color: "var(--color-ink)", fontFamily: "inherit" }} />
+                    <span style={{ fontSize: 11, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{cat.items.length} items</span>
+                    <ActionBtn onClick={() => deleteCategory(ci)} title="Delete" danger />
+                  </div>
+                  <div>
+                    {cat.items.map((item, ii) => (
+                      <div key={ii} style={{ padding: "12px 14px", borderTop: "1px solid var(--color-line)", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <button onClick={() => updateItem(ci, ii, { isVeg: !item.isVeg })} title="Toggle veg/non-veg" style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, display: "flex" }}>
+                            <span className={`veg-dot ${item.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
+                          </button>
+                          <input value={item.name} onChange={(e) => updateItem(ci, ii, { name: e.target.value })} style={{ flex: 1, height: 34, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                          <input type="number" min="0" step="1" value={item.price} onChange={(e) => updateItem(ci, ii, { price: Number(e.target.value) || 0 })} style={{ width: 90, height: 34, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, fontFamily: "var(--font-mono)", outline: "none", textAlign: "right" }} />
+                          <ActionBtn onClick={() => deleteItem(ci, ii)} title="Delete" danger />
+                        </div>
+                        <input value={item.description ?? ""} onChange={(e) => updateItem(ci, ii, { description: e.target.value || null })} placeholder="Description (optional)" style={{ height: 30, padding: "0 10px", border: "1px solid var(--color-line)", borderRadius: 8, background: "transparent", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+                        {item.variants.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {item.variants.map((v, vi) => (
+                              <div key={vi} style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--color-surface-2)", borderRadius: 8, padding: "4px 8px" }}>
+                                <input value={v.name} onChange={(e) => updateItem(ci, ii, { variants: item.variants.map((vv, k) => (k === vi ? { ...vv, name: e.target.value } : vv)) })} style={{ width: 70, background: "transparent", border: "none", outline: "none", fontSize: 11, color: "var(--color-ink-2)", fontFamily: "inherit" }} />
+                                <input type="number" min="0" value={v.price} onChange={(e) => updateItem(ci, ii, { variants: item.variants.map((vv, k) => (k === vi ? { ...vv, price: Number(e.target.value) || 0 } : vv)) })} style={{ width: 56, background: "transparent", border: "none", outline: "none", fontSize: 11, color: "var(--color-ink-2)", fontFamily: "var(--font-mono)", textAlign: "right" }} />
+                                <button onClick={() => deleteVariant(ci, ii, vi)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--color-ink-3)", padding: 0, display: "flex" }}>
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {cat.items.length === 0 && <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--color-ink-3)" }}>No items left in this category — it will be skipped.</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: 18, borderTop: "1px solid var(--color-line)", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <CancelBtn onClose={onClose} />
+          {step === "review" && <SaveBtn onClick={() => commitMutation.mutate()} disabled={totalItems === 0} label={`Push ${totalItems} item${totalItems !== 1 ? "s" : ""} to menu`} />}
+          {step === "committing" && <SaveBtn disabled label="Adding…" />}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1425,10 +1598,37 @@ function ExpensesTab() {
     queryFn: () => api.cashEntries.list(from, to) as Promise<CashEntry[]>,
   })
 
+  // ── Shift drawer: open → record entries → close with reconciliation ────────
+  const [openingCash, setOpeningCash] = useState("")
+  const [closingCash, setClosingCash] = useState("")
+  const [showClose, setShowClose]     = useState(false)
+
+  const { data: shiftSummary, isLoading: shiftLoading } = useQuery({
+    queryKey: ["shift-summary"],
+    queryFn: () => api.shifts.summary(),
+    refetchInterval: 60_000,
+  })
+
+  const openShiftMutation = useMutation({
+    mutationFn: () => api.shifts.open(parseFloat(openingCash) || 0),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["shift-summary"] }); setOpeningCash("") },
+    onError: (e: Error) => alert(e.message || "Could not open shift"),
+  })
+  const closeShiftMutation = useMutation({
+    mutationFn: () => api.shifts.close(parseFloat(closingCash) || 0),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["shift-summary"] }); setClosingCash(""); setShowClose(false) },
+    onError: (e: Error) => alert(e.message || "Could not close shift"),
+  })
+
+  const expected = shiftSummary ? Number(shiftSummary.expectedCash) : 0
+  const counted  = parseFloat(closingCash)
+  const variance = Number.isFinite(counted) ? counted - expected : null
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ["cash-entries"] })
   const createMutation = useMutation({
     mutationFn: () => api.cashEntries.create({ type: entryType, amount: parseFloat(amount), note: note || undefined }),
-    onSuccess: () => { invalidate(); setAmount(""); setNote("") },
+    onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ["shift-summary"] }); setAmount(""); setNote("") },
+    onError: (e: Error) => alert(e.message || "Could not add entry"),
   })
   const deleteMutation = useMutation({ mutationFn: (id: string) => api.cashEntries.delete(id), onSuccess: invalidate })
 
@@ -1442,6 +1642,68 @@ function ExpensesTab() {
         <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Cash drawer in/out entries, linked to the open shift</div>
       </div>
       <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        {/* Shift drawer — open/close with expected-vs-counted reconciliation */}
+        {!shiftLoading && (
+          <div style={{ marginBottom: 20, padding: "16px 18px", background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 12 }}>
+            {!shiftSummary ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>No shift open</div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>Open a shift with the drawer's starting cash to record expenses and reconcile at close</div>
+                </div>
+                <input type="number" min="0" step="0.5" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="₹ Opening cash" style={{ ...inputStyle({ height: 38, width: 140, fontFamily: "var(--font-mono)" }) }} />
+                <button onClick={() => openShiftMutation.mutate()} disabled={openingCash === "" || openShiftMutation.isPending} style={{ height: 38, padding: "0 18px", borderRadius: 8, border: "none", background: "var(--color-green)", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: openingCash === "" ? .5 : 1 }}>
+                  {openShiftMutation.isPending ? "Opening…" : "Open shift"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--color-green)", display: "inline-block" }} />
+                      Shift open since {new Date(shiftSummary.shift.openedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>Opening float {formatCurrency(shiftSummary.shift.openingCash)}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--color-ink-2)", flexWrap: "wrap" }}>
+                    <span>Cash sales <b style={{ fontFamily: "var(--font-mono)" }}>{formatCurrency(shiftSummary.cashSales)}</b></span>
+                    <span>Card <b style={{ fontFamily: "var(--font-mono)" }}>{formatCurrency(shiftSummary.cardSales)}</b></span>
+                    <span>UPI <b style={{ fontFamily: "var(--font-mono)" }}>{formatCurrency(shiftSummary.upiSales)}</b></span>
+                    <span>In <b style={{ fontFamily: "var(--font-mono)", color: "var(--color-green)" }}>{formatCurrency(shiftSummary.cashIn)}</b></span>
+                    <span>Out <b style={{ fontFamily: "var(--font-mono)", color: "var(--color-red)" }}>{formatCurrency(shiftSummary.cashOut)}</b></span>
+                  </div>
+                  <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: "var(--color-ink-3)" }}>Expected in drawer</div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700 }}>{formatCurrency(shiftSummary.expectedCash)}</div>
+                  </div>
+                  {!showClose && (
+                    <button onClick={() => setShowClose(true)} style={{ height: 38, padding: "0 16px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>
+                      Close shift
+                    </button>
+                  )}
+                </div>
+                {showClose && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-line)", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, color: "var(--color-ink-2)" }}>Count the drawer:</span>
+                    <input type="number" min="0" step="0.5" value={closingCash} onChange={(e) => setClosingCash(e.target.value)} placeholder="₹ Counted cash" autoFocus style={{ ...inputStyle({ height: 38, width: 150, fontFamily: "var(--font-mono)" }) }} />
+                    {variance !== null && (
+                      <span style={{ fontSize: 13, fontWeight: 600, color: Math.abs(variance) < 0.01 ? "var(--color-green)" : variance > 0 ? "var(--color-amber)" : "var(--color-red)" }}>
+                        {Math.abs(variance) < 0.01 ? "Tallies ✓" : variance > 0 ? `Over by ${formatCurrency(variance)}` : `Short by ${formatCurrency(-variance)}`}
+                      </span>
+                    )}
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                      <button onClick={() => { setShowClose(false); setClosingCash("") }} style={{ height: 38, padding: "0 14px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-ink-3)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}>Cancel</button>
+                      <button onClick={() => closeShiftMutation.mutate()} disabled={closingCash === "" || closeShiftMutation.isPending} style={{ height: 38, padding: "0 18px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: closingCash === "" ? .5 : 1 }}>
+                        {closeShiftMutation.isPending ? "Closing…" : "Confirm close"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ height: 36, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
           <span style={{ color: "var(--color-ink-3)" }}>–</span>
@@ -1461,7 +1723,7 @@ function ExpensesTab() {
           </div>
           <input type="number" min="0" max={1_000_000} step="0.5" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="₹ Amount" style={{ ...inputStyle({ height: 38, width: 120, fontFamily: "var(--font-mono)" }) }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (supplies, petty cash…)" style={{ ...inputStyle({ height: 38 }), flex: 1 }} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
-          <button onClick={() => { if (amount) createMutation.mutate() }} disabled={!amount || createMutation.isPending} style={{ height: 38, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: !amount ? .4 : 1, flexShrink: 0 }}>Add</button>
+          <button onClick={() => { if (amount) createMutation.mutate() }} disabled={!amount || !shiftSummary || createMutation.isPending} title={!shiftSummary ? "Open a shift first" : undefined} style={{ height: 38, padding: "0 16px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: !shiftSummary ? "not-allowed" : "pointer", opacity: !amount || !shiftSummary ? .4 : 1, flexShrink: 0 }}>Add</button>
         </div>
         <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
           {entries.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13 }}>No entries in this period</div>}
@@ -1484,6 +1746,703 @@ function ExpensesTab() {
   )
 }
 
+// ── Bill history tab ─────────────────────────────────────────────────────────
+type BillRow = {
+  id: string; billNumber: number; createdAt: string
+  taxTotal: string; discountAmount: string; total: string
+  isPaid: boolean; isVoided?: boolean; paymentModes: string[]
+  orderType: string | null; source: string | null
+  tableName: string | null; customerName: string | null
+  createdByName: string | null; itemCount: number
+}
+type BillListResponse = { bills: BillRow[]; total: number; page: number; pageSize: number }
+type BillDetail = {
+  billNumber: number; createdAt: string
+  subtotal: string; taxLines: { name: string; rate: number; amount: number }[]
+  discountAmount: string
+  discountLines?: { id: string; label: string; amount: string }[]
+  total: string; isPaid: boolean
+  payments: { id: string; mode: string; amount: string }[]
+  items: { name: string; quantity: number; unitPrice: string; modifiers: { name: string; price: string }[] }[]
+}
+
+const ORDER_TYPE_LABEL: Record<string, string> = { dine_in: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" }
+const PAYMENT_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", credit: "Credit" }
+
+function BillDetailPanel({ row, onClose }: { row: BillRow; onClose: () => void }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const role = useAuthStore((s) => s.user?.role)
+  const { data: bill } = useQuery({ queryKey: ["bill-detail", row.id], queryFn: () => api.bills.get(row.id) as Promise<BillDetail> })
+  const { data: outlet } = useQuery({ queryKey: ["outlet"], queryFn: () => api.outlet.get() })
+
+  const invalidateBills = () => {
+    qc.invalidateQueries({ queryKey: ["bill-history"] })
+    qc.invalidateQueries({ queryKey: ["bill-detail", row.id] })
+    qc.invalidateQueries({ queryKey: ["tables"] })
+  }
+  const voidMutation = useMutation({
+    mutationFn: (reason?: string) => api.bills.voidBill(row.id, reason),
+    onSuccess: () => { invalidateBills(); onClose() },
+    onError: (e: Error) => alert(e.message || "Could not void bill"),
+  })
+  const refundMutation = useMutation({
+    mutationFn: (reason?: string) => api.bills.refundBill(row.id, reason),
+    onSuccess: () => { invalidateBills(); onClose() },
+    onError: (e: Error) => alert(e.message || "Could not refund bill"),
+  })
+
+  function handleVoid() {
+    if (!confirm(`Void bill #${row.billNumber}? The order reopens for editing and re-billing.`)) return
+    const reason = prompt("Reason (optional):") ?? undefined
+    voidMutation.mutate(reason || undefined)
+  }
+  function handleRefund() {
+    if (!confirm(`Refund bill #${row.billNumber}? Loyalty points are reversed, stock is restored, and the bill leaves all reports. Hand the money back to the customer.`)) return
+    const reason = prompt("Reason (optional):") ?? undefined
+    refundMutation.mutate(reason || undefined)
+  }
+
+  const receiptRow = (label: string, value: string, opts?: { dim?: boolean; big?: boolean }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: opts?.big ? 15 : 12, fontWeight: opts?.big ? 700 : 400, color: opts?.dim ? "var(--color-ink-3)" : "var(--color-ink)" }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)" }}>{value}</span>
+    </div>
+  )
+
+  return (
+    <SlidePanel title={`Bill #${row.billNumber}`} onClose={onClose} footer={<>
+      <CancelBtn onClose={onClose} />
+      {!row.isVoided && !row.isPaid && (
+        <>
+          <button onClick={handleVoid} disabled={voidMutation.isPending}
+            style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-red)", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            {voidMutation.isPending ? "Voiding…" : "Void bill"}
+          </button>
+          <button onClick={() => navigate({ to: "/billing/$billId", params: { billId: row.id } })}
+            style={{ padding: "12px 16px", borderRadius: 10, border: "none", background: "var(--color-green)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            Collect payment
+          </button>
+        </>
+      )}
+      {!row.isVoided && row.isPaid && role === "owner" && (
+        <button onClick={handleRefund} disabled={refundMutation.isPending}
+          style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid var(--color-line-strong)", background: "transparent", color: "var(--color-red)", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+          {refundMutation.isPending ? "Refunding…" : "Refund bill"}
+        </button>
+      )}
+      <SaveBtn onClick={() => {
+        // Reprints are fraud-sensitive (fake "duplicate" receipts) — log them
+        api.audit.logEvent({ action: "bill.reprint", entity: "bill", entityId: row.id, details: { billNumber: row.billNumber } }).catch(() => {})
+        triggerPrint()
+      }} disabled={!bill} label="Print receipt" />
+    </>}>
+      {!bill ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13 }}>Loading…</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {row.isVoided
+              ? <span className="badge red">{row.isPaid ? "Refunded" : "Voided"}</span>
+              : <span className={`badge ${row.isPaid ? "green" : "amber"}`}>{row.isPaid ? "Paid" : "Unpaid"}</span>}
+            <span className="badge">{ORDER_TYPE_LABEL[row.orderType ?? ""] ?? "—"}</span>
+            {row.tableName && <span className="badge">Table {row.tableName}</span>}
+            {row.createdByName && <span className="badge">By {row.createdByName}</span>}
+            {row.customerName && <span className="badge">{row.customerName}</span>}
+          </div>
+
+          {/* On-screen receipt — doubles as the print target */}
+          <div className="print-receipt" style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: "18px 16px", background: "var(--color-bg)" }}>
+            <div style={{ textAlign: "center", paddingBottom: 12, borderBottom: "1px dashed var(--color-line-strong)" }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{outlet?.name ?? "InBill"}</div>
+              {outlet?.address && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>{outlet.address}</div>}
+              {outlet?.gstin && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>GSTIN {outlet.gstin}</div>}
+              {outlet?.fssaiNumber && <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>FSSAI {outlet.fssaiNumber}</div>}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
+              <span>Bill #{bill.billNumber}</span>
+              <span>{new Date(bill.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--color-line)" }}>
+              {bill.items.map((l, i) => (
+                <div key={i} style={{ borderBottom: "1px solid var(--color-line)", padding: "8px 0" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 36px 84px", fontSize: 13, alignItems: "center" }}>
+                    <span style={{ fontWeight: 500 }}>{l.name}</span>
+                    <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                  </div>
+                  {(l.modifiers ?? []).map((m, mi) => (
+                    <div key={mi} style={{ display: "grid", gridTemplateColumns: "1fr 36px 84px", fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>
+                      <span style={{ paddingLeft: 6 }}>+ {m.name}</span><span />
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency(Number(m.price) * l.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ paddingTop: 10 }}>
+              {receiptRow("Subtotal", formatCurrency(bill.subtotal))}
+              {(bill.discountLines ?? []).length > 0
+                ? (bill.discountLines ?? []).map((line, i) => <div key={i}>{receiptRow(line.label, "− " + formatCurrency(line.amount), { dim: true })}</div>)
+                : Number(bill.discountAmount) > 0 && receiptRow("Discount", "− " + formatCurrency(bill.discountAmount), { dim: true })}
+              {bill.taxLines.map((line, i) => <div key={i}>{receiptRow(`${line.name} (${line.rate}%)`, formatCurrency(line.amount), { dim: true })}</div>)}
+              <div style={{ height: 1, background: "var(--color-line-strong)", margin: "8px 0" }} />
+              {receiptRow("Total", formatCurrency(bill.total), { big: true })}
+            </div>
+
+            {bill.payments.length > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--color-line)" }}>
+                {bill.payments.map((p) => receiptRow(PAYMENT_LABEL[p.mode] ?? p.mode, formatCurrency(p.amount), { dim: true }))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </SlidePanel>
+  )
+}
+
+function BillsTab() {
+  const today = new Date().toISOString().split("T")[0]!
+  const [from, setFrom]     = useState(today)
+  const [to, setTo]         = useState(today)
+  const [preset, setPreset] = useState(0)
+  const [status, setStatus] = useState<"all" | "paid" | "unpaid">("all")
+  const [search, setSearch] = useState("")
+  const [page, setPage]     = useState(1)
+  const [selected, setSelected] = useState<BillRow | null>(null)
+
+  function applyPreset(idx: number) {
+    setPreset(idx)
+    setFrom(PRESETS[idx]!.from())
+    setTo(PRESETS[idx]!.to())
+    setPage(1)
+  }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["bill-history", from, to, status, search, page],
+    queryFn: () => api.bills.list({ from, to, status, q: search.trim() || undefined, page }) as Promise<BillListResponse>,
+  })
+
+  const rows      = data?.bills ?? []
+  const total     = data?.total ?? 0
+  const pageSize  = data?.pageSize ?? 50
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+
+  const dateInputStyle: React.CSSProperties = { height: 34, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, outline: "none", fontFamily: "inherit" }
+  const gridCols = "70px 130px 1fr 52px 110px 120px 96px 76px"
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Bill History</h3>
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Every bill raised at this outlet — open one to view or reprint the receipt</div>
+      </div>
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 4 }}>
+            {PRESETS.map((p, i) => (
+              <button key={p.label} onClick={() => applyPreset(i)} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid " + (preset === i ? "var(--color-ink)" : "var(--color-line)"), background: preset === i ? "var(--color-ink)" : "transparent", color: preset === i ? "var(--color-bg)" : "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPreset(-1); setPage(1) }} style={dateInputStyle} />
+          <span style={{ color: "var(--color-ink-3)" }}>–</span>
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPreset(-1); setPage(1) }} style={dateInputStyle} />
+          <div style={{ flex: 1 }} />
+          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Bill #" inputMode="numeric" style={{ ...dateInputStyle, width: 90, fontFamily: "var(--font-mono)" }} />
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["all", "paid", "unpaid"] as const).map((s) => (
+              <button key={s} onClick={() => { setStatus(s); setPage(1) }} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid " + (status === s ? "var(--color-ink)" : "var(--color-line)"), background: status === s ? "var(--color-ink)" : "transparent", color: status === s ? "var(--color-bg)" : "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer", textTransform: "capitalize" }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 10 }}>
+          {isLoading ? "Loading…" : `${total} bill${total !== 1 ? "s" : ""} in this period`}
+        </div>
+
+        <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols, padding: "10px 18px", gap: 10, fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".04em", textTransform: "uppercase", fontWeight: 500, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)" }}>
+            <span>Bill #</span><span>When</span><span>Table / Type</span><span style={{ textAlign: "center" }}>Items</span><span>Staff</span><span>Payment</span><span style={{ textAlign: "right" }}>Total</span><span style={{ textAlign: "center" }}>Status</span>
+          </div>
+          {rows.length === 0 && !isLoading && (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13 }}>No bills in this period</div>
+          )}
+          {rows.map((b, i) => (
+            <div key={b.id} onClick={() => setSelected(b)}
+              style={{ display: "grid", gridTemplateColumns: gridCols, padding: "12px 18px", gap: 10, alignItems: "center", fontSize: 13, borderBottom: i < rows.length - 1 ? "1px solid var(--color-line)" : "none", cursor: "pointer" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = "var(--color-surface)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = "transparent")}>
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>#{b.billNumber}</span>
+              <span style={{ color: "var(--color-ink-2)", fontSize: 12 }}>{new Date(b.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {b.tableName ?? ORDER_TYPE_LABEL[b.orderType ?? ""] ?? "—"}
+                {b.customerName && <span style={{ color: "var(--color-ink-3)", fontSize: 12 }}> · {b.customerName}</span>}
+              </span>
+              <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{b.itemCount}</span>
+              <span style={{ color: "var(--color-ink-2)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.createdByName ?? "—"}</span>
+              <span style={{ color: "var(--color-ink-2)", fontSize: 12 }}>{b.paymentModes.length > 0 ? b.paymentModes.map((m) => PAYMENT_LABEL[m] ?? m).join(" + ") : "—"}</span>
+              <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600 }}>{formatCurrency(b.total)}</span>
+              <span style={{ textAlign: "center" }}>
+                {b.isVoided
+                  ? <span className="badge red">{b.isPaid ? "Refunded" : "Voided"}</span>
+                  : <span className={`badge ${b.isPaid ? "green" : "amber"}`}>{b.isPaid ? "Paid" : "Unpaid"}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {pageCount > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 16 }}>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? .4 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{page} / {pageCount}</span>
+            <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: page >= pageCount ? "not-allowed" : "pointer", opacity: page >= pageCount ? .4 : 1 }}>Next →</button>
+          </div>
+        )}
+      </div>
+
+      {selected && <BillDetailPanel row={selected} onClose={() => setSelected(null)} />}
+    </>
+  )
+}
+
+// ── Day close / Z-report tab ─────────────────────────────────────────────────
+type DaySummaryData = {
+  date: string; billCount: number; grossSales: number; taxTotal: number; discountTotal: number
+  unpaidCount: number; unpaidTotal: number; voidCount: number; voidTotal: number
+  byMode: Record<string, number>; openingFloat: number; cashIn: number; cashOut: number
+  expectedCash: number; openOrders: number
+}
+type DayCloseRow = { id: string; businessDate: string; expectedCash: string; countedCash: string; note: string | null; closedAt: string; summary: DaySummaryData }
+
+function DayCloseTab() {
+  const qc = useQueryClient()
+  const today = new Date().toISOString().split("T")[0]!
+  const [date, setDate] = useState(today)
+  const [countedCash, setCountedCash] = useState("")
+  const [note, setNote] = useState("")
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["day-close", date],
+    queryFn: () => api.shifts.getDayClose(date) as Promise<{ closed: DayCloseRow | null; preview: DaySummaryData | null }>,
+  })
+
+  const closeMutation = useMutation({
+    mutationFn: () => api.shifts.closeDay({ date, countedCash: parseFloat(countedCash), note: note.trim() || undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["day-close"] }); setCountedCash(""); setNote("") },
+    onError: (err: Error) => alert(err.message),
+  })
+
+  const closed  = data?.closed ?? null
+  const summary = closed?.summary ?? data?.preview ?? null
+  const expectedCash = summary?.expectedCash ?? 0
+  const counted = closed ? Number(closed.countedCash) : parseFloat(countedCash)
+  const variance = Number.isFinite(counted) ? counted - (closed ? Number(closed.expectedCash) : expectedCash) : null
+
+  const zRow = (label: string, value: string, opts?: { dim?: boolean; big?: boolean; color?: string }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: opts?.big ? 15 : 13, fontWeight: opts?.big ? 700 : 400, color: opts?.color ?? (opts?.dim ? "var(--color-ink-3)" : "var(--color-ink)") }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)" }}>{value}</span>
+    </div>
+  )
+  const divider = <div style={{ height: 1, background: "var(--color-line-strong)", margin: "10px 0" }} />
+
+  function handleClose() {
+    if (!Number.isFinite(parseFloat(countedCash))) return
+    if (summary && summary.openOrders > 0 && !confirm(`${summary.openOrders} order(s) are still open. Close the day anyway?`)) return
+    if (!confirm(`Close ${date}? Bills on this day become locked — no voids, refunds, or edits afterwards.`)) return
+    closeMutation.mutate()
+  }
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Day Close</h3>
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>End-of-day settlement — count the drawer, lock the day, print the Z-report</div>
+      </div>
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 20 }}>
+          <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} style={{ height: 36, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+          {closed && <span className="badge green">Closed {new Date(closed.closedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>}
+          {!closed && !isLoading && <span className="badge amber">Not closed</span>}
+          <div style={{ flex: 1 }} />
+          {closed && (
+            <button onClick={() => triggerPrint()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Print Z-report
+            </button>
+          )}
+        </div>
+
+        {isLoading && <div style={{ padding: 32, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13 }}>Loading…</div>}
+
+        {summary && (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 440px) 1fr", gap: 24, alignItems: "start" }}>
+            {/* Z-report (print target) */}
+            <div className="print-receipt" style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: "18px 20px", background: "var(--color-bg)" }}>
+              <div style={{ textAlign: "center", paddingBottom: 12, borderBottom: "1px dashed var(--color-line-strong)", marginBottom: 10 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Z-Report</div>
+                <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>{date}</div>
+              </div>
+              {zRow("Bills settled", String(summary.billCount))}
+              {zRow("Gross sales", formatCurrency(summary.grossSales), { big: true })}
+              {zRow("Tax collected", formatCurrency(summary.taxTotal), { dim: true })}
+              {zRow("Discounts given", "− " + formatCurrency(summary.discountTotal), { dim: true })}
+              {summary.voidCount > 0 && zRow(`Voided/refunded (${summary.voidCount})`, formatCurrency(summary.voidTotal), { dim: true })}
+              {summary.unpaidCount > 0 && zRow(`Unpaid bills (${summary.unpaidCount})`, formatCurrency(summary.unpaidTotal), { color: "var(--color-amber)" })}
+              {divider}
+              {zRow("Cash", formatCurrency(summary.byMode.cash ?? 0))}
+              {zRow("Card", formatCurrency(summary.byMode.card ?? 0))}
+              {zRow("UPI", formatCurrency(summary.byMode.upi ?? 0))}
+              {(summary.byMode.credit ?? 0) > 0 && zRow("Credit", formatCurrency(summary.byMode.credit ?? 0))}
+              {divider}
+              {zRow("Opening float", formatCurrency(summary.openingFloat), { dim: true })}
+              {zRow("Cash sales", "+ " + formatCurrency(summary.byMode.cash ?? 0), { dim: true })}
+              {zRow("Cash in", "+ " + formatCurrency(summary.cashIn), { dim: true })}
+              {zRow("Cash out", "− " + formatCurrency(summary.cashOut), { dim: true })}
+              {zRow("Expected in drawer", formatCurrency(closed ? Number(closed.expectedCash) : summary.expectedCash), { big: true })}
+              {closed && (
+                <>
+                  {zRow("Counted", formatCurrency(Number(closed.countedCash)), { big: true })}
+                  {variance !== null && zRow("Variance", (variance >= 0 ? "+" : "−") + formatCurrency(Math.abs(variance)), { big: true, color: Math.abs(variance) < 1 ? "var(--color-green)" : "var(--color-red)" })}
+                  {closed.note && <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 8, borderTop: "1px dashed var(--color-line)", paddingTop: 8 }}>Note: {closed.note}</div>}
+                </>
+              )}
+            </div>
+
+            {/* Close form / status */}
+            {!closed ? (
+              <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: "18px 20px", background: "var(--color-surface)", maxWidth: 420 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Close this day</div>
+                <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 16, lineHeight: 1.5 }}>
+                  Count the physical cash in the drawer and enter it below. Closing locks every bill on {date} — voids, refunds, discounts and payments are blocked afterwards.
+                </div>
+                {summary.openOrders > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--color-amber)", marginBottom: 12, padding: "8px 12px", background: "var(--color-amber-soft, #fff8e1)", borderRadius: 8 }}>
+                    ⚠ {summary.openOrders} order(s) still open — settle or cancel them first for a clean close.
+                  </div>
+                )}
+                {summary.unpaidCount > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--color-amber)", marginBottom: 12, padding: "8px 12px", background: "var(--color-amber-soft, #fff8e1)", borderRadius: 8 }}>
+                    ⚠ {summary.unpaidCount} unpaid bill(s) worth {formatCurrency(summary.unpaidTotal)} on this day.
+                  </div>
+                )}
+                {field("Counted cash (₹)", <input type="number" min="0" step="0.5" value={countedCash} onChange={(e) => setCountedCash(e.target.value)} placeholder={String(summary.expectedCash)} style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+                {Number.isFinite(parseFloat(countedCash)) && variance !== null && (
+                  <div style={{ fontSize: 12, marginTop: -8, marginBottom: 12, color: Math.abs(variance) < 1 ? "var(--color-green)" : "var(--color-red)" }}>
+                    Variance vs expected: {variance >= 0 ? "+" : "−"}{formatCurrency(Math.abs(variance))}
+                  </div>
+                )}
+                {field("Note (optional)", <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. ₹200 short — till float error" maxLength={300} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+                <button onClick={handleClose} disabled={!Number.isFinite(parseFloat(countedCash)) || closeMutation.isPending}
+                  style={{ width: "100%", marginTop: 4, padding: "12px 0", borderRadius: 10, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: !Number.isFinite(parseFloat(countedCash)) ? .4 : 1 }}>
+                  {closeMutation.isPending ? "Closing…" : `Close ${date}`}
+                </button>
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)", lineHeight: 1.6, maxWidth: 420 }}>
+                This day is closed and its bills are locked. Use the date picker to review other days.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ── Activity log tab ─────────────────────────────────────────────────────────
+type AuditEvent = { id: string; userName: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; createdAt: string }
+
+const AUDIT_ACTION_LABEL: Record<string, string> = {
+  "bill.void": "Bill voided", "bill.refund": "Bill refunded", "bill.reprint": "Receipt reprinted",
+  "discount.apply": "Discount applied", "discount.remove": "Discount removed",
+  "order_item.void": "Item voided",
+  "cash.in": "Cash in", "cash.out": "Cash out", "cash.entry_delete": "Cash entry deleted",
+  "shift.open": "Shift opened", "shift.close": "Shift closed",
+  "menu.price_change": "Price changed",
+  "staff.create": "Staff added", "staff.update": "Staff updated", "staff.disable": "Staff disabled",
+  "day.close": "Day closed",
+}
+
+const AUDIT_FILTERS: { label: string; prefix: string }[] = [
+  { label: "All", prefix: "" },
+  { label: "Bills", prefix: "bill." },
+  { label: "Discounts", prefix: "discount." },
+  { label: "Items", prefix: "order_item." },
+  { label: "Cash", prefix: "cash." },
+  { label: "Menu", prefix: "menu." },
+  { label: "Staff", prefix: "staff." },
+]
+
+function auditDetailText(e: AuditEvent): string {
+  const d = e.details ?? {}
+  const rupees = (v: unknown) => formatCurrency(Number(v ?? 0))
+  switch (e.action) {
+    case "bill.void":
+    case "bill.refund":   return `Bill #${d.billNumber} · ${rupees(d.total)}${d.reason ? ` · "${d.reason}"` : ""}`
+    case "bill.reprint":  return `Bill #${d.billNumber}`
+    case "discount.apply":  return `${d.label} · − ${rupees(d.amount)} on bill #${d.billNumber}`
+    case "discount.remove": return `${d.label} · ${rupees(d.amount)} removed from bill #${d.billNumber}`
+    case "order_item.void": return `${d.qty} × ${d.itemName} · ${rupees(d.unitPrice)}`
+    case "cash.in":
+    case "cash.out":       return `${rupees(d.amount)}${d.note ? ` · ${d.note}` : ""}`
+    case "cash.entry_delete": return `${d.type === "in" ? "Cash in" : "Expense"} of ${rupees(d.amount)} deleted${d.note ? ` · ${d.note}` : ""}`
+    case "shift.open":     return `Opening float ${rupees(d.openingCash)}`
+    case "shift.close":    return `Float ${rupees(d.openingCash)} → counted ${rupees(d.closingCash)}`
+    case "menu.price_change": return `${d.name}: ${rupees(d.from)} → ${rupees(d.to)}`
+    case "staff.create":   return `${d.name} (${d.role})`
+    case "staff.update":   return `${d.name}${d.pinReset ? " · PIN reset" : ""}${d.isActive === false ? " · disabled" : ""}`
+    case "staff.disable":  return `${d.name}`
+    case "day.close":      return `${d.date} · expected ${rupees(d.expectedCash)}, counted ${rupees(d.countedCash)}`
+    default: return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(" · ")
+  }
+}
+
+function ActivityTab() {
+  const today = new Date().toISOString().split("T")[0]!
+  const [from, setFrom]     = useState(today)
+  const [to, setTo]         = useState(today)
+  const [preset, setPreset] = useState(0)
+  const [filter, setFilter] = useState("")
+  const [page, setPage]     = useState(1)
+
+  function applyPreset(idx: number) {
+    setPreset(idx)
+    setFrom(PRESETS[idx]!.from())
+    setTo(PRESETS[idx]!.to())
+    setPage(1)
+  }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["audit", from, to, filter, page],
+    queryFn: () => api.audit.list({ from, to, action: filter || undefined, page }) as Promise<{ events: AuditEvent[]; total: number; page: number; pageSize: number }>,
+  })
+
+  const events    = data?.events ?? []
+  const total     = data?.total ?? 0
+  const pageSize  = data?.pageSize ?? 50
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+
+  const dateInputStyle: React.CSSProperties = { height: 34, padding: "0 10px", border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-bg)", color: "var(--color-ink)", fontSize: 13, outline: "none", fontFamily: "inherit" }
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)" }}>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Activity Log</h3>
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Who did what, and when — voids, refunds, discounts, cash movements, price changes</div>
+      </div>
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 4 }}>
+            {PRESETS.map((p, i) => (
+              <button key={p.label} onClick={() => applyPreset(i)} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid " + (preset === i ? "var(--color-ink)" : "var(--color-line)"), background: preset === i ? "var(--color-ink)" : "transparent", color: preset === i ? "var(--color-bg)" : "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPreset(-1); setPage(1) }} style={dateInputStyle} />
+          <span style={{ color: "var(--color-ink-3)" }}>–</span>
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPreset(-1); setPage(1) }} style={dateInputStyle} />
+          <div style={{ flex: 1 }} />
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {AUDIT_FILTERS.map((f) => (
+              <button key={f.prefix} onClick={() => { setFilter(f.prefix); setPage(1) }} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid " + (filter === f.prefix ? "var(--color-ink)" : "var(--color-line)"), background: filter === f.prefix ? "var(--color-ink)" : "transparent", color: filter === f.prefix ? "var(--color-bg)" : "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 10 }}>
+          {isLoading ? "Loading…" : `${total} event${total !== 1 ? "s" : ""} in this period`}
+        </div>
+
+        <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+          {events.length === 0 && !isLoading && (
+            <div style={{ padding: 32, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13 }}>No activity in this period</div>
+          )}
+          {events.map((e, i) => (
+            <div key={e.id} style={{ display: "grid", gridTemplateColumns: "130px 140px 170px 1fr", padding: "11px 18px", gap: 12, alignItems: "center", fontSize: 13, borderBottom: i < events.length - 1 ? "1px solid var(--color-line)" : "none" }}>
+              <span style={{ color: "var(--color-ink-3)", fontSize: 12 }}>{new Date(e.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>{e.userName ?? "—"}</span>
+              <span>
+                <span className={`badge ${e.action === "bill.void" || e.action === "bill.refund" || e.action === "order_item.void" ? "red" : e.action.startsWith("cash.") || e.action.startsWith("discount.") ? "amber" : ""}`}>
+                  {AUDIT_ACTION_LABEL[e.action] ?? e.action}
+                </span>
+              </span>
+              <span style={{ color: "var(--color-ink-2)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{auditDetailText(e)}</span>
+            </div>
+          ))}
+        </div>
+
+        {pageCount > 1 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 16 }}>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? .4 : 1 }}>← Prev</button>
+            <span style={{ fontSize: 12, color: "var(--color-ink-3)", fontFamily: "var(--font-mono)" }}>{page} / {pageCount}</span>
+            <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: page >= pageCount ? "not-allowed" : "pointer", opacity: page >= pageCount ? .4 : 1 }}>Next →</button>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ── Menu schedules tab ───────────────────────────────────────────────────────
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+type EditSchedule = { _new?: boolean; id?: string; name: string; days: number[]; startTime: string; endTime: string; percentOff: string }
+
+function ScheduleEditPanel({ schedule, categories, onClose, onSaved }: { schedule: EditSchedule; categories: Category[]; onClose: () => void; onSaved: () => void }) {
+  const isNew = !!schedule._new
+  const [name, setName] = useState(schedule.name)
+  const [days, setDays] = useState<number[]>(schedule.days)
+  const [startTime, setStartTime] = useState(schedule.startTime)
+  const [endTime, setEndTime] = useState(schedule.endTime)
+  const [percentOff, setPercentOff] = useState(schedule.percentOff)
+  // Categories currently pointing at this schedule (assignment lives on the category)
+  const [catIds, setCatIds] = useState<Set<string>>(new Set(categories.filter((c) => c.scheduleId === schedule.id).map((c) => c.id)))
+
+  const pct = parseFloat(percentOff || "0")
+  const canSave = name.trim() && startTime && endTime && pct >= 0 && pct <= 100
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const body = { name: name.trim(), days, startTime, endTime, percentOff: pct }
+      const saved = isNew
+        ? (await api.menu.createSchedule(body)) as { id: string }
+        : ((await api.menu.updateSchedule(schedule.id!, body)) as { id: string })
+      // Sync category assignments to match the checkboxes
+      const scheduleId = saved.id
+      const wasAssigned = new Set(categories.filter((c) => c.scheduleId === schedule.id && schedule.id).map((c) => c.id))
+      for (const cat of categories) {
+        const nowChecked = catIds.has(cat.id)
+        const wasChecked = wasAssigned.has(cat.id)
+        if (nowChecked && !wasChecked) await api.menu.updateCategory(cat.id, { scheduleId })
+        if (!nowChecked && wasChecked) await api.menu.updateCategory(cat.id, { scheduleId: null })
+      }
+    },
+    onSuccess: () => { onSaved(); onClose() },
+    onError: (err: Error) => alert(err.message),
+  })
+
+  const toggleDay = (d: number) => setDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort())
+
+  return (
+    <SlidePanel title={isNew ? "Add schedule" : `Edit "${schedule.name}"`} onClose={onClose}
+      footer={<><CancelBtn onClose={onClose} /><SaveBtn onClick={() => canSave && saveMutation.mutate()} disabled={!canSave || saveMutation.isPending} label={saveMutation.isPending ? "Saving…" : isNew ? "Add schedule" : "Save"} /></>}>
+      {field("Name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Breakfast, Happy Hour" maxLength={100} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 8 }}>Days <span style={{ color: "var(--color-ink-3)", fontWeight: 400 }}>(none selected = every day)</span></div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {DAY_LABELS.map((label, d) => (
+            <button key={d} type="button" onClick={() => toggleDay(d)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "1.5px solid " + (days.includes(d) ? "var(--color-ink)" : "var(--color-line)"), background: days.includes(d) ? "var(--color-ink)" : "var(--color-surface)", color: days.includes(d) ? "var(--color-bg)" : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {field("From", <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={inputStyle({ fontFamily: "var(--font-mono)" })} />)}
+        {field("To", <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={inputStyle({ fontFamily: "var(--font-mono)" })} />)}
+      </div>
+      {endTime < startTime && startTime && endTime && (
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: -10 }}>Window wraps past midnight ({startTime} → {endTime} next day)</div>
+      )}
+      {field("Happy-hour discount % (optional)", <input type="number" min="0" max="100" step="1" value={percentOff} onChange={(e) => setPercentOff(e.target.value)} placeholder="0 = availability window only" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 8 }}>Applies to categories <span style={{ color: "var(--color-ink-3)", fontWeight: 400 }}>(individual items can also be assigned from the item editor)</span></div>
+        <div style={{ border: "1px solid var(--color-line)", borderRadius: 10, overflow: "hidden" }}>
+          {categories.filter((c) => c.isActive).map((cat, i, arr) => (
+            <label key={cat.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < arr.length - 1 ? "1px solid var(--color-line)" : "none", cursor: "pointer", fontSize: 13 }}>
+              <input type="checkbox" checked={catIds.has(cat.id)} onChange={(e) => setCatIds((prev) => { const next = new Set(prev); if (e.target.checked) next.add(cat.id); else next.delete(cat.id); return next })} />
+              <span>{cat.name}</span>
+              {cat.scheduleId && cat.scheduleId !== schedule.id && <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>currently on another schedule</span>}
+            </label>
+          ))}
+          {categories.filter((c) => c.isActive).length === 0 && <div style={{ padding: 16, fontSize: 12, color: "var(--color-ink-3)", textAlign: "center" }}>No categories yet</div>}
+        </div>
+      </div>
+    </SlidePanel>
+  )
+}
+
+function SchedulesTab() {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState<EditSchedule | null>(null)
+
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; schedules: MenuSchedule[] }> })
+  const schedules = menu?.schedules ?? []
+  const categories = menu?.categories ?? []
+  const items = menu?.items ?? []
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["menu"] })
+  const deleteMutation = useMutation({ mutationFn: (id: string) => api.menu.deleteSchedule(id), onSuccess: invalidate })
+  const toggleMutation = useMutation({ mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => api.menu.updateSchedule(id, { isActive }), onSuccess: invalidate })
+
+  const usageFor = (s: MenuSchedule) => {
+    const cats = categories.filter((c) => c.scheduleId === s.id).length
+    const its  = items.filter((i) => i.scheduleId === s.id).length
+    const parts = []
+    if (cats > 0) parts.push(`${cats} categor${cats === 1 ? "y" : "ies"}`)
+    if (its > 0) parts.push(`${its} item${its === 1 ? "" : "s"}`)
+    return parts.length ? parts.join(" · ") : "Not assigned yet"
+  }
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Menu Schedules</h3>
+          <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Time-windowed menus and happy hours — items outside their window can't be ordered</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setEditing({ _new: true, name: "", days: [], startTime: "07:00", endTime: "11:00", percentOff: "0" })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>Add schedule
+        </button>
+      </div>
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        {schedules.length === 0 ? (
+          <div style={{ padding: 48, textAlign: "center", color: "var(--color-ink-3)" }}>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>No schedules yet</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>Create one for a breakfast-only menu, or a happy hour with automatic discounts.<br />Assign it to categories here, or to individual items from the item editor.</div>
+          </div>
+        ) : (
+          <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+            {schedules.map((s, i) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: i < schedules.length - 1 ? "1px solid var(--color-line)" : "none", gap: 14, opacity: s.isActive ? 1 : .5 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</span>
+                    {s.activeNow && s.isActive && <span className="badge green">Live now</span>}
+                    {Number(s.percentOff) > 0 && <span className="badge amber">{Number(s.percentOff)}% off</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 3 }}>
+                    {(s.days ?? []).length === 0 ? "Every day" : (s.days ?? []).map((d) => DAY_LABELS[d]).join(", ")} · {s.startTime}–{s.endTime}{s.endTime < s.startTime ? " (+1 day)" : ""} · {usageFor(s)}
+                  </div>
+                </div>
+                <button onClick={() => toggleMutation.mutate({ id: s.id, isActive: !s.isActive })} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                  {s.isActive ? "Disable" : "Enable"}
+                </button>
+                <ActionBtn onClick={() => setEditing({ id: s.id, name: s.name, days: s.days ?? [], startTime: s.startTime, endTime: s.endTime, percentOff: String(Number(s.percentOff)) })} title="Edit" />
+                <ActionBtn onClick={() => { if (confirm(`Delete "${s.name}"? Items and categories using it become always available.`)) deleteMutation.mutate(s.id) }} title="Delete" danger />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {editing && <ScheduleEditPanel schedule={editing} categories={categories} onClose={() => setEditing(null)} onSaved={invalidate} />}
+    </>
+  )
+}
+
 // ── Devices tab (placeholder) ────────────────────────────────────────────────
 function DevicesTab() {
   const { data: lanData } = useQuery({
@@ -1492,17 +2451,27 @@ function DevicesTab() {
     staleTime: 30_000,
   })
 
-  const setupCode = useAuthStore((s) => s.setupCode)
+  const { data: outletData } = useQuery({
+    queryKey: ["outlet-info"],
+    queryFn: () => api.outlet.get(),
+    staleTime: Infinity,
+  })
+  const persistedSetupCode = useAuthStore((s) => s.setupCode)
+  // Canonical setup code from the outlet record wins over the value typed at
+  // device setup (which may differ in casing and is persisted across sessions).
+  const setupCode = outletData?.setupCode ?? persistedSetupCode
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
   const lanUrls = lanData?.urls ?? []
-  const activeUrl = selectedUrl ?? lanUrls[0] ?? null
+  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  // Cloud mode returns no LAN IPs (there's no meaningful "same network") —
+  // the deployed origin itself is already reachable from any device.
+  const activeUrl = selectedUrl ?? lanUrls[0] ?? (isLocalhost ? null : window.location.origin)
   const mobileUrl = activeUrl
     ? `${activeUrl}/mobile${setupCode ? `?setup=${encodeURIComponent(setupCode)}` : ""}`
     : null
   const hostUrl = activeUrl
     ? `${activeUrl}/host/${setupCode ? `?setup=${encodeURIComponent(setupCode)}` : ""}`
     : null
-  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   const noLan = isLocalhost && lanUrls.length === 0
 
   return (
@@ -1770,6 +2739,25 @@ function ReservationsTab() {
     queryFn: () => api.queue.listReservations(date) as Promise<Reservation[]>,
   })
 
+  // Reservations changed on another terminal (or seated from here) update live
+  useEffect(() => {
+    const unsub = ws.on("reservation.updated", () => {
+      qc.invalidateQueries({ queryKey: ["reservations"] })
+    })
+    return unsub
+  }, [qc])
+
+  // Guest arrived — seat the reservation: links the customer, marks the table
+  // reserved on the floor, and the next order on that table inherits the guest.
+  const seatMutation = useMutation({
+    mutationFn: (id: string) => api.queue.seatReservation(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reservations"] })
+      qc.invalidateQueries({ queryKey: ["tables"] })
+    },
+    onError: (e: Error) => alert(e.message || "Could not seat reservation"),
+  })
+
   function openCreate() {
     setEditing(null)
     setForm({ customerName: "", customerPhone: "", partySize: 2, reservedFor: `${date}T19:00`, tableId: "", notes: "", status: "pending" })
@@ -1874,6 +2862,21 @@ function ReservationsTab() {
                       <span style={{ color: "var(--color-ink-3)" }}>{r.partySize}p</span>
                       {r.table && <span style={{ color: "var(--color-ink-3)" }}>· {r.table.name}</span>}
                       <span className={`badge ${STATUS_COLOR[r.status] ?? "amber"}`} style={{ fontSize: 10 }}>{r.status}</span>
+                      {(r.status === "pending" || r.status === "confirmed") && (
+                        // Guest arrived — one tap seats them and reserves the table on the floor
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!r.tableId) { alert("Assign a table to this reservation first (tap to edit)"); return }
+                            seatMutation.mutate(r.id)
+                          }}
+                          title={r.tableId ? "Guest arrived — seat at the reserved table" : "Assign a table first"}
+                          style={{ fontSize: 11, fontWeight: 600, color: "var(--color-green)", border: "1px solid var(--color-line-strong)", borderRadius: 6, padding: "2px 8px", cursor: "pointer" }}
+                        >
+                          Seat
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2219,6 +3222,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "menu",      label: "Menu" },
       { id: "modifiers", label: "Modifiers" },
       { id: "discounts", label: "Discounts" },
+      { id: "schedules", label: "Schedules" },
       { id: "taxes",     label: "Tax & Charges" },
     ],
   },
@@ -2234,7 +3238,10 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Finance",
     items: [
       { id: "shifts",   label: "Reports" },
+      { id: "bills",    label: "Bill History" },
+      { id: "dayclose", label: "Day Close" },
       { id: "expenses", label: "Expenses" },
+      { id: "activity", label: "Activity Log" },
     ],
   },
   {
@@ -2258,6 +3265,10 @@ const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
   taxes:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="11" rx="1.5"/><circle cx="12" cy="12.5" r="2.5"/><path d="M5 10v.01M19 15v.01"/></svg>,
   discounts: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
   shifts:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
+  bills:     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2h12a1 1 0 011 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 011-1z"/><path d="M9 8h6M9 12h6"/></svg>,
+  dayclose:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 15l2 2 4-4"/></svg>,
+  activity:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>,
+  schedules: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/><path d="M5 2L2 5M19 2l3 3"/></svg>,
   customers: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
   loyalty:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   expenses:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
@@ -2266,7 +3277,7 @@ const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
   reservations: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>,
 }
 
-const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "shifts", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
+const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "schedules", "shifts", "bills", "dayclose", "activity", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ManagerPage() {
@@ -2370,6 +3381,10 @@ export default function ManagerPage() {
           {activeTab === "taxes"     && <TaxTab />}
           {activeTab === "discounts" && <DiscountsTab />}
           {activeTab === "shifts"    && <ShiftsTab />}
+          {activeTab === "bills"     && <BillsTab />}
+          {activeTab === "dayclose"  && <DayCloseTab />}
+          {activeTab === "activity"  && <ActivityTab />}
+          {activeTab === "schedules" && <SchedulesTab />}
           {activeTab === "customers" && <CustomersTab />}
           {activeTab === "loyalty"       && <LoyaltyTab />}
           {activeTab === "reservations"  && <ReservationsTab />}

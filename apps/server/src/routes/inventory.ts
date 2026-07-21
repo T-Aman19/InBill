@@ -4,9 +4,10 @@ import { eq, and, desc, gte, lte } from "drizzle-orm"
 import { z } from "zod"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { ingredients, recipes, recipeIngredients, stockMovements } from "../db/schema/index.js"
+import { ingredients, recipes, recipeIngredients, stockMovements, menuItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
+import { dayStart, dayEnd } from "../lib/dateRange.js"
 
 export const inventoryRouter = new Hono<AppEnv>()
 
@@ -24,7 +25,7 @@ const ingredientSchema = z.object({
 inventoryRouter.get("/ingredients", async (c) => {
   const { outletId } = c.get("user")
   const rows = await db.query.ingredients.findMany({
-    where: eq(ingredients.outletId, outletId),
+    where: and(eq(ingredients.outletId, outletId), eq(ingredients.isActive, "true")),
     orderBy: ingredients.name,
   })
   return c.json(rows)
@@ -103,7 +104,17 @@ inventoryRouter.delete("/ingredients/:id", requireRole("owner", "manager"), asyn
 // ── Recipes ──────────────────────────────────────────────────────────────────
 
 inventoryRouter.get("/recipes", async (c) => {
+  const { outletId } = c.get("user")
+  // Recipes link to menu items (which are outlet-scoped) — restrict to this outlet's items
+  const outletItems = await db.query.menuItems.findMany({
+    where: eq(menuItems.outletId, outletId),
+    columns: { id: true },
+  })
+  const itemIds = outletItems.map((i) => i.id)
+  if (itemIds.length === 0) return c.json([])
+
   const rows = await db.query.recipes.findMany({
+    where: (r, { inArray }) => inArray(r.menuItemId, itemIds),
     with: {
       menuItem: { columns: { id: true, name: true, categoryId: true } },
       recipeIngredients: { with: { ingredient: true } },
@@ -303,8 +314,8 @@ inventoryRouter.get("/movements/export", async (c) => {
   const from = c.req.query("from")
   const to = c.req.query("to")
 
-  const fromDate = from ? new Date(from) : undefined
-  const toDate = to ? new Date(to + "T23:59:59Z") : undefined
+  const fromDate = from ? dayStart(from) : undefined
+  const toDate = to ? dayEnd(to) : undefined
 
   const rows = await db.query.stockMovements.findMany({
     where: and(

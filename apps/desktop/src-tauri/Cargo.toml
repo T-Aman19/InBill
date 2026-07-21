@@ -20,5 +20,12 @@ serde_json = "1"
 pg-embed = { version = "0.7", features = ["rt_tokio"] }
 tokio = { version = "1", features = ["full"] }
 
+# Desktop-only: focuses the running window when the app is launched a second
+# time (two instances would fight over ports and the Postgres data directory).
+[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+
 [patch.crates-io]
 pg-embed = { path = "patches/pg-embed" }

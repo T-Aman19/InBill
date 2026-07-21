@@ -5,10 +5,11 @@
   "build": {
     "frontendDist": "../../pos/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "(cd ../server && bun run dev &) && (cd ../mobile && bun run dev &) && cd ../pos && bun run dev",
-    "beforeBuildCommand": "cd ../mobile && bun run build && cd ../pos && bun run build"
+    "beforeDevCommand": "bun run scripts/dev.ts",
+    "beforeBuildCommand": "bun run scripts/prepare-build.ts"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -26,15 +27,31 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGMDk2MDUwMjc3NzNGMjQKUldRa1AzY25VR0FKbnczdjZzdkZDU0NsVGxVVTB4Y3ZBVElrTEpLZjM5d2NNaitNYWNlOWQ5TTkK",
+      "endpoints": [
+        "https://github.com/T-Aman19/InBill/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "Business",
+    "publisher": "InBill",
+    "shortDescription": "InBill POS — restaurant point of sale",
+    "longDescription": "InBill is an offline-first restaurant point-of-sale with billing, KOT/kitchen display, table management, inventory and loyalty. Runs fully locally with an embedded database; captain and host apps are served to phones/tablets on the same Wi-Fi.",
+    "copyright": "© InBill",
     "externalBin": [
       "binaries/inbill-server"
     ],
     "resources": {
       "../../pos/dist": "pos",
-      "../../mobile/dist": "mobile"
+      "../../mobile/dist": "mobile",
+      "../../host/dist": "host",
+      "resources/pg": "pg"
     },
     "icon": [
       "icons/32x32.png",
@@ -43,6 +60,17 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      },
+      "nsis": {
+        "installMode": "both"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
   }
 }

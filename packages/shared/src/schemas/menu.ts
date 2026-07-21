@@ -58,6 +58,7 @@ export const menuItemSchema = z.object({
   hsnCode: hsnCodeSchema.optional(),
   imageUrl: z.string().url().max(2048).optional(),
   sortOrder: z.number().int().min(0).max(9999).default(0),
+  scheduleId: z.string().uuid().nullable().default(null),
   variants: z.array(itemVariantSchema).default([]),
   modifierGroups: z.array(z.string().uuid()).default([]),
 })
@@ -69,8 +70,23 @@ export const updateItemAvailabilitySchema = z.object({ isAvailable: z.boolean() 
 export const createCategorySchema = z.object({
   name: z.string().min(1).max(100),
   sortOrder: z.number().int().min(0).max(9999).default(0),
+  scheduleId: z.string().uuid().nullable().optional(),
 })
 export const updateCategorySchema = createCategorySchema.partial()
+
+// ── Menu schedules (time windows / happy hours) ─────────────────────────────
+const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be HH:MM (24h)")
+
+export const createMenuScheduleSchema = z.object({
+  name: z.string().min(1).max(100),
+  // Weekday numbers 0–6 (0 = Sunday); empty = every day
+  days: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+  startTime: timeOfDaySchema,
+  endTime: timeOfDaySchema,
+  percentOff: z.number().min(0).max(100).default(0),
+  isActive: z.boolean().default(true),
+})
+export const updateMenuScheduleSchema = createMenuScheduleSchema.partial()
 
 export const createVariantSchema = z.object({
   name: z.string().min(1).max(100),

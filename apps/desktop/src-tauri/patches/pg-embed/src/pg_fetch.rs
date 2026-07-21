@@ -39,6 +39,11 @@ pub struct PgFetchSettings {
     pub architecture: Architecture,
     /// The postgresql version
     pub version: PostgresVersion,
+    /// Optional path to a locally bundled binaries archive (the zonky
+    /// `embedded-postgres-binaries-<platform>-<version>.jar`). When set and the
+    /// file exists, it is used instead of downloading — so first launch works
+    /// fully offline. Falls back to the network download if unreadable.
+    pub bundled_jar: Option<std::path::PathBuf>,
 }
 
 impl Default for PgFetchSettings {
@@ -48,6 +53,7 @@ impl Default for PgFetchSettings {
             operating_system: OperationSystem::default(),
             architecture: Architecture::default(),
             version: PG_V13,
+            bundled_jar: None,
         }
     }
 }
@@ -70,6 +76,22 @@ impl PgFetchSettings {
     /// Returns the data of the downloaded binary in an `Ok([u8])` on success, otherwise returns an error.
     ///
     pub async fn fetch_postgres(&self) -> PgResult<Box<Bytes>> {
+        // Prefer a locally bundled archive (offline-first install) over the network.
+        if let Some(jar) = &self.bundled_jar {
+            match tokio::fs::read(jar).await {
+                Ok(bytes) => {
+                    log::info!("pg-embed: using bundled postgres archive at {:?}", jar);
+                    return Ok(Box::new(Bytes::from(bytes)));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "pg-embed: bundled archive {:?} unreadable ({e}), falling back to download",
+                        jar
+                    );
+                }
+            }
+        }
+
         let platform = &self.platform();
         let version = self.version.0;
         let download_url = format!(
@@ -79,20 +101,33 @@ impl PgFetchSettings {
             version,
             &platform,
             version);
-        let response: Response = reqwest::get(download_url)
+        let response: Response = reqwest::get(&download_url)
             .map_err(|e| PgEmbedError {
                 error_type: PgEmbedErrorType::DownloadFailure,
                 source: Some(Box::new(e)),
-                message: None,
+                message: Some(format!("failed to download {download_url}")),
             })
             .await?;
+
+        // A 404/5xx body is not a valid archive — fail here with a clear error
+        // instead of writing a corrupt zip that fails later during unpack.
+        if !response.status().is_success() {
+            return Err(PgEmbedError {
+                error_type: PgEmbedErrorType::DownloadFailure,
+                source: None,
+                message: Some(format!(
+                    "download failed with HTTP {} for {download_url}",
+                    response.status()
+                )),
+            });
+        }
 
         let content: Bytes = response
             .bytes()
             .map_err(|e| PgEmbedError {
                 error_type: PgEmbedErrorType::ConversionFailure,
                 source: Some(Box::new(e)),
-                message: None,
+                message: Some(format!("failed reading response body of {download_url}")),
             })
             .await?;
 

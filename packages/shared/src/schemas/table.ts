@@ -25,6 +25,9 @@ export const updateTableSchema = z.object({
   name: z.string().min(1).max(50).optional(),
   capacity: z.number().int().positive().max(100).optional(),
   floorId: z.string().uuid().optional(),
+  // Escape hatch: a table left "reserved" by a seated guest who walked out can
+  // be freed. Only "available" is accepted — other statuses are order-driven.
+  status: z.literal("available").optional(),
 })
 
 export const createFloorSchema = z.object({
