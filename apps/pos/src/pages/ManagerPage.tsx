@@ -1458,14 +1458,29 @@ function ModifiersTab() {
   const [newGroupMulti, setNewGroupMulti] = useState(false)
   const [newModName, setNewModName] = useState("")
   const [newModPrice, setNewModPrice] = useState("")
+  const [applyCategoryId, setApplyCategoryId] = useState("")
+  const [applyStatus, setApplyStatus] = useState("")
 
-  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ modifierGroups: ModifierGroup[]; modifiers: Modifier[] }> })
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; modifierGroups: ModifierGroup[]; modifiers: Modifier[] }> })
+  const cats = (menu?.categories ?? []).filter((c) => c.isActive)
   const groups = menu?.modifierGroups ?? []
   const allMods = menu?.modifiers ?? []
   const groupModifiers = allMods.filter((m) => m.groupId === selectedGroupId && m.isActive)
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) ?? null
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["menu"] })
+
+  const applyMutation = useMutation({
+    mutationFn: () => api.menu.applyModifierGroupToCategory(selectedGroupId!, applyCategoryId),
+    onSuccess: (result) => {
+      invalidate()
+      setApplyStatus(
+        result.linked === 0
+          ? `All ${result.totalItems} item${result.totalItems !== 1 ? "s" : ""} already had this group`
+          : `Applied to ${result.linked} item${result.linked !== 1 ? "s" : ""}${result.alreadyLinked > 0 ? ` (${result.alreadyLinked} already had it)` : ""}`,
+      )
+    },
+  })
 
   const createGroupMutation = useMutation({
     mutationFn: () => api.menu.createModifierGroup({ name: newGroupName.trim(), required: newGroupRequired, multiSelect: newGroupMulti, minSelect: 0 }),
@@ -1487,7 +1502,7 @@ function ModifiersTab() {
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--color-line)", overflow: "auto", padding: 8 }}>
           {groups.map((g) => (
-            <div key={g.id} onClick={() => setSelectedGroupId(g.id)}
+            <div key={g.id} onClick={() => { setSelectedGroupId(g.id); setApplyCategoryId(""); setApplyStatus("") }}
               style={{ padding: "9px 12px", borderRadius: 8, marginBottom: 2, fontSize: 13, fontWeight: selectedGroupId === g.id ? 600 : 400, background: selectedGroupId === g.id ? "var(--color-surface-2)" : "transparent", color: "var(--color-ink)", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
               onMouseEnter={(e) => { if (selectedGroupId !== g.id) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
               onMouseLeave={(e) => { if (selectedGroupId !== g.id) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
@@ -1522,6 +1537,27 @@ function ModifiersTab() {
                 <div style={{ fontSize: 17, fontWeight: 600 }}>{selectedGroup.name}</div>
                 <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 2 }}>{selectedGroup.required ? "Required · " : "Optional · "}{selectedGroup.multiSelect ? "Multi-select" : "Single-select"}</div>
               </div>
+
+              <div style={{ border: "1px solid var(--color-line)", borderRadius: 10, padding: "12px 14px", marginBottom: 20, background: "var(--color-surface-2)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink-2)", marginBottom: 8 }}>Apply to a whole category</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <select value={applyCategoryId} onChange={(e) => { setApplyCategoryId(e.target.value); setApplyStatus("") }} style={{ ...inputStyle({ height: 36 }), flex: 1, appearance: "none" }}>
+                    <option value="">Select category…</option>
+                    {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <button
+                    onClick={() => applyMutation.mutate()}
+                    disabled={!applyCategoryId || applyMutation.isPending}
+                    style={{ height: 36, padding: "0 14px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", opacity: !applyCategoryId || applyMutation.isPending ? .4 : 1, flexShrink: 0 }}
+                  >
+                    {applyMutation.isPending ? "Applying…" : "Apply"}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 8 }}>
+                  {applyStatus || "Links this group to every item currently in the category. Doesn't cover items added later — re-run to catch those up."}
+                </div>
+              </div>
+
               <div style={{ border: "1px solid var(--color-line)", borderRadius: 10, overflow: "hidden" }}>
                 {groupModifiers.length === 0 && <div style={{ padding: "14px 16px", color: "var(--color-ink-3)", fontSize: 13 }}>No options yet</div>}
                 {groupModifiers.map((m, i) => (

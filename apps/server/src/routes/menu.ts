@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
-import { eq, and } from "drizzle-orm"
+import { eq, and, inArray } from "drizzle-orm"
 import {
   createMenuItemSchema, updateMenuItemSchema, updateItemAvailabilitySchema,
   createCategorySchema, updateCategorySchema,
@@ -301,6 +301,35 @@ menuRouter.delete("/items/:id/modifier-groups/:groupId", requireRole("manager", 
     and(eq(menuItemModifierGroups.itemId, c.req.param("id")), eq(menuItemModifierGroups.groupId, c.req.param("groupId"))),
   )
   return c.body(null, 204)
+})
+
+// One-time bulk link, not a persistent category-level rule — items added to
+// the category later need this re-run. Safe to re-run: already-linked items
+// are skipped rather than erroring, so it can be used as an incremental
+// "catch up new items" action too.
+menuRouter.post("/modifier-groups/:id/apply-to-category", requireRole("manager", "owner"), zValidator("json", z.object({ categoryId: z.string().uuid() })), async (c) => {
+  const { outletId } = c.get("user")
+  const groupId = c.req.param("id")
+  const { categoryId } = c.req.valid("json")
+  if (!(await groupInOutlet(groupId, outletId))) return c.json({ error: "Modifier group not found" }, 404)
+  const category = await db.query.categories.findFirst({ where: and(eq(categories.id, categoryId), eq(categories.outletId, outletId)) })
+  if (!category) return c.json({ error: "Category not found" }, 404)
+
+  const categoryItems = await db.query.menuItems.findMany({
+    where: and(eq(menuItems.categoryId, categoryId), eq(menuItems.outletId, outletId)),
+    columns: { id: true },
+  })
+  const alreadyLinked = categoryItems.length === 0 ? [] : await db.query.menuItemModifierGroups.findMany({
+    where: and(eq(menuItemModifierGroups.groupId, groupId), inArray(menuItemModifierGroups.itemId, categoryItems.map((i) => i.id))),
+    columns: { itemId: true },
+  })
+  const linkedIds = new Set(alreadyLinked.map((l) => l.itemId))
+  const toLink = categoryItems.filter((i) => !linkedIds.has(i.id))
+
+  if (toLink.length > 0) {
+    await db.insert(menuItemModifierGroups).values(toLink.map((i) => ({ itemId: i.id, groupId })))
+  }
+  return c.json({ linked: toLink.length, alreadyLinked: linkedIds.size, totalItems: categoryItems.length })
 })
 
 // ── Tax configs ─────────────────────────────────────────────────────────────

@@ -114,6 +114,8 @@ export const api = {
     // Item ↔ modifier group links
     linkModifierGroup: (itemId: string, groupId: string) => post<unknown>(`/menu/items/${itemId}/modifier-groups`, { groupId }),
     unlinkModifierGroup: (itemId: string, groupId: string) => del(`/menu/items/${itemId}/modifier-groups/${groupId}`),
+    applyModifierGroupToCategory: (groupId: string, categoryId: string) =>
+      post<{ linked: number; alreadyLinked: number; totalItems: number }>(`/menu/modifier-groups/${groupId}/apply-to-category`, { categoryId }),
     // Tax
     getTax: () => get<unknown | null>("/menu/tax"),
     saveTax: (body: unknown) => put<unknown>("/menu/tax", body),
