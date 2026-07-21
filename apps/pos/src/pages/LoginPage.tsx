@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { api, ApiError } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth"
+import { useIsMobile } from "@/hooks/useMediaQuery"
 import { LogoMark } from "@/components/ui/LogoMark"
 
 const OUTLET_ID_KEY   = "inbill_outlet_id"
@@ -41,6 +42,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const login        = useAuthStore((s) => s.login)
   const setSetupCode = useAuthStore((s) => s.setSetupCode)
+  const isMobile = useIsMobile()
 
   const [outletId,   setOutletId]   = useState(localStorage.getItem(OUTLET_ID_KEY) ?? "")
   const [outletName, setOutletName] = useState(localStorage.getItem(OUTLET_NAME_KEY) ?? "InBill POS")
@@ -122,8 +124,8 @@ export default function LoginPage() {
 
   // ── Setup screen ────────────────────────────────────────────
   if (setup) return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)" }}>
-      <div style={{ width: 420, background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: 32, boxShadow: "var(--shadow-2)" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--color-bg)", padding: 16 }}>
+      <div style={{ width: "100%", maxWidth: 420, background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 16, padding: isMobile ? 24 : 32, boxShadow: "var(--shadow-2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--color-ink)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-bg)" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm2 4h10v2H7V8zm0 4h10v2H7v-2zm0 4h6v2H7v-2z"/></svg>
@@ -191,13 +193,15 @@ export default function LoginPage() {
   // ── Main login ───────────────────────────────────────────────
 
   return (
-    <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.1fr 1fr", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gridTemplateRows: isMobile ? "auto 1fr" : undefined, overflow: isMobile ? "auto" : "hidden" }}>
       {/* Left: brand panel */}
       <div style={{
         background: "linear-gradient(160deg, oklch(28% 0.04 55), oklch(22% 0.02 55))",
         color: "oklch(96% 0.02 70)",
-        display: "flex", flexDirection: "column",
-        padding: "48px 56px",
+        display: "flex", flexDirection: isMobile ? "row" : "column",
+        alignItems: isMobile ? "center" : undefined,
+        justifyContent: isMobile ? "space-between" : undefined,
+        padding: isMobile ? "20px 24px" : "48px 56px",
         position: "relative", overflow: "hidden",
       }}>
         {/* Decorative blobs */}
@@ -207,24 +211,26 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
           <div style={{ color: "var(--color-ink)" }}>
-            <LogoMark size={36} />
+            <LogoMark size={isMobile ? 28 : 36} />
           </div>
-          <span className="display" style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>InBill</span>
+          <span className="display" style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700, letterSpacing: "-.02em" }}>InBill</span>
         </div>
 
         {/* Bottom copy */}
-        <div style={{ marginTop: "auto", position: "relative" }}>
-          <div style={{ fontSize: 13, color: "oklch(72% 0.02 70)", letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }}>Outlet</div>
-          <div style={{ fontSize: 36, fontWeight: 600, lineHeight: 1.1, letterSpacing: "-.02em" }}>{outletName}</div>
+        <div style={{ marginTop: isMobile ? 0 : "auto", position: "relative", textAlign: isMobile ? "right" : undefined }}>
+          {!isMobile && <div style={{ fontSize: 13, color: "oklch(72% 0.02 70)", letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }}>Outlet</div>}
+          <div style={{ fontSize: isMobile ? 16 : 36, fontWeight: 600, lineHeight: 1.1, letterSpacing: "-.02em" }}>{outletName}</div>
 
-          <div style={{ display: "flex", gap: 24, marginTop: 32, fontSize: 12, color: "oklch(72% 0.02 70)" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "oklch(70% 0.15 145)" }} />
-              Local network
-            </span>
-            <span>Terminal 01</span>
-            <span>v1.0.0</span>
-          </div>
+          {!isMobile && (
+            <div style={{ display: "flex", gap: 24, marginTop: 32, fontSize: 12, color: "oklch(72% 0.02 70)" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "oklch(70% 0.15 145)" }} />
+                Local network
+              </span>
+              <span>Terminal 01</span>
+              <span>v1.0.0</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -232,10 +238,10 @@ export default function LoginPage() {
       <div style={{
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center",
-        padding: 40,
+        padding: isMobile ? "32px 20px" : 40,
         background: "var(--color-bg)",
       }}>
-        <div className={shake ? "animate-shake" : ""} style={{ width: 360, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div className={shake ? "animate-shake" : ""} style={{ width: isMobile ? "100%" : 360, maxWidth: 360, display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ fontSize: 13, color: "var(--color-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 500 }}>Welcome back</div>
           <div style={{ fontSize: 22, fontWeight: 600, marginTop: 8, color: "var(--color-ink)" }}>Enter your PIN</div>
 

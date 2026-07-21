@@ -1,3 +1,4 @@
+import { WS_PROTOCOL } from "@inbill/shared";
 class WsClient {
     ws = null;
     listeners = new Map();
@@ -25,11 +26,15 @@ class WsClient {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
+        // Authenticate the handshake: the server derives the outlet from this token.
+        // Without it the upgrade is rejected, so don't even open the socket.
+        const token = localStorage.getItem("inbill_token");
+        if (!token)
+            return;
         const isEmbedded = location.protocol === "tauri:" || location.port === "5173";
         const wsHost = isEmbedded ? "localhost:3000" : location.host;
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        const params = this.outletId ? `?outletId=${this.outletId}` : "";
-        this.ws = new WebSocket(`${proto}://${wsHost}/ws${params}`);
+        this.ws = new WebSocket(`${proto}://${wsHost}/ws`, [WS_PROTOCOL, token]);
         this.ws.onopen = () => {
             console.log("[WS] connected");
             // Subscribe to outlet-wide events

@@ -113,6 +113,10 @@ input  { font-family: inherit; }
   from { transform: translateX(100%); }
   to   { transform: none; }
 }
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to   { transform: none; }
+}
 @keyframes overlay-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -121,6 +125,9 @@ input  { font-family: inherit; }
   0%, 100% { box-shadow: 0 0 0 0 oklch(70% 0.17 55 / .55); }
   50%       { box-shadow: 0 0 0 8px oklch(70% 0.17 55 / 0); }
 }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 .animate-shake          { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
 .animate-pulse-red      { animation: pulse-red 1.6s ease-out infinite; }
@@ -128,7 +135,9 @@ input  { font-family: inherit; }
 .animate-fade-in        { animation: fade-in .3s ease forwards; }
 .animate-pop            { animation: pop .4s cubic-bezier(.2,1.5,.4,1) forwards; }
 .animate-slide-right    { animation: slide-in-right .25s cubic-bezier(.2,1,.4,1) forwards; }
+.animate-slide-left     { animation: slide-in-left .25s cubic-bezier(.2,1,.4,1) forwards; }
 .animate-overlay-in     { animation: overlay-in .2s ease forwards; }
+.animate-spin           { animation: spin 1s linear infinite; }
 
 /* ─── Veg/Non-veg indicator ──────────────────────────────────── */
 .veg-dot {

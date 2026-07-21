@@ -95,6 +95,7 @@ ownerRouter.get("/outlets", async (c) => {
         address: outlet.address,
         gstin: outlet.gstin,
         setupCode: outlet.setupCode,
+        settings: outlet.settings,
         upiVpa: outlet.upiVpa,
         razorpayConfigured: !!(outlet.razorpayKeyId && outlet.razorpayKeySecret),
         revenue: rangeBills.reduce((s, b) => s + Number(b.total), 0),
@@ -116,7 +117,7 @@ ownerRouter.post("/outlets", zValidator("json", createOutletSchema), async (c) =
   const data = c.req.valid("json")
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
   const setupCode = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * 32)]).join("")
-  const [outlet] = await db.insert(outlets).values({ ...data, gstin: data.gstin || null, ownerId, setupCode }).returning()
+  const [outlet] = await db.insert(outlets).values({ ...data, gstin: data.gstin || null, ownerId, setupCode, settings: data.settings ?? {} }).returning()
   return c.json(outlet, 201)
 })
 

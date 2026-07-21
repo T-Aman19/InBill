@@ -6,7 +6,10 @@ import { api, ApiError, type ExtractedMenu, type ExtractedItem, type ExtractedMo
 import { ws } from "@/lib/ws"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
+import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 import { LogoMark } from "@/components/ui/LogoMark"
+import { ResponsiveListHeader, ResponsiveListRow } from "@/components/ui/ResponsiveList"
+import { OperationTypeCards, operationTypeFromSettings, operationTypeToSettings, type OperationType } from "@/components/ui/OperationTypeCards"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Staff = { id: string; name: string; role: string; isActive: boolean }
@@ -31,7 +34,7 @@ type EditTable = { _new?: boolean; id?: string; floorId: string; name: string; c
 type TaxConfig = { id?: string; name: string; cgstRate: string; sgstRate: string; igstRate: string }
 
 type ReportSummary = { billCount: number; totalRevenue: number; totalTax: number; totalDiscount: number; byPaymentMode: Record<string, number> }
-type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean } }
+type OutletInfo = { id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; settings?: { deliveryEnabled?: boolean; hasTables?: boolean; hasKitchenWorkflow?: boolean } }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
@@ -190,21 +193,13 @@ function StaffTab() {
         </button>
       </div>
       <div className="scroll" style={{ flex: 1 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px 120px 100px", padding: "12px 28px", fontSize: 11, color: "var(--color-ink-3)", letterSpacing: ".04em", textTransform: "uppercase", fontWeight: 500, borderBottom: "1px solid var(--color-line)" }}>
+        <ResponsiveListHeader columns="1fr 120px 100px 120px 100px">
           <span>Name</span><span>Role</span><span>PIN</span><span>Status</span><span style={{ textAlign: "right" }}>Actions</span>
-        </div>
-        {staff.map((s) => (
-          <div key={s.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px 120px 100px", padding: "14px 28px", alignItems: "center", borderBottom: "1px solid var(--color-line)", opacity: s.isActive ? 1 : .5 }}
-            onMouseEnter={(e) => (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)"}
-            onMouseLeave={(e) => (e.currentTarget as HTMLDivElement).style.background = "transparent"}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600 }}>{initials(s.name)}</div>
-              <div><div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div><div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 1 }}>{s.isActive ? "Active" : "Disabled"}</div></div>
-            </div>
-            <span><RoleBadge role={s.role} /></span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)" }}>••••</span>
-            <span>{s.isActive ? <span className="badge green"><span className="dot green" /> Active</span> : <span className="badge"><span className="dot gray" /> Disabled</span>}</span>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
+        </ResponsiveListHeader>
+        {staff.map((s) => {
+          const avatar = <div style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{initials(s.name)}</div>
+          const actions = (
+            <>
               <ActionBtn onClick={() => setEditing({ id: s.id, name: s.name, role: s.role, pin: "••••", isActive: s.isActive })} title="Edit" />
               <button onClick={() => s.isActive ? disableMutation.mutate(s.id) : enableMutation.mutate(s.id)} title={s.isActive ? "Disable" : "Enable"} style={{ width: 32, height: 32, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-ink-3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = s.isActive ? "var(--color-red-soft)" : "var(--color-green-soft)"; (e.currentTarget as HTMLButtonElement).style.color = s.isActive ? "var(--color-red)" : "var(--color-green)"; }}
@@ -213,9 +208,38 @@ function StaffTab() {
                   ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
                   : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7"/></svg>}
               </button>
-            </div>
-          </div>
-        ))}
+            </>
+          )
+          return (
+            <ResponsiveListRow
+              key={s.id}
+              columns="1fr 120px 100px 120px 100px"
+              opacity={s.isActive ? 1 : .5}
+              card={
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {avatar}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                      <RoleBadge role={s.role} />
+                      {s.isActive ? <span className="badge green"><span className="dot green" /> Active</span> : <span className="badge"><span className="dot gray" /> Disabled</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>{actions}</div>
+                </div>
+              }
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {avatar}
+                <div><div style={{ fontSize: 14, fontWeight: 500 }}>{s.name}</div><div style={{ fontSize: 11, color: "var(--color-ink-3)", marginTop: 1 }}>{s.isActive ? "Active" : "Disabled"}</div></div>
+              </div>
+              <span><RoleBadge role={s.role} /></span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)" }}>••••</span>
+              <span>{s.isActive ? <span className="badge green"><span className="dot green" /> Active</span> : <span className="badge"><span className="dot gray" /> Disabled</span>}</span>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>{actions}</div>
+            </ResponsiveListRow>
+          )
+        })}
       </div>
       {editing && <StaffEditPanel record={editing} onClose={() => setEditing(null)} onSaved={() => {}} />}
     </>
@@ -531,11 +555,56 @@ function MenuTab() {
 // ── Menu import (image/PDF → Gemini extraction) ──────────────────────────────
 type ImportStep = "upload" | "extracting" | "review" | "committing"
 
+// Real progress isn't observable mid-request (one Gemini call, one response) —
+// this eases toward ~92% and cycles status text so the wait reads as active
+// work rather than a frozen screen, then snaps to 100% the instant it resolves.
+const EXTRACT_MESSAGES = [
+  "Uploading file…",
+  "Scanning the page layout…",
+  "Reading item names & prices…",
+  "Detecting veg / non-veg…",
+  "Grouping into categories…",
+]
+
+function useExtractProgress(active: boolean) {
+  const [progress, setProgress] = useState(0)
+  const [messageIdx, setMessageIdx] = useState(0)
+
+  useEffect(() => {
+    if (!active) { setProgress(0); setMessageIdx(0); return }
+    const progressTimer = setInterval(() => setProgress((p) => (p >= 92 ? p : p + (92 - p) * 0.12)), 300)
+    const messageTimer = setInterval(() => setMessageIdx((i) => (i + 1) % EXTRACT_MESSAGES.length), 1900)
+    return () => { clearInterval(progressTimer); clearInterval(messageTimer) }
+  }, [active])
+
+  return { progress, message: EXTRACT_MESSAGES[messageIdx]! }
+}
+
+function ExtractingView({ progress, message }: { progress: number; message: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, padding: "56px 24px", textAlign: "center" }}>
+      <div style={{ position: "relative", width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="animate-spin" style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid var(--color-line)", borderTopColor: "var(--v2-marigold)" }} />
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--v2-marigold)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+      </div>
+      <div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)" }}>Reading your menu with AI</div>
+        <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 6, minHeight: 18 }}>{message}</div>
+      </div>
+      <div style={{ width: "100%", maxWidth: 280, height: 6, borderRadius: 3, background: "var(--color-surface-2)", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${progress}%`, background: "var(--v2-marigold)", borderRadius: 3, transition: "width .5s ease" }} />
+      </div>
+      <div style={{ fontSize: 11, color: "var(--color-ink-4)" }}>This can take up to 20 seconds for multi-page menus</div>
+    </div>
+  )
+}
+
 function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [step, setStep] = useState<ImportStep>("upload")
   const [error, setError] = useState("")
   const [menu, setMenu] = useState<ExtractedMenu | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { progress: extractProgress, message: extractMessage } = useExtractProgress(step === "extracting")
 
   const extractMutation = useMutation({
     mutationFn: (file: File) => api.menu.importExtract(file),
@@ -615,11 +684,11 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
         </div>
 
         <div className="scroll" style={{ flex: 1, padding: 24, overflow: "auto" }}>
-          {(step === "upload" || step === "extracting") && (
+          {step === "upload" && (
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-              style={{ border: "2px dashed var(--color-line-strong)", borderRadius: 16, padding: "48px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center", opacity: step === "extracting" ? .5 : 1, pointerEvents: step === "extracting" ? "none" : "auto" }}
+              style={{ border: "2px dashed var(--color-line-strong)", borderRadius: 16, padding: "48px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}
             >
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-3)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               <div style={{ fontSize: 14, color: "var(--color-ink-2)" }}>Drag a menu photo or PDF here, or</div>
@@ -630,9 +699,7 @@ function MenuImportModal({ onClose, onImported }: { onClose: () => void; onImpor
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
             </div>
           )}
-          {step === "extracting" && (
-            <div style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "var(--color-ink-3)" }}>This can take up to 20 seconds for multi-page menus…</div>
-          )}
+          {step === "extracting" && <ExtractingView progress={extractProgress} message={extractMessage} />}
           {error && <div style={{ marginTop: 14, fontSize: 13, color: "var(--color-red)", background: "var(--color-red-soft)", borderRadius: 10, padding: "10px 14px" }}>{error}</div>}
 
           {(step === "review" || step === "committing") && menu && (
@@ -1416,6 +1483,7 @@ function OutletTab() {
   const [razorpayKeyId, setRazorpayKeyId]         = useState("")
   const [razorpayKeySecret, setRazorpayKeySecret] = useState("")
   const [deliveryEnabled, setDeliveryEnabled] = useState(false)
+  const [operationType, setOperationType] = useState<OperationType>("full_service")
   const [loaded, setLoaded]   = useState(false)
   const [saved, setSaved]     = useState(false)
 
@@ -1433,6 +1501,7 @@ function OutletTab() {
     setUpiVpa(outlet.upiVpa ?? "")
     setRazorpayKeyId(outlet.razorpayKeyId ?? "")
     setDeliveryEnabled(outlet.settings?.deliveryEnabled ?? false)
+    setOperationType(operationTypeFromSettings(outlet.settings))
     setLoaded(true)
   }
 
@@ -1444,7 +1513,9 @@ function OutletTab() {
       upiVpa: upiVpa || undefined,
       razorpayKeyId: razorpayKeyId || undefined,
       razorpayKeySecret: razorpayKeySecret || undefined,
-      settings: { deliveryEnabled },
+      // PATCH /outlet replaces the whole settings object, so every known key
+      // must be included here or it gets silently dropped.
+      settings: { deliveryEnabled, ...operationTypeToSettings(operationType) },
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["outlet"] })
@@ -1497,6 +1568,12 @@ function OutletTab() {
                   <input type="password" value={razorpayKeySecret} onChange={(e) => setRazorpayKeySecret(e.target.value.trim())} placeholder="Leave blank to keep existing" style={inputStyle({ fontFamily: "var(--font-mono)" })} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />
                 ))}
               </div>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 4 }}>Operation type</div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 16 }}>Controls whether the floor page shows tables and whether orders go through kitchen ticketing</div>
+              <OperationTypeCards value={operationType} onChange={setOperationType} />
             </div>
 
             <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 20 }}>
@@ -3106,13 +3183,15 @@ function SetupChecklist({ onNavigate }: { onNavigate: (tab: NavId) => void }) {
   const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: unknown[]; items: unknown[] }> })
   const { data: tablesData } = useQuery({ queryKey: ["tables"], queryFn: () => api.tables.getAll() as Promise<{ tables: unknown[] }> })
   const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => api.users.getAll() as Promise<unknown[]> })
+  const { data: outlet } = useQuery({ queryKey: ["outlet"], queryFn: () => api.outlet.get() })
 
   const hasMenu = (menu?.items?.length ?? 0) > 0
-  const hasTables = (tablesData?.tables?.length ?? 0) > 0
+  const tablesEnabled = outlet?.settings?.hasTables !== false
+  const hasTables = !tablesEnabled || (tablesData?.tables?.length ?? 0) > 0
   const hasStaff = (users?.length ?? 0) > 0
 
   const steps: { label: string; done: boolean; tab: NavId }[] = [
-    { label: "Configure tables", done: hasTables, tab: "tables" },
+    ...(tablesEnabled ? [{ label: "Configure tables", done: hasTables, tab: "tables" as NavId }] : []),
     { label: "Add menu items", done: hasMenu, tab: "menu" },
     { label: "Add staff", done: hasStaff, tab: "staff" },
   ]
@@ -3446,15 +3525,34 @@ export default function ManagerPage() {
   const navigate    = useNavigate()
   const user        = useAuthStore((s) => s.user)
   const { outletName } = useAuthStore()
+  const isTablet = useIsTablet()
+  const isMobile = useIsMobile()
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<NavId>(() => {
     const t = new URLSearchParams(window.location.search).get("tab") as NavId | null
     return t && VALID_TABS.has(t) ? t : "home"
   })
+  // On tablet/mobile the sidebar is an off-canvas drawer — picking a tab closes it.
+  function selectTab(tab: NavId) {
+    setActiveTab(tab)
+    if (isTablet) setDrawerOpen(false)
+  }
 
   return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)" }}>
+    <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "var(--color-bg)", position: "relative" }}>
+      {isTablet && drawerOpen && (
+        <div onClick={() => setDrawerOpen(false)} className="animate-overlay-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.18)", zIndex: 40 }} />
+      )}
+
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
-      <aside style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", flexDirection: "column", padding: "16px 10px" }}>
+      {(!isTablet || drawerOpen) && (
+        <aside
+          className={isTablet ? "animate-slide-left" : undefined}
+          style={{
+            width: 224, flexShrink: 0, borderRight: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", flexDirection: "column", padding: "16px 10px",
+            ...(isTablet ? { position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 50, boxShadow: "12px 0 40px rgba(0,0,0,.12)" } : {}),
+          }}
+        >
         {/* Logo + outlet */}
         <div style={{ padding: "0 6px 14px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ color: "var(--color-ink)", flexShrink: 0 }}>
@@ -3463,6 +3561,11 @@ export default function ManagerPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="display" style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{outletName ?? "inbill"}</div>
           </div>
+          {isTablet && (
+            <button onClick={() => setDrawerOpen(false)} style={{ background: "transparent", border: "none", color: "var(--color-ink-3)", cursor: "pointer", padding: 4, borderRadius: 8, display: "flex", flexShrink: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          )}
         </div>
 
         {/* Floor shortcut */}
@@ -3474,7 +3577,7 @@ export default function ManagerPage() {
         </div>
 
         {/* Home */}
-        <div onClick={() => setActiveTab("home")} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 10, display: "flex", alignItems: "center", gap: 9, fontSize: 13, fontWeight: activeTab === "home" ? 600 : 500, color: activeTab === "home" ? "var(--color-ink)" : "var(--color-ink-2)", background: activeTab === "home" ? "var(--color-surface-2)" : "transparent", cursor: "pointer" }}
+        <div onClick={() => selectTab("home")} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 10, display: "flex", alignItems: "center", gap: 9, fontSize: 13, fontWeight: activeTab === "home" ? 600 : 500, color: activeTab === "home" ? "var(--color-ink)" : "var(--color-ink-2)", background: activeTab === "home" ? "var(--color-surface-2)" : "transparent", cursor: "pointer" }}
           onMouseEnter={(e) => { if (activeTab !== "home") (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
           onMouseLeave={(e) => { if (activeTab !== "home") (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
           {NAV_ICONS.home}
@@ -3489,7 +3592,7 @@ export default function ManagerPage() {
               {group.items.map((item) => {
                 const active = activeTab === item.id
                 return (
-                  <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 1, display: "flex", alignItems: "center", gap: 9, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 400, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
+                  <div key={item.id} onClick={() => selectTab(item.id)} style={{ padding: "8px 10px", borderRadius: 7, marginBottom: 1, display: "flex", alignItems: "center", gap: 9, background: active ? "var(--color-surface-2)" : "transparent", fontSize: 13, fontWeight: active ? 600 : 400, color: active ? "var(--color-ink)" : "var(--color-ink-2)", cursor: "pointer" }}
                     onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover)" }}
                     onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
                     {NAV_ICONS[item.id]}
@@ -3503,7 +3606,7 @@ export default function ManagerPage() {
 
         {/* User + setup checklist */}
         <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 10 }}>
-          <SetupChecklist onNavigate={setActiveTab} />
+          <SetupChecklist onNavigate={selectTab} />
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 8px 0" }}>
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600 }}>
               {initials(user?.name ?? "?")}
@@ -3514,23 +3617,29 @@ export default function ManagerPage() {
             </div>
           </div>
         </div>
-      </aside>
+        </aside>
+      )}
 
       {/* ── Content ──────────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
         {/* Content header */}
-        <div style={{ height: 52, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: "0 28px", gap: 14 }}>
-          <span style={{ fontSize: 13, color: "var(--color-ink-3)", fontWeight: 500 }}>
+        <div style={{ height: 52, flexShrink: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center", padding: isMobile ? "0 12px" : "0 28px", gap: isMobile ? 8 : 14 }}>
+          {isTablet && (
+            <button onClick={() => setDrawerOpen(true)} title="Menu" style={{ background: "transparent", border: "1px solid var(--color-line)", color: "var(--color-ink-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+          )}
+          <span style={{ fontSize: 13, color: "var(--color-ink-3)", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {activeTab === "home" ? "Home" : NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === activeTab)?.label ?? activeTab}
           </span>
           <div style={{ flex: 1 }} />
-          <button onClick={() => navigate({ to: "/floor" })} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)" }}>
+          <button onClick={() => navigate({ to: "/floor" })} title="Floor" style={{ display: "flex", alignItems: "center", gap: 6, padding: isMobile ? "0" : "7px 12px", width: isMobile ? 32 : undefined, height: isMobile ? 32 : undefined, justifyContent: "center", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)", flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg>
-            Floor
+            {!isMobile && "Floor"}
           </button>
-          <button onClick={() => navigate({ to: "/kds" })} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)" }}>
+          <button onClick={() => navigate({ to: "/kds" })} title="Kitchen" style={{ display: "flex", alignItems: "center", gap: 6, padding: isMobile ? "0" : "7px 12px", width: isMobile ? 32 : undefined, height: isMobile ? 32 : undefined, justifyContent: "center", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink-2)", flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18"/><path d="M9 17v3M15 17v3M6 20h12"/></svg>
-            Kitchen
+            {!isMobile && "Kitchen"}
           </button>
         </div>
 

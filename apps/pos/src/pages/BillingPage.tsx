@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
+import { useIsTablet } from "@/hooks/useMediaQuery"
 
 type TaxLine = { name: string; rate: number; amount: number }
 type Payment = { id: string; mode: string; amount: string }
@@ -33,6 +34,11 @@ const PAYMENT_MODES = [
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4l-6 16M9 4l-2 8h6l-2 8"/></svg> },
 ] as const
 
+function formatBillTime(createdAt?: string) {
+  if (!createdAt) return ""
+  return new Date(createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+}
+
 function Row({ label, value, dim, big }: { label: string; value: string; dim?: boolean; big?: boolean }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: big ? "4px 0" : "3px 0", fontSize: big ? 18 : 13, fontWeight: big ? 600 : 400, color: dim ? "var(--color-ink-3)" : "var(--color-ink)" }}>
@@ -48,6 +54,8 @@ export default function BillingPage() {
   const qc         = useQueryClient()
   const [mode,     setMode]     = useState<"cash" | "card" | "upi">("cash")
   const [tendered, setTendered] = useState("")
+  const isTablet = useIsTablet()
+  const [mobilePane, setMobilePane] = useState<"receipt" | "payment">("receipt")
   const [showDiscounts, setShowDiscounts] = useState(false)
   const [discountErr,   setDiscountErr]   = useState("")
   const [upiPayment, setUpiPayment] = useState<{ paymentId: string; qrData: string; amountDue: number; mode: string; expiresAt: string } | null>(null)
@@ -248,10 +256,10 @@ export default function BillingPage() {
 
   // Paid success state — v2 two-panel
   if (bill.isPaid) return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: isTablet ? "column" : "row", overflow: isTablet ? "auto" : "hidden" }}>
 
       {/* Left: on-screen receipt (doubles as print target) */}
-      <div className="scroll print-receipt" style={{ flex: 1, padding: "32px 40px", background: "var(--color-bg)" }}>
+      <div className="scroll print-receipt" style={{ flex: 1, padding: isTablet ? "20px 20px" : "32px 40px", background: "var(--color-bg)" }}>
         <div style={{ maxWidth: 540, margin: "0 auto" }}>
 
           {/* Outlet header */}
@@ -264,7 +272,7 @@ export default function BillingPage() {
 
           <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
             <span>Bill #{bill.billNumber}</span>
-            <span>{new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+            <span>{formatBillTime(bill.createdAt)}</span>
           </div>
 
           {/* Items */}
@@ -342,10 +350,11 @@ export default function BillingPage() {
 
       {/* Right: dark success panel */}
       <div className="animate-slide-right" style={{
-        width: 400, flexShrink: 0,
+        width: isTablet ? "100%" : 400, flexShrink: 0,
+        order: isTablet ? -1 : undefined,
         background: "var(--color-ink)",
-        padding: "44px 36px", display: "flex", flexDirection: "column",
-        overflowY: "auto",
+        padding: isTablet ? "28px 24px" : "44px 36px", display: "flex", flexDirection: "column",
+        overflowY: isTablet ? "visible" : "auto",
       }}>
         <div className="eyebrow" style={{ color: "var(--v2-marigold)" }}>Payment received</div>
 
@@ -364,7 +373,7 @@ export default function BillingPage() {
           {formatCurrency(bill.total)}
         </div>
         <div style={{ fontSize: 13, color: "oklch(100% 0 0 / .45)", marginTop: 8 }}>
-          Bill #{bill.billNumber} · {new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+          Bill #{bill.billNumber} · {formatBillTime(bill.createdAt)}
         </div>
 
         {/* Payment breakdown */}
@@ -446,7 +455,7 @@ export default function BillingPage() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Bill #{bill.billNumber}</h2>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-          {new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+          {formatBillTime(bill.createdAt)}
         </span>
         <button onClick={() => triggerPrint()} title="Print receipt" style={{
           background: "transparent", border: "none",
@@ -459,9 +468,28 @@ export default function BillingPage() {
         </button>
       </div>
 
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 440px", overflow: "hidden" }}>
+      {/* Mobile/tablet pane switcher — the receipt/payment split becomes tabs below `tablet` */}
+      {isTablet && (
+        <div style={{ display: "flex", flexShrink: 0, borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
+          {([
+            { id: "receipt" as const, label: "Receipt" },
+            { id: "payment" as const, label: "Payment" },
+          ]).map((p) => (
+            <button key={p.id} onClick={() => setMobilePane(p.id)} style={{
+              flex: 1, padding: "10px 0", background: "transparent", border: "none",
+              borderBottom: "2px solid " + (mobilePane === p.id ? "var(--color-ink)" : "transparent"),
+              color: mobilePane === p.id ? "var(--color-ink)" : "var(--color-ink-3)",
+              fontSize: 13, fontWeight: mobilePane === p.id ? 600 : 500, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: isTablet ? "1fr" : "1fr 440px", overflow: "hidden" }}>
         {/* Left: receipt */}
-        <div className="scroll print-receipt" style={{ padding: "24px 32px" }}>
+        <div className="scroll print-receipt" style={{ padding: "24px 32px", display: isTablet && mobilePane !== "receipt" ? "none" : "block" }}>
           <div style={{ maxWidth: 560, margin: "0 auto" }}>
             {/* Outlet header */}
             <div style={{ textAlign: "center", paddingBottom: 18, borderBottom: "1px dashed var(--color-line-strong)" }}>
@@ -472,7 +500,7 @@ export default function BillingPage() {
 
             <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
               <span>Bill #{bill.billNumber}</span>
-              <span>{new Date(bill.createdAt ?? Date.now()).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+              <span>{formatBillTime(bill.createdAt)}</span>
             </div>
 
             {/* Items table */}
@@ -541,7 +569,7 @@ export default function BillingPage() {
         </div>
 
         {/* Right: payment collection */}
-        <div style={{ background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", padding: 24, display: "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
+        <div style={{ background: "var(--color-surface)", borderLeft: isTablet ? "none" : "1px solid var(--color-line)", padding: 24, display: isTablet && mobilePane !== "payment" ? "none" : "flex", flexDirection: "column", gap: 18, overflowY: "auto" }}>
           <div style={{ fontSize: 12, color: "var(--color-ink-3)", letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 500 }}>Collect payment</div>
 
           {/* Customer lookup — before payment starts, no customer yet */}
@@ -558,7 +586,7 @@ export default function BillingPage() {
                   placeholder="10-digit mobile"
                   inputMode="numeric"
                   maxLength={10}
-                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
+                  style={{ flex: 1, minWidth: 0, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
                   onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
                 />
@@ -566,7 +594,7 @@ export default function BillingPage() {
                   value={custName}
                   onChange={(e) => setCustName(e.target.value)}
                   placeholder="Name"
-                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
+                  style={{ flex: 1, minWidth: 0, height: 36, borderRadius: 8, border: "1px solid var(--color-line-strong)", padding: "0 10px", fontSize: 13, background: "var(--color-bg)", color: "var(--color-ink)", outline: "none", fontFamily: "inherit" }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")}
                   onBlur={(e)  => (e.currentTarget.style.borderColor = "var(--color-line-strong)")}
                 />

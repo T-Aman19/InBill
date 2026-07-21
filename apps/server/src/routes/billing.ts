@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import { eq, and, inArray, isNull, max, gte, lte, count } from "drizzle-orm"
-import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchema } from "@inbill/shared"
+import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchema, type OutletSettings } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { dayStart, dayEnd } from "../lib/dateRange.js"
@@ -164,9 +164,13 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
     const inKitchen = kotList.some((k) => k.status !== "done")
     if (inKitchen) return c.json({ error: "Items are still being prepared in the kitchen" }, 400)
   } else {
-    // Counter order (takeaway/delivery): customer pays first, kitchen prepares after
-    // Auto-fire KOT for any unsent items so the kitchen is notified on payment
-    if (unsentItems.length > 0) {
+    // Counter order (takeaway/delivery): customer pays first, kitchen prepares after.
+    // Auto-fire KOT for any unsent items so the kitchen is notified on payment —
+    // unless this outlet has no kitchen workflow at all (quick service / counter-only).
+    const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+    const outletSettings = outlet?.settings as OutletSettings | undefined
+    const hasKitchenWorkflow = outletSettings?.hasKitchenWorkflow !== false
+    if (hasKitchenWorkflow && unsentItems.length > 0) {
       const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
       const kotNumber = (kotAgg?.maxNum ?? 0) + 1
       const [kot] = await db.insert(kots).values({ outletId, orderId, kotNumber }).returning()

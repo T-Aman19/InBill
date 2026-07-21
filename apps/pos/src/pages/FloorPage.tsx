@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
+import { useIsMobile } from "@/hooks/useMediaQuery"
 import { LogoMark } from "@/components/ui/LogoMark"
 import { GuidedTour, type TourStep } from "@/components/ui/GuidedTour"
 
@@ -440,6 +441,8 @@ export default function FloorPage() {
   const [creating, setCreating] = useState(false)
   const [copied,   setCopied]   = useState(false)
   const [runTour,  setRunTour]  = useState(false)
+  const [navMenuOpen, setNavMenuOpen] = useState(false)
+  const isMobile = useIsMobile()
 
   const isManagerOrOwner = user?.role === "manager" || user?.role === "owner"
 
@@ -524,6 +527,9 @@ export default function FloorPage() {
     }
   }
 
+  const hasTables         = outlet?.settings?.hasTables !== false
+  const hasKitchenWorkflow = outlet?.settings?.hasKitchenWorkflow !== false
+
   const floors = data?.floors ?? []
   const tables = data?.tables ?? []
   const stats  = {
@@ -552,11 +558,11 @@ export default function FloorPage() {
 
       {/* ── v2 header ─────────────────────────────────────────────── */}
       <div style={{
-        height: 56, flexShrink: 0,
+        height: 56, flexShrink: 0, position: "relative",
         background: "var(--color-surface)",
         borderBottom: "1px solid var(--color-line)",
         display: "flex", alignItems: "center",
-        padding: "0 20px", gap: 14,
+        padding: isMobile ? "0 12px" : "0 20px", gap: isMobile ? 8 : 14,
       }}>
         {/* Logo + outlet */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -578,31 +584,34 @@ export default function FloorPage() {
         </div>
 
         {/* Table stats pill */}
-        <div style={{ display: "flex", background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, flexShrink: 0 }}>
-          {([
-            { label: "Free",   dot: "green" as const, val: stats.free   },
-            { label: "Open",   dot: "amber" as const, val: stats.open   },
-            { label: "Billed", dot: "red"   as const, val: stats.billed },
-          ]).map((s, i, arr) => (
-            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRight: i < arr.length - 1 ? "1px solid var(--color-line)" : "none", fontSize: 12 }}>
-              <span className={`dot ${s.dot}`} />
-              <span style={{ color: "var(--color-ink-3)" }}>{s.label}</span>
-              <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>{s.val}</span>
-            </div>
-          ))}
-        </div>
+        {hasTables && !isMobile && (
+          <div style={{ display: "flex", background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 4, flexShrink: 0 }}>
+            {([
+              { label: "Free",   dot: "green" as const, val: stats.free   },
+              { label: "Open",   dot: "amber" as const, val: stats.open   },
+              { label: "Billed", dot: "red"   as const, val: stats.billed },
+            ]).map((s, i, arr) => (
+              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRight: i < arr.length - 1 ? "1px solid var(--color-line)" : "none", fontSize: 12 }}>
+                <span className={`dot ${s.dot}`} />
+                <span style={{ color: "var(--color-ink-3)" }}>{s.label}</span>
+                <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>{s.val}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Quick order actions */}
         <button
           onClick={() => startOrder("takeaway")}
           disabled={creating}
           data-tour="takeaway"
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 9, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontWeight: 500, cursor: creating ? "not-allowed" : "pointer", flexShrink: 0, opacity: creating ? .6 : 1 }}
+          title="Takeaway"
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: isMobile ? 0 : "7px 13px", width: isMobile ? 32 : undefined, height: isMobile ? 32 : undefined, justifyContent: "center", borderRadius: 9, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink)", fontSize: 13, fontWeight: 500, cursor: creating ? "not-allowed" : "pointer", flexShrink: 0, opacity: creating ? .6 : 1 }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.5 12a2 2 0 01-2 2h-9a2 2 0 01-2-2L5 8z"/><path d="M8 8V6a4 4 0 018 0v2"/><path d="M9 13h6"/></svg>
-          Takeaway
+          {!isMobile && "Takeaway"}
         </button>
-        {outlet?.settings?.deliveryEnabled && (
+        {outlet?.settings?.deliveryEnabled && !isMobile && (
           <button
             onClick={() => startOrder("delivery")}
             disabled={creating}
@@ -615,70 +624,175 @@ export default function FloorPage() {
 
         <div style={{ flex: 1 }} />
 
-        {/* App navigation */}
-        <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
-          {[
-            { id: "floor",     label: "Floor",     path: "/floor",     show: user?.role !== "kitchen",
-              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg> },
-            { id: "kds",       label: "Kitchen",   path: "/kds",       show: user?.role !== "kitchen",
-              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg> },
-            { id: "manager",   label: "Manager",   path: "/manager",   show: isManagerOrOwner,
-              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z"/></svg> },
-            { id: "inventory", label: "Inventory", path: "/inventory", show: isManagerOrOwner,
-              icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M10 12h4M10 16h4M8 12v.01M8 16v.01"/></svg> },
-          ].filter((n) => n.show).map((n) => {
-            const active = n.id === "floor"
-            return (
-              <button key={n.id} onClick={() => navigate({ to: n.path })} data-tour={`nav-${n.id}`} style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: 8,
-                border: "1px solid " + (active ? "var(--color-line)" : "transparent"),
-                background: active ? "var(--color-surface-2)" : "transparent",
-                color: active ? "var(--color-ink)" : "var(--color-ink-3)",
-                fontSize: 13, fontWeight: 500, cursor: "pointer",
-                position: "relative",
-              }}>
-                {n.icon}
-                {n.label}
-                {n.id === "inventory" && lowStockCount > 0 && (
-                  <span style={{ background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }}>{lowStockCount}</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Help / replay tour */}
-        <button
-          onClick={() => setRunTour(true)}
-          title="Replay the guided tour"
-          style={{ background: "transparent", border: "1px solid var(--color-line)", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </button>
-
-        {/* User chip */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14, borderLeft: "1px solid var(--color-line)", flexShrink: 0 }}>
-          <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>
-            {initials(user?.name ?? "?")}
-          </div>
-          <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink)" }}>{user?.name}</div>
-            <div style={{ fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }}>{user?.role}</div>
-          </div>
-          <button
-            onClick={() => { logout(); navigate({ to: "/login" }) }}
-            title="Logout"
-            style={{ background: "transparent", border: "none", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>
+        {isMobile ? (
+          /* Collapsed into a drawer: nav links, help, delivery, user chip + logout */
+          <button onClick={() => setNavMenuOpen(true)} title="Menu" style={{ background: "transparent", border: "1px solid var(--color-line)", color: "var(--color-ink-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
-        </div>
+        ) : (
+          <>
+            {/* App navigation */}
+            <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+              {[
+                { id: "floor",     label: "Floor",     path: "/floor",     show: user?.role !== "kitchen",
+                  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg> },
+                { id: "kds",       label: "Kitchen",   path: "/kds",       show: user?.role !== "kitchen" && hasKitchenWorkflow,
+                  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg> },
+                { id: "manager",   label: "Manager",   path: "/manager",   show: isManagerOrOwner,
+                  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z"/></svg> },
+                { id: "inventory", label: "Inventory", path: "/inventory", show: isManagerOrOwner,
+                  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M10 12h4M10 16h4M8 12v.01M8 16v.01"/></svg> },
+              ].filter((n) => n.show).map((n) => {
+                const active = n.id === "floor"
+                return (
+                  <button key={n.id} onClick={() => navigate({ to: n.path })} data-tour={`nav-${n.id}`} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 12px", borderRadius: 8,
+                    border: "1px solid " + (active ? "var(--color-line)" : "transparent"),
+                    background: active ? "var(--color-surface-2)" : "transparent",
+                    color: active ? "var(--color-ink)" : "var(--color-ink-3)",
+                    fontSize: 13, fontWeight: 500, cursor: "pointer",
+                    position: "relative",
+                  }}>
+                    {n.icon}
+                    {n.label}
+                    {n.id === "inventory" && lowStockCount > 0 && (
+                      <span style={{ background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }}>{lowStockCount}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Help / replay tour */}
+            <button
+              onClick={() => setRunTour(true)}
+              title="Replay the guided tour"
+              style={{ background: "transparent", border: "1px solid var(--color-line)", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </button>
+
+            {/* User chip */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14, borderLeft: "1px solid var(--color-line)", flexShrink: 0 }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>
+                {initials(user?.name ?? "?")}
+              </div>
+              <div style={{ lineHeight: 1.2 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink)" }}>{user?.name}</div>
+                <div style={{ fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }}>{user?.role}</div>
+              </div>
+              <button
+                onClick={() => { logout(); navigate({ to: "/login" }) }}
+                title="Logout"
+                style={{ background: "transparent", border: "none", color: "var(--color-ink-3)", width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink-3)"; }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>
+              </button>
+            </div>
+          </>
+        )}
       </div>
+
+      {/* ── Mobile nav drawer ─────────────────────────────────────── */}
+      {isMobile && navMenuOpen && (
+        <>
+          <div onClick={() => setNavMenuOpen(false)} className="animate-overlay-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.18)", zIndex: 40 }} />
+          <div className="animate-slide-right" style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 260, background: "var(--color-surface)", borderLeft: "1px solid var(--color-line)", boxShadow: "-12px 0 40px rgba(0,0,0,.12)", zIndex: 50, display: "flex", flexDirection: "column", padding: "16px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 6px 8px", borderBottom: "1px solid var(--color-line)", marginBottom: 8 }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                {initials(user?.name ?? "?")}
+              </div>
+              <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.name}</div>
+                <div style={{ fontSize: 10, color: "var(--color-ink-3)", textTransform: "capitalize" }}>{user?.role}</div>
+              </div>
+              <button onClick={() => setNavMenuOpen(false)} style={{ background: "transparent", border: "none", color: "var(--color-ink-3)", cursor: "pointer", padding: 4, borderRadius: 8, display: "flex", flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            {hasTables && (
+              <div style={{ display: "flex", gap: 6, padding: "0 6px 12px" }}>
+                {([
+                  { label: "Free",   dot: "green" as const, val: stats.free   },
+                  { label: "Open",   dot: "amber" as const, val: stats.open   },
+                  { label: "Billed", dot: "red"   as const, val: stats.billed },
+                ]).map((s) => (
+                  <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", borderRadius: 8, padding: "4px 8px" }}>
+                    <span className={`dot ${s.dot}`} />
+                    <span style={{ color: "var(--color-ink-3)" }}>{s.label}</span>
+                    <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>{s.val}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {outlet?.settings?.deliveryEnabled && (
+              <button
+                onClick={() => { setNavMenuOpen(false); startOrder("delivery") }}
+                disabled={creating}
+                style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: creating ? "not-allowed" : "pointer", textAlign: "left" }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14M8 8V6a4 4 0 018 0v2"/><rect x="2" y="8" width="20" height="12" rx="2"/><path d="M12 12v4M10 14h4"/></svg>
+                Delivery
+              </button>
+            )}
+
+            {[
+              { id: "floor",     label: "Floor",     path: "/floor",     show: user?.role !== "kitchen",
+                icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="11" rx="1.5"/><path d="M3 11h18M7 17v3M17 17v3"/></svg> },
+              { id: "kds",       label: "Kitchen",   path: "/kds",       show: user?.role !== "kitchen" && hasKitchenWorkflow,
+                icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg> },
+              { id: "manager",   label: "Manager",   path: "/manager",   show: isManagerOrOwner,
+                icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3.8a7 7 0 00-2-1.2L14 3h-4l-.6 2.5a7 7 0 00-2 1.2L5.1 5.9l-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.8a7 7 0 002 1.2L10 21h4l.6-2.5a7 7 0 002-1.2l2.3.8 2-3.4-2-1.5c0-.4.1-.8.1-1.2z"/></svg> },
+              { id: "inventory", label: "Inventory", path: "/inventory", show: isManagerOrOwner,
+                icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M10 12h4M10 16h4M8 12v.01M8 16v.01"/></svg> },
+            ].filter((n) => n.show).map((n) => {
+              const active = n.id === "floor"
+              return (
+                <button key={n.id} onClick={() => { setNavMenuOpen(false); navigate({ to: n.path }) }} style={{
+                  display: "flex", alignItems: "center", gap: 9,
+                  padding: "8px 10px", borderRadius: 7,
+                  border: "none",
+                  background: active ? "var(--color-surface-2)" : "transparent",
+                  color: active ? "var(--color-ink)" : "var(--color-ink-2)",
+                  fontSize: 13, fontWeight: active ? 600 : 500, cursor: "pointer",
+                  textAlign: "left", position: "relative",
+                }}>
+                  {n.icon}
+                  {n.label}
+                  {n.id === "inventory" && lowStockCount > 0 && (
+                    <span style={{ background: "var(--color-red)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: 1.4 }}>{lowStockCount}</span>
+                  )}
+                </button>
+              )
+            })}
+
+            <button
+              onClick={() => { setNavMenuOpen(false); setRunTour(true) }}
+              style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left" }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Replay tour
+            </button>
+
+            <div style={{ flex: 1 }} />
+
+            <button
+              onClick={() => { logout(); navigate({ to: "/login" }) }}
+              style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", color: "var(--color-red)", fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", borderTop: "1px solid var(--color-line)", marginTop: 8, paddingTop: 14 }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>
+              Log out
+            </button>
+          </div>
+        </>
+      )}
 
       <QueuePanel tables={tables} />
 
@@ -730,7 +844,24 @@ export default function FloorPage() {
 
       {/* Table grid */}
       <div className="scroll" style={{ flex: 1, padding: "20px 24px" }}>
-        {isLoading ? (
+        {!hasTables ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", gap: 16 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 18, background: "var(--color-surface-2)", border: "1px solid var(--color-line)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-ink-3)" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2M2 12h20"/></svg>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>Ready to take an order</div>
+              <div style={{ fontSize: 13, color: "var(--color-ink-3)", maxWidth: 280 }}>This outlet runs counter-service — use Takeaway above to start a new order.</div>
+            </div>
+            <button
+              onClick={() => startOrder("takeaway")}
+              disabled={creating}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 18px", borderRadius: 10, background: "var(--color-ink)", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, border: "none", cursor: creating ? "not-allowed" : "pointer", opacity: creating ? .6 : 1 }}
+            >
+              Start new order
+            </button>
+          </div>
+        ) : isLoading ? (
           <div style={{ textAlign: "center", padding: 80, color: "var(--color-ink-3)" }}>Loading tables…</div>
         ) : floors.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", gap: 16 }}>

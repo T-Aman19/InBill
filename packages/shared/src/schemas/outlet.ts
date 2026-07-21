@@ -40,15 +40,22 @@ export const outletSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const outletSettingsSchema = z.object({
+  deliveryEnabled: z.boolean().optional(),
+  // Absent = true (full-service dine-in), so existing outlets keep behaving
+  // exactly as before this flag was introduced.
+  hasTables: z.boolean().optional(),
+  hasKitchenWorkflow: z.boolean().optional(),
+})
+
 export const createOutletSchema = outletSchema
   .omit({ id: true, createdAt: true, ownerId: true })
   // Allow an empty GSTIN string from the create form (field is optional); a
   // provided value must still match the full GSTIN format.
-  .extend({ gstin: gstinSchema.optional().or(z.literal("")) })
-
-export const outletSettingsSchema = z.object({
-  deliveryEnabled: z.boolean().optional(),
-})
+  .extend({
+    gstin: gstinSchema.optional().or(z.literal("")),
+    settings: outletSettingsSchema.optional(),
+  })
 
 export const updateOutletSchema = z.object({
   name: z.string().min(1).max(100).optional(),

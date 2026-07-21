@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { useAuthStore } from "@/stores/auth"
+import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 
 type KotModifier = { name: string; price: string }
 type KotItem = { id: string; name: string; variantName?: string | null; quantity: number; notes?: string | null; modifiers: KotModifier[] }
@@ -189,6 +190,9 @@ export default function KdsPage() {
   const logout   = useAuthStore((s) => s.logout)
   const [now, setNow]       = useState(() => Date.now())
   const [station, setStation] = useState<Station>("all")
+  const isTablet = useIsTablet()
+  const isMobile = useIsMobile()
+  const [mobileStage, setMobileStage] = useState<"new" | "progress">("new")
   const [ackPending, setAckPending]   = useState<string | null>(null)
   const [donePending, setDonePending] = useState<string | null>(null)
 
@@ -252,31 +256,33 @@ export default function KdsPage() {
         background: "oklch(18% 0.01 60)",
         borderBottom: "1px solid oklch(26% 0.012 60)",
         display: "flex", alignItems: "center",
-        padding: "0 20px", gap: 14,
+        padding: isMobile ? "0 10px" : "0 20px", gap: isMobile ? 8 : 14,
       }}>
-        <button onClick={() => navigate({ to: "/floor" })} style={{
+        <button onClick={() => navigate({ to: "/floor" })} title="Floor" style={{
           background: "transparent",
           border: "1px solid oklch(32% 0.012 60)",
-          borderRadius: 8, padding: "7px 12px",
-          color: "oklch(80% 0.01 70)", cursor: "pointer",
+          borderRadius: 8, padding: isMobile ? 7 : "7px 12px",
+          color: "oklch(80% 0.01 70)", cursor: "pointer", flexShrink: 0,
           display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontFamily: "inherit",
         }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-          Floor
+          {!isMobile && "Floor"}
         </button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: "oklch(70% 0.17 55)" }}><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg>
-          <span className="display" style={{ fontSize: 18, fontWeight: 600 }}>Kitchen</span>
-        </div>
+        {!isMobile && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: "oklch(70% 0.17 55)" }}><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M3 8h18M7 12h4M7 14h7"/><path d="M9 17v3M15 17v3M6 20h12"/></svg>
+            <span className="display" style={{ fontSize: 18, fontWeight: 600 }}>Kitchen</span>
+          </div>
+        )}
 
-        {/* Station selector */}
-        <div style={{ marginLeft: 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8 }}>
+        {/* Station selector — horizontally scrollable so it never breaks the header layout */}
+        <div className="scroll" style={{ marginLeft: isMobile ? 0 : 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8, overflowX: "auto", flexShrink: 1 }}>
           {STATIONS.map((s) => {
             const count = s.id === "all" ? kots.length : kots.filter((k) => k.items.some((it) => guessStation(it.name) === s.id)).length
             return (
               <button key={s.id} onClick={() => setStation(s.id)} style={{
-                padding: "6px 12px", borderRadius: 6,
+                padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap", flexShrink: 0,
                 background: station === s.id ? "oklch(70% 0.17 55)" : "transparent",
                 color: station === s.id ? "oklch(34% 0.08 55)" : "oklch(78% 0.012 70)",
                 border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -289,31 +295,35 @@ export default function KdsPage() {
 
         <div style={{ flex: 1 }} />
 
-        {/* Source legend */}
-        <div style={{ display: "flex", gap: 14, fontSize: 11, color: "oklch(60% 0.012 70)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: "oklch(78% 0.01 70)", display: "inline-block" }} />
-            POS {kots.filter((k) => !k.orderSource || k.orderSource === "pos").length}
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: "oklch(58% 0.13 245)", display: "inline-block" }} />
-            QR {kots.filter((k) => k.orderSource === "qr").length}
-          </span>
-        </div>
+        {!isMobile && (
+          <>
+            {/* Source legend */}
+            <div style={{ display: "flex", gap: 14, fontSize: 11, color: "oklch(60% 0.012 70)" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: "oklch(78% 0.01 70)", display: "inline-block" }} />
+                POS {kots.filter((k) => !k.orderSource || k.orderSource === "pos").length}
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: "oklch(58% 0.13 245)", display: "inline-block" }} />
+                QR {kots.filter((k) => k.orderSource === "qr").length}
+              </span>
+            </div>
 
-        <div style={{ width: 1, height: 22, background: "oklch(26% 0.012 60)" }} />
+            <div style={{ width: 1, height: 22, background: "oklch(26% 0.012 60)" }} />
 
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, color: "oklch(78% 0.012 70)" }}>{currentTime}</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, color: "oklch(78% 0.012 70)" }}>{currentTime}</span>
+          </>
+        )}
 
-        <button onClick={() => { logout(); navigate({ to: "/login" }) }} style={{
+        <button onClick={() => { logout(); navigate({ to: "/login" }) }} title="Switch user" style={{
           background: "transparent",
           border: "1px solid oklch(32% 0.012 60)",
-          borderRadius: 8, padding: "7px 12px",
-          color: "oklch(60% 0.012 70)", cursor: "pointer",
+          borderRadius: 8, padding: isMobile ? 7 : "7px 12px",
+          color: "oklch(60% 0.012 70)", cursor: "pointer", flexShrink: 0,
           display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontFamily: "inherit",
         }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Switch
+          {!isMobile && "Switch"}
         </button>
       </div>
 
@@ -343,26 +353,49 @@ export default function KdsPage() {
         </div>
       )}
 
+      {/* Mobile/tablet stage switcher — the two-column board becomes a toggle below `tablet` */}
+      {isTablet && (
+        <div style={{ display: "flex", gap: 1, flexShrink: 0, background: "oklch(26% 0.012 60)" }}>
+          {([
+            { id: "new" as const, label: "New", count: visibleNew.length },
+            { id: "progress" as const, label: "In Progress", count: visibleProg.length },
+          ]).map((s) => (
+            <button key={s.id} onClick={() => setMobileStage(s.id)} style={{
+              flex: 1, padding: "10px 0", background: mobileStage === s.id ? "oklch(20% 0.012 60)" : "oklch(14% 0.01 60)",
+              border: "none", borderBottom: "2px solid " + (mobileStage === s.id ? "oklch(70% 0.17 55)" : "transparent"),
+              color: mobileStage === s.id ? "oklch(96% 0.005 70)" : "oklch(60% 0.012 70)",
+              fontSize: 13, fontWeight: 600, letterSpacing: ".03em", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {s.label} · {s.count}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Two-column board ────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "oklch(26% 0.012 60)", overflow: "hidden" }}>
-        <KDSColumn
-          title="New"
-          accent="oklch(58% 0.2 28)"
-          kots={visibleNew}
-          stage="new"
-          onAction={(id) => ackMutation.mutate(id)}
-          now={now}
-          pendingId={ackPending}
-        />
-        <KDSColumn
-          title="In Progress"
-          accent="oklch(74% 0.15 75)"
-          kots={visibleProg}
-          stage="progress"
-          onAction={(id) => doneMutation.mutate(id)}
-          now={now}
-          pendingId={donePending}
-        />
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: isTablet ? "1fr" : "1fr 1fr", gap: 1, background: "oklch(26% 0.012 60)", overflow: "hidden" }}>
+        {(!isTablet || mobileStage === "new") && (
+          <KDSColumn
+            title="New"
+            accent="oklch(58% 0.2 28)"
+            kots={visibleNew}
+            stage="new"
+            onAction={(id) => ackMutation.mutate(id)}
+            now={now}
+            pendingId={ackPending}
+          />
+        )}
+        {(!isTablet || mobileStage === "progress") && (
+          <KDSColumn
+            title="In Progress"
+            accent="oklch(74% 0.15 75)"
+            kots={visibleProg}
+            stage="progress"
+            onAction={(id) => doneMutation.mutate(id)}
+            now={now}
+            pendingId={donePending}
+          />
+        )}
       </div>
     </div>
   )

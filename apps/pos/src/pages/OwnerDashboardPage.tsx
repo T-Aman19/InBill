@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { LogoMark } from "@/components/ui/LogoMark"
+import { OperationTypeCards, operationTypeToSettings, type OperationType } from "@/components/ui/OperationTypeCards"
 import { useAuthStore } from "@/stores/auth"
 
 type OutletCard = {
@@ -20,12 +21,13 @@ type OutletCard = {
   tableCount: number
   menuItemCount: number
   staffCount: number
+  settings?: { hasTables?: boolean; hasKitchenWorkflow?: boolean }
 }
 
-type CreateForm = { name: string; address: string; phone: string; gstin: string; timezone: string }
+type CreateForm = { name: string; address: string; phone: string; gstin: string; timezone: string; operationType: OperationType }
 type Range = "today" | "week" | "month"
 
-const DEFAULT_CREATE: CreateForm = { name: "", address: "", phone: "", gstin: "", timezone: "Asia/Kolkata" }
+const DEFAULT_CREATE: CreateForm = { name: "", address: "", phone: "", gstin: "", timezone: "Asia/Kolkata", operationType: "full_service" }
 
 const RANGE_LABELS: Record<Range, string> = { today: "Today", week: "This Week", month: "This Month" }
 
@@ -83,7 +85,8 @@ export default function OwnerDashboardPage() {
       localStorage.setItem("inbill_outlet_name", res.outlet.name)
       useAuthStore.getState().login(res.token, res.user, res.outlet.id, res.outlet.name)
       const outlet = (outlets as OutletCard[]).find((o) => o.id === outletId)
-      const needsSetup = !outlet?.tableCount || !outlet?.menuItemCount
+      const needsTables = outlet?.settings?.hasTables !== false
+      const needsSetup = (needsTables && !outlet?.tableCount) || !outlet?.menuItemCount
       if (needsSetup) {
         localStorage.removeItem("inbill_setup_dismissed")
         navigate({ to: "/manager" })
@@ -138,10 +141,12 @@ export default function OwnerDashboardPage() {
       setCreateErr("GSTIN must be a valid 15-character Indian GST number")
       return
     }
+    const { operationType, ...outletFields } = createForm
     createMutation.mutate({
-      ...createForm,
+      ...outletFields,
       name: createForm.name.trim(),
       address: createForm.address.trim(),
+      settings: operationTypeToSettings(operationType),
     })
   }
 
@@ -570,7 +575,7 @@ export default function OwnerDashboardPage() {
       {/* Create outlet modal */}
       {showCreate && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
-          <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 440, padding: 28 }}>
+          <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 500, padding: 28 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: "0 0 20px" }}>Add Outlet</h2>
             <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {(["name", "address", "phone", "gstin"] as const).map((field) => {
@@ -599,6 +604,15 @@ export default function OwnerDashboardPage() {
                   </div>
                 )
               })}
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 5 }}>
+                  How does this outlet operate?
+                </label>
+                <OperationTypeCards
+                  value={createForm.operationType}
+                  onChange={(operationType) => setCreateForm((f) => ({ ...f, operationType }))}
+                />
+              </div>
               {createErr && <p style={{ fontSize: 13, color: "var(--color-red)", margin: 0 }}>{createErr}</p>}
               <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
                 <button type="button" className="btn ghost" onClick={() => setShowCreate(false)} style={{ flex: 1, justifyContent: "center", height: 40 }}>Cancel</button>

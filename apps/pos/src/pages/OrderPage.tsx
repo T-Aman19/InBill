@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
 import { useAuthStore } from "@/stores/auth"
+import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 
 type Category         = { id: string; name: string; sortOrder: number; scheduleId?: string | null }
 type MenuItem         = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; scheduleId?: string | null }
@@ -39,6 +40,9 @@ export default function OrderPage() {
 
   const [activeCat, setActiveCat] = useState<string | null>(null)
   const [search, setSearch]       = useState("")
+  const isTablet = useIsTablet()
+  const isMobile = useIsMobile()
+  const [mobilePane, setMobilePane] = useState<"menu" | "cart">("menu")
 
   // Variant / modifier picker state
   const [pendingItem, setPendingItem]           = useState<MenuItem | null>(null)
@@ -71,6 +75,12 @@ export default function OrderPage() {
     queryKey: ["order", currentOrderId],
     queryFn: () => api.orders.get(currentOrderId!) as Promise<Order>,
     enabled: !!currentOrderId,
+  })
+
+  const { data: outlet } = useQuery({
+    queryKey: ["outlet"],
+    queryFn: () => api.outlet.get(),
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: tablesData } = useQuery({
@@ -258,6 +268,7 @@ export default function OrderPage() {
   const availableTables = (tablesData?.tables ?? []).filter((t) => t.status === "available" && t.id !== order?.tableId)
   const mergeableOrders = (openOrders ?? []).filter((o) => o.id !== currentOrderId)
 
+  const hasKitchenWorkflow = outlet?.settings?.hasKitchenWorkflow !== false
   const canManage   = userRole === "manager" || userRole === "owner" || userRole === "cashier"
   const orderActive = order && order.status !== "billed" && order.status !== "cancelled"
   const isCounter   = order?.type === "takeaway" || order?.type === "delivery"
@@ -310,7 +321,7 @@ export default function OrderPage() {
         <div style={{ flex: 1 }} />
 
         {/* Search */}
-        <div style={{ display: "flex", alignItems: "center", background: "var(--color-bg)", border: "1px solid var(--color-line)", borderRadius: 10, padding: "0 12px", height: 36, width: 260, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", background: "var(--color-bg)", border: "1px solid var(--color-line)", borderRadius: 10, padding: "0 12px", height: 36, width: isMobile ? 110 : isTablet ? 180 : 260, flexShrink: 0, gap: 8 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--color-ink-4)", flexShrink: 0 }}><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
           <input
             value={search}
@@ -348,11 +359,30 @@ export default function OrderPage() {
         )}
       </div>
 
+      {/* Mobile/tablet pane switcher — the menu/cart split becomes tabs below `tablet` */}
+      {isTablet && (
+        <div style={{ display: "flex", flexShrink: 0, borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)" }}>
+          {([
+            { id: "menu" as const, label: "Menu" },
+            { id: "cart" as const, label: `Cart${activeItems.length > 0 ? ` (${activeItems.reduce((s, i) => s + i.quantity, 0)})` : ""}` },
+          ]).map((p) => (
+            <button key={p.id} onClick={() => setMobilePane(p.id)} style={{
+              flex: 1, padding: "10px 0", background: "transparent", border: "none",
+              borderBottom: "2px solid " + (mobilePane === p.id ? "var(--color-ink)" : "transparent"),
+              color: mobilePane === p.id ? "var(--color-ink)" : "var(--color-ink-3)",
+              fontSize: 13, fontWeight: mobilePane === p.id ? 600 : 500, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Body ──────────────────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 400px", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: isTablet ? "1fr" : "1fr 400px", overflow: "hidden" }}>
 
         {/* ── Left: menu ──────────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", flexDirection: "column", borderRight: "1px solid var(--color-line)", overflow: "hidden" }}>
+        <div style={{ display: isTablet && mobilePane !== "menu" ? "none" : "flex", flexDirection: "column", borderRight: isTablet ? "none" : "1px solid var(--color-line)", overflow: "hidden" }}>
 
           {/* Category pills — hidden during search */}
           {!search && (
@@ -437,7 +467,7 @@ export default function OrderPage() {
         </div>
 
         {/* ── Right: cart panel ───────────────────────────────────────────────── */}
-        <div style={{ background: "var(--color-surface)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ background: "var(--color-surface)", display: isTablet && mobilePane !== "cart" ? "none" : "flex", flexDirection: "column", overflow: "hidden" }}>
 
           {/* Empty state */}
           {activeItems.length === 0 && (
@@ -563,10 +593,10 @@ export default function OrderPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
                   {userRole !== "captain" && (
                     <button onClick={handleBill} disabled={subtotal === 0} style={{ width: "100%", height: 50, borderRadius: 12, background: "var(--color-green)", border: "1px solid oklch(42% 0.1 150)", color: "white", fontSize: 15, fontWeight: 600, fontFamily: "inherit", cursor: subtotal > 0 ? "pointer" : "not-allowed", opacity: subtotal > 0 ? 1 : .4 }}>
-                      Charge{unsentCount > 0 && <span style={{ fontSize: 11, opacity: .75, fontWeight: 400, marginLeft: 6 }}>· KOT auto-sent</span>}
+                      Charge{hasKitchenWorkflow && unsentCount > 0 && <span style={{ fontSize: 11, opacity: .75, fontWeight: 400, marginLeft: 6 }}>· KOT auto-sent</span>}
                     </button>
                   )}
-                  {unsentCount > 0 && (
+                  {hasKitchenWorkflow && unsentCount > 0 && (
                     <button onClick={() => kotMutation.mutate()} disabled={kotMutation.isPending} style={{ width: "100%", height: 36, borderRadius: 10, background: "transparent", border: "1px dashed var(--color-line-strong)", color: "var(--color-ink-3)", fontSize: 12, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
                       Send KOT early
                     </button>

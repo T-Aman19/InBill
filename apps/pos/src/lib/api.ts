@@ -259,7 +259,7 @@ export const api = {
     delete: (id: string) => del(`/shifts/cash-entries/${id}`),
   },
   outlet: {
-    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; setupCode: string; settings?: { deliveryEnabled?: boolean } }>("/outlet"),
+    get: () => get<{ id: string; name: string; address: string; phone: string; gstin?: string; fssaiNumber?: string; timezone: string; currency: string; upiVpa?: string; razorpayKeyId?: string; setupCode: string; settings?: { deliveryEnabled?: boolean; hasTables?: boolean; hasKitchenWorkflow?: boolean } }>("/outlet"),
     update: (body: unknown) => patch<unknown>("/outlet", body),
   },
   inventory: {
@@ -353,7 +353,7 @@ export const api = {
     me: () => oget<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
     outlets: (from?: string, to?: string) => {
       const q = from && to ? `?from=${from}&to=${to}` : ""
-      return oget<{ id: string; name: string; address: string; gstin?: string; revenue: number; billCount: number; byPaymentMode: Record<string, number>; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string; tableCount: number; menuItemCount: number; staffCount: number }[]>(`/owner/outlets${q}`)
+      return oget<{ id: string; name: string; address: string; gstin?: string; revenue: number; billCount: number; byPaymentMode: Record<string, number>; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string; tableCount: number; menuItemCount: number; staffCount: number; settings?: { hasTables?: boolean; hasKitchenWorkflow?: boolean } }[]>(`/owner/outlets${q}`)
     },
     createOutlet: (body: unknown) => opost<unknown>("/owner/outlets", body),
     updateOutlet: (id: string, body: unknown) => opatch<unknown>(`/owner/outlets/${id}`, body),

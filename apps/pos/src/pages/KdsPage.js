@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ws } from "@/lib/ws";
 import { useAuthStore } from "@/stores/auth";
+import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery";
 const STATIONS = [
     { id: "all", label: "All" },
     { id: "starters", label: "Starters" },
@@ -73,6 +74,9 @@ export default function KdsPage() {
     const logout = useAuthStore((s) => s.logout);
     const [now, setNow] = useState(() => Date.now());
     const [station, setStation] = useState("all");
+    const isTablet = useIsTablet();
+    const isMobile = useIsMobile();
+    const [mobileStage, setMobileStage] = useState("new");
     const [ackPending, setAckPending] = useState(null);
     const [donePending, setDonePending] = useState(null);
     useEffect(() => {
@@ -122,33 +126,41 @@ export default function KdsPage() {
                     background: "oklch(18% 0.01 60)",
                     borderBottom: "1px solid oklch(26% 0.012 60)",
                     display: "flex", alignItems: "center",
-                    padding: "0 20px", gap: 14,
-                }, children: [_jsxs("button", { onClick: () => navigate({ to: "/floor" }), style: {
+                    padding: isMobile ? "0 10px" : "0 20px", gap: isMobile ? 8 : 14,
+                }, children: [_jsxs("button", { onClick: () => navigate({ to: "/floor" }), title: "Floor", style: {
                             background: "transparent",
                             border: "1px solid oklch(32% 0.012 60)",
-                            borderRadius: 8, padding: "7px 12px",
-                            color: "oklch(80% 0.01 70)", cursor: "pointer",
+                            borderRadius: 8, padding: isMobile ? 7 : "7px 12px",
+                            color: "oklch(80% 0.01 70)", cursor: "pointer", flexShrink: 0,
                             display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontFamily: "inherit",
-                        }, children: [_jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), "Floor"] }), _jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [_jsxs("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "oklch(70% 0.17 55)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { className: "display", style: { fontSize: 18, fontWeight: 600 }, children: "Kitchen" })] }), _jsx("div", { style: { marginLeft: 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8 }, children: STATIONS.map((s) => {
+                        }, children: [_jsx("svg", { width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: _jsx("path", { d: "M15 18l-6-6 6-6" }) }), !isMobile && "Floor"] }), !isMobile && (_jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }, children: [_jsxs("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", style: { color: "oklch(70% 0.17 55)" }, children: [_jsx("rect", { x: "3", y: "4", width: "18", height: "13", rx: "2" }), _jsx("path", { d: "M3 8h18M7 12h4M7 14h7" }), _jsx("path", { d: "M9 17v3M15 17v3M6 20h12" })] }), _jsx("span", { className: "display", style: { fontSize: 18, fontWeight: 600 }, children: "Kitchen" })] })), _jsx("div", { className: "scroll", style: { marginLeft: isMobile ? 0 : 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8, overflowX: "auto", flexShrink: 1 }, children: STATIONS.map((s) => {
                             const count = s.id === "all" ? kots.length : kots.filter((k) => k.items.some((it) => guessStation(it.name) === s.id)).length;
                             return (_jsxs("button", { onClick: () => setStation(s.id), style: {
-                                    padding: "6px 12px", borderRadius: 6,
+                                    padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap", flexShrink: 0,
                                     background: station === s.id ? "oklch(70% 0.17 55)" : "transparent",
                                     color: station === s.id ? "oklch(34% 0.08 55)" : "oklch(78% 0.012 70)",
                                     border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
                                 }, children: [s.label, " ", _jsx("span", { style: { marginLeft: 4, fontFamily: "var(--font-mono)", opacity: .7, fontSize: 11 }, children: count })] }, s.id));
-                        }) }), _jsx("div", { style: { flex: 1 } }), _jsxs("div", { style: { display: "flex", gap: 14, fontSize: 11, color: "oklch(60% 0.012 70)" }, children: [_jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(78% 0.01 70)", display: "inline-block" } }), "POS ", kots.filter((k) => !k.orderSource || k.orderSource === "pos").length] }), _jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(58% 0.13 245)", display: "inline-block" } }), "QR ", kots.filter((k) => k.orderSource === "qr").length] })] }), _jsx("div", { style: { width: 1, height: 22, background: "oklch(26% 0.012 60)" } }), _jsx("span", { style: { fontFamily: "var(--font-mono)", fontSize: 15, color: "oklch(78% 0.012 70)" }, children: currentTime }), _jsxs("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, style: {
+                        }) }), _jsx("div", { style: { flex: 1 } }), !isMobile && (_jsxs(_Fragment, { children: [_jsxs("div", { style: { display: "flex", gap: 14, fontSize: 11, color: "oklch(60% 0.012 70)" }, children: [_jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(78% 0.01 70)", display: "inline-block" } }), "POS ", kots.filter((k) => !k.orderSource || k.orderSource === "pos").length] }), _jsxs("span", { style: { display: "flex", alignItems: "center", gap: 5 }, children: [_jsx("span", { style: { width: 8, height: 8, borderRadius: 2, background: "oklch(58% 0.13 245)", display: "inline-block" } }), "QR ", kots.filter((k) => k.orderSource === "qr").length] })] }), _jsx("div", { style: { width: 1, height: 22, background: "oklch(26% 0.012 60)" } }), _jsx("span", { style: { fontFamily: "var(--font-mono)", fontSize: 15, color: "oklch(78% 0.012 70)" }, children: currentTime })] })), _jsxs("button", { onClick: () => { logout(); navigate({ to: "/login" }); }, title: "Switch user", style: {
                             background: "transparent",
                             border: "1px solid oklch(32% 0.012 60)",
-                            borderRadius: 8, padding: "7px 12px",
-                            color: "oklch(60% 0.012 70)", cursor: "pointer",
+                            borderRadius: 8, padding: isMobile ? 7 : "7px 12px",
+                            color: "oklch(60% 0.012 70)", cursor: "pointer", flexShrink: 0,
                             display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontFamily: "inherit",
-                        }, children: [_jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" }), _jsx("polyline", { points: "16 17 21 12 16 7" }), _jsx("line", { x1: "21", y1: "12", x2: "9", y2: "12" })] }), "Switch"] })] }), overdueKots.length > 0 && (_jsxs("div", { className: "animate-pulse-marigold", style: {
+                        }, children: [_jsxs("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round", children: [_jsx("path", { d: "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" }), _jsx("polyline", { points: "16 17 21 12 16 7" }), _jsx("line", { x1: "21", y1: "12", x2: "9", y2: "12" })] }), !isMobile && "Switch"] })] }), overdueKots.length > 0 && (_jsxs("div", { className: "animate-pulse-marigold", style: {
                     background: "oklch(58% 0.2 28)", color: "white",
                     padding: "10px 20px", fontSize: 13, fontWeight: 500,
                     display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
                 }, children: [_jsx("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M12 2a10 10 0 110 20A10 10 0 0112 2zm0 2a8 8 0 100 16A8 8 0 0012 4zm0 3v5l3.5 3.5-1.4 1.4L10 13V7h2z" }) }), _jsx("span", { children: overdueKots.length === 1
                             ? `KOT #${overdueKots[0]?.kotNumber} · ${Math.floor((now - new Date(overdueKots[0]?.createdAt ?? 0).getTime()) / 60000)}m — captain notified`
                             : `${overdueKots.length} tickets overdue — oldest ${Math.floor((now - new Date(overdueKots[0]?.createdAt ?? 0).getTime()) / 60000)}m` }), _jsx("div", { style: { flex: 1 } }), _jsx("button", { onClick: () => { const oldest = overdueKots[0]; if (oldest)
-                            doneMutation.mutate(oldest.id); }, disabled: doneMutation.isPending, title: "Mark the oldest overdue ticket as done", style: { background: "rgba(255,255,255,.18)", color: "white", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", opacity: doneMutation.isPending ? .6 : 1 }, children: "Bump now" })] })), _jsxs("div", { style: { flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "oklch(26% 0.012 60)", overflow: "hidden" }, children: [_jsx(KDSColumn, { title: "New", accent: "oklch(58% 0.2 28)", kots: visibleNew, stage: "new", onAction: (id) => ackMutation.mutate(id), now: now, pendingId: ackPending }), _jsx(KDSColumn, { title: "In Progress", accent: "oklch(74% 0.15 75)", kots: visibleProg, stage: "progress", onAction: (id) => doneMutation.mutate(id), now: now, pendingId: donePending })] })] }));
+                            doneMutation.mutate(oldest.id); }, disabled: doneMutation.isPending, title: "Mark the oldest overdue ticket as done", style: { background: "rgba(255,255,255,.18)", color: "white", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", opacity: doneMutation.isPending ? .6 : 1 }, children: "Bump now" })] })), isTablet && (_jsx("div", { style: { display: "flex", gap: 1, flexShrink: 0, background: "oklch(26% 0.012 60)" }, children: ([
+                    { id: "new", label: "New", count: visibleNew.length },
+                    { id: "progress", label: "In Progress", count: visibleProg.length },
+                ]).map((s) => (_jsxs("button", { onClick: () => setMobileStage(s.id), style: {
+                        flex: 1, padding: "10px 0", background: mobileStage === s.id ? "oklch(20% 0.012 60)" : "oklch(14% 0.01 60)",
+                        border: "none", borderBottom: "2px solid " + (mobileStage === s.id ? "oklch(70% 0.17 55)" : "transparent"),
+                        color: mobileStage === s.id ? "oklch(96% 0.005 70)" : "oklch(60% 0.012 70)",
+                        fontSize: 13, fontWeight: 600, letterSpacing: ".03em", cursor: "pointer", fontFamily: "inherit",
+                    }, children: [s.label, " \u00B7 ", s.count] }, s.id))) })), _jsxs("div", { style: { flex: 1, display: "grid", gridTemplateColumns: isTablet ? "1fr" : "1fr 1fr", gap: 1, background: "oklch(26% 0.012 60)", overflow: "hidden" }, children: [(!isTablet || mobileStage === "new") && (_jsx(KDSColumn, { title: "New", accent: "oklch(58% 0.2 28)", kots: visibleNew, stage: "new", onAction: (id) => ackMutation.mutate(id), now: now, pendingId: ackPending })), (!isTablet || mobileStage === "progress") && (_jsx(KDSColumn, { title: "In Progress", accent: "oklch(74% 0.15 75)", kots: visibleProg, stage: "progress", onAction: (id) => doneMutation.mutate(id), now: now, pendingId: donePending }))] })] }));
 }

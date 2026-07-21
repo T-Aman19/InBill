@@ -103,6 +103,7 @@ export const api = {
         // Item ↔ modifier group links
         linkModifierGroup: (itemId, groupId) => post(`/menu/items/${itemId}/modifier-groups`, { groupId }),
         unlinkModifierGroup: (itemId, groupId) => del(`/menu/items/${itemId}/modifier-groups/${groupId}`),
+        applyModifierGroupToCategory: (groupId, categoryId) => post(`/menu/modifier-groups/${groupId}/apply-to-category`, { categoryId }),
         // Tax
         getTax: () => get("/menu/tax"),
         saveTax: (body) => put("/menu/tax", body),
@@ -159,6 +160,7 @@ export const api = {
         addPayment: (billId, body) => post(`/bills/${billId}/payments`, body),
         applyDiscount: (billId, body) => patch(`/bills/${billId}/discount`, body),
         removeDiscount: (billId, lineId) => del(`/bills/${billId}/discount/${lineId}`),
+        removeCharge: (billId, lineId) => del(`/bills/${billId}/charges/${lineId}`),
         voidBill: (billId, reason) => post(`/bills/${billId}/void`, { reason }),
         refundBill: (billId, reason) => post(`/bills/${billId}/refund`, { reason }),
         initiateUpi: (billId) => post(`/bills/${billId}/payments/upi`, {}),
@@ -172,6 +174,12 @@ export const api = {
         update: (id, body) => patch(`/discounts/${id}`, body),
         delete: (id) => del(`/discounts/${id}`),
         validate: (code, orderTotal) => post("/discounts/validate", { code, orderTotal }),
+    },
+    charges: {
+        list: () => get("/charges"),
+        create: (body) => post("/charges", body),
+        update: (id, body) => patch(`/charges/${id}`, body),
+        delete: (id) => del(`/charges/${id}`),
     },
     shifts: {
         getActive: () => get("/shifts/active"),
