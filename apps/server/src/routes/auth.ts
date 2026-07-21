@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
+import { z } from "zod"
 import { eq, and, gt, isNull } from "drizzle-orm"
 import { loginSchema, ownerLoginSchema, ownerRegisterSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
@@ -44,6 +45,29 @@ authRouter.post("/login", zValidator("json", loginSchema), async (c) => {
   })
 
   return c.json({ token, user: { id: user.id, name: user.name, role: user.role } })
+})
+
+// Demo-only auto-login — mints a token for the seeded demo tenant with no PIN
+// or password. Only ever active on the demo deployment (its own isolated DB),
+// gated so the route is a no-op if this code is ever merged into main/cloud.
+authRouter.post("/demo-login", zValidator("json", z.object({ flavor: z.enum(["floor", "owner"]) })), async (c) => {
+  if (!config.isDemo) return c.json({ error: "Not found" }, 404)
+  const { flavor } = c.req.valid("json")
+
+  if (flavor === "owner") {
+    const owner = await db.query.owners.findFirst()
+    if (!owner) return c.json({ error: "Demo not seeded yet" }, 503)
+    const token = await signToken({ userId: owner.id, outletId: "", ownerId: owner.id, role: "owner" })
+    return c.json({ token, owner: { id: owner.id, name: owner.name, email: owner.email } })
+  }
+
+  const outlet = await db.query.outlets.findFirst({ orderBy: (o, { asc }) => [asc(o.createdAt)] })
+  if (!outlet) return c.json({ error: "Demo not seeded yet" }, 503)
+  const manager = await db.query.users.findFirst({ where: and(eq(users.outletId, outlet.id), eq(users.role, "manager")) })
+  if (!manager) return c.json({ error: "Demo not seeded yet" }, 503)
+
+  const token = await signToken({ userId: manager.id, outletId: outlet.id, ownerId: outlet.ownerId, role: manager.role })
+  return c.json({ token, user: { id: manager.id, name: manager.name, role: manager.role }, outletId: outlet.id, outletName: outlet.name })
 })
 
 // Resolve outlet setup code → outlet id + name (public, no auth)

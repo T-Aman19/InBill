@@ -293,7 +293,7 @@ publicRouter.get("/orders/:id/status", async (c) => {
 // fall back to the request's public origin instead.
 publicRouter.get("/lan-url", (c) => {
   const port = new URL(c.req.url).port || "3000"
-  if (config.isCloud) return c.json({ urls: [], port })
+  if (!config.isLocal) return c.json({ urls: [], port })
 
   const nets = networkInterfaces()
   const lanIps: string[] = []

@@ -1,9 +1,12 @@
-const mode = (process.env["DEPLOYMENT_MODE"] ?? "local") as "local" | "cloud"
+const mode = (process.env["DEPLOYMENT_MODE"] ?? "local") as "local" | "cloud" | "demo"
 
 export const config = {
   mode,
   isCloud: mode === "cloud",
   isLocal: mode === "local",
+  // Public interactive demo — same DB-hosted-in-cloud behavior as isCloud,
+  // but its own isolated database seeded with throwaway data.
+  isDemo: mode === "demo",
 
   port: Number(process.env["PORT"] ?? 3005),
 
@@ -48,7 +51,7 @@ export const config = {
   },
 } as const
 
-// Never ship the built-in dev secret to a cloud deployment — anyone could forge tokens.
-if (config.isCloud && config.jwt.secret === "dev-secret-change-in-production") {
-  throw new Error("JWT_SECRET must be set to a strong secret when DEPLOYMENT_MODE=cloud")
+// Never ship the built-in dev secret to a public deployment — anyone could forge tokens.
+if (!config.isLocal && config.jwt.secret === "dev-secret-change-in-production") {
+  throw new Error(`JWT_SECRET must be set to a strong secret when DEPLOYMENT_MODE=${config.mode}`)
 }

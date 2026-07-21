@@ -114,6 +114,12 @@ const qrMenuRoute = createRoute({
     path: "/menu/$outletId/$tableId",
     component: QrMenuPage,
 });
+const ownerRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/owner",
+    beforeLoad: () => { throw redirect({ to: "/owner/dashboard" }); },
+    component: () => null,
+});
 const ownerLoginRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/owner/login",
@@ -151,6 +157,7 @@ const routeTree = rootRoute.addChildren([
     managerRoute,
     inventoryRoute,
     poDetailRoute,
+    ownerRoute,
     ownerLoginRoute,
     ownerDashboardRoute,
     forgotPasswordRoute,

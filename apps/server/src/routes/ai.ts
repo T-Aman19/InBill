@@ -16,12 +16,34 @@ aiRouter.use("*", requireAuth, requireRole("manager", "owner"))
 
 const client = new GoogleGenAI({ apiKey: config.ai.geminiApiKey })
 
+// Per-outlet daily cap, factory so each AI route gets its own independent counter.
+function makeDailyLimiter(dailyLimit: number) {
+  const rateLimitMap = new Map<string, { date: string; count: number }>()
+  return (outletId: string): boolean => {
+    const today = new Date().toISOString().split("T")[0]!
+    const entry = rateLimitMap.get(outletId)
+    if (!entry || entry.date !== today) {
+      rateLimitMap.set(outletId, { date: today, count: 1 })
+      return true
+    }
+    if (entry.count >= dailyLimit) return false
+    entry.count++
+    return true
+  }
+}
+
 // ── AI1: Menu description generator ─────────────────────────────────────────
+const checkMenuDescriptionLimit = makeDailyLimiter(20)
+
 aiRouter.post(
   "/menu-description",
   zValidator("json", z.object({ name: z.string().min(1), category: z.string().default(""), dietaryType: z.enum(["veg", "non-veg"]).default("veg") })),
   async (c) => {
     if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
+    const { outletId } = c.get("user")
+    if (!checkMenuDescriptionLimit(outletId)) {
+      return c.json({ error: "Daily generation limit reached (20/day)" }, 429)
+    }
     const { name, category, dietaryType } = c.req.valid("json")
 
     const response = await client.models.generateContent({
@@ -40,20 +62,7 @@ aiRouter.post(
 )
 
 // ── AI3: Natural language report queries ──────────────────────────────────────
-const rateLimitMap = new Map<string, { date: string; count: number }>()
-const DAILY_LIMIT = 20
-
-function checkRateLimit(outletId: string): boolean {
-  const today = new Date().toISOString().split("T")[0]!
-  const entry = rateLimitMap.get(outletId)
-  if (!entry || entry.date !== today) {
-    rateLimitMap.set(outletId, { date: today, count: 1 })
-    return true
-  }
-  if (entry.count >= DAILY_LIMIT) return false
-  entry.count++
-  return true
-}
+const checkReportsQueryLimit = makeDailyLimiter(20)
 
 aiRouter.post(
   "/reports-query",
@@ -61,7 +70,7 @@ aiRouter.post(
   async (c) => {
     if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
     const { outletId } = c.get("user")
-    if (!checkRateLimit(outletId)) {
+    if (!checkReportsQueryLimit(outletId)) {
       return c.json({ error: "Daily query limit reached (20/day)" }, 429)
     }
 

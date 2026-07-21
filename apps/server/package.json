@@ -12,6 +12,8 @@
     "db:migrate": "bun run src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "bun run src/db/seed.ts",
+    "db:seed-demo": "bun run src/db/seed-demo.ts",
+    "db:reset-demo": "bun run src/db/reset-demo.ts",
     "reset-owner-password": "bun run src/scripts/reset-owner-password.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"

@@ -88,6 +88,8 @@ export const api = {
     login: (pin: string, outletId: string) => post<{ token: string; user: { id: string; name: string; role: string } }>("/auth/login", { pin, outletId }),
     me: () => get<{ userId: string; outletId: string; role: string }>("/auth/me"),
     resolveSetupCode: (code: string) => get<{ id: string; name: string }>(`/auth/outlet-setup/${encodeURIComponent(code)}`),
+    demoLogin: (flavor: "floor" | "owner") =>
+      post<{ token: string; user?: { id: string; name: string; role: string }; outletId?: string; outletName?: string; owner?: { id: string; name: string; email: string } }>("/auth/demo-login", { flavor }),
   },
   menu: {
     getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[]; schedules: unknown[] }>("/menu"),
