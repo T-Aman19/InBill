@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, gte, lte } from "drizzle-orm"
-import { dateRangeSchema } from "@inbill/shared"
+import { dateRangeSchema, lineTotal } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { bills, menuItems, categories, stockMovements, voidedItems } from "../db/schema/index.js"
@@ -67,12 +67,11 @@ reportsRouter.get("/items", zValidator("query", dateRangeSchema), async (c) => {
   const itemMap = new Map<string, { name: string; quantity: number; revenue: number }>()
   for (const bill of paidBills) {
     for (const item of bill.order.items.filter((i) => !i.isVoided)) {
-      const modTotal = item.modifiers.reduce((s, m) => s + Number(m.price), 0)
       const prev = itemMap.get(item.menuItemId) ?? { name: item.name, quantity: 0, revenue: 0 }
       itemMap.set(item.menuItemId, {
         name: item.name,
         quantity: prev.quantity + item.quantity,
-        revenue: prev.revenue + (Number(item.unitPrice) + modTotal) * item.quantity,
+        revenue: prev.revenue + lineTotal(item),
       })
     }
   }
@@ -115,7 +114,7 @@ reportsRouter.get("/categories", zValidator("query", dateRangeSchema), async (c)
       catMap.set(catId, {
         name: catName,
         quantity: prev.quantity + item.quantity,
-        revenue: prev.revenue + Number(item.unitPrice) * item.quantity,
+        revenue: prev.revenue + lineTotal(item),
       })
     }
   }
@@ -197,7 +196,7 @@ reportsRouter.get("/bills/export", zValidator("query", dateRangeSchema), async (
       gte(bills.createdAt, dayStart(from)),
       lte(bills.createdAt, dayEnd(to)),
     ),
-    with: { order: { with: { items: true } }, payments: true },
+    with: { order: { with: { items: { with: { modifiers: true } } } }, payments: true },
     orderBy: (b, { asc }) => [asc(b.createdAt)],
   })
 
@@ -219,7 +218,7 @@ reportsRouter.get("/bills/export", zValidator("query", dateRangeSchema), async (
     const paymentModes = bill.payments.map((p) => p.mode).join("+")
 
     for (const item of bill.order.items.filter((i) => !i.isVoided)) {
-      const taxable = Number(item.unitPrice) * item.quantity
+      const taxable = lineTotal(item)
       const cgstAmt = parseFloat(((taxable * cgstRate) / 100).toFixed(2))
       const sgstAmt = parseFloat(((taxable * sgstRate) / 100).toFixed(2))
       const hsn = (item.menuItemId ? hsnMap.get(item.menuItemId) : "") ?? ""

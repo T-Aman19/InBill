@@ -5,6 +5,7 @@ import { QRCode } from "react-qr-code"
 import { api, ApiError, type ExtractedMenu, type ExtractedItem, type ExtractedModifierGroup } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
+import { lineTotal } from "@inbill/shared"
 import { useAuthStore } from "@/stores/auth"
 import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 import { LogoMark } from "@/components/ui/LogoMark"
@@ -2110,7 +2111,7 @@ function BillDetailPanel({ row, onClose }: { row: BillRow; onClose: () => void }
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 36px 84px", fontSize: 13, alignItems: "center" }}>
                     <span style={{ fontWeight: 500 }}>{l.name}</span>
                     <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
-                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}>{formatCurrency(lineTotal(l))}</span>
                   </div>
                   {(l.modifiers ?? []).map((m, mi) => (
                     <div key={mi} style={{ display: "grid", gridTemplateColumns: "1fr 36px 84px", fontSize: 11, color: "var(--color-ink-3)", marginTop: 2 }}>

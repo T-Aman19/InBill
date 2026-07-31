@@ -7,6 +7,8 @@ import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { bills, menuItems } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { requireFeature } from "../middleware/entitlement.js"
+import { consumeFeature } from "../lib/entitlements.js"
 import { config } from "../config.js"
 import { dayStart, dayEnd } from "../lib/dateRange.js"
 
@@ -19,9 +21,11 @@ const client = new GoogleGenAI({ apiKey: config.ai.geminiApiKey })
 // ── AI1: Menu description generator ─────────────────────────────────────────
 aiRouter.post(
   "/menu-description",
+  requireFeature("ai_menu_description"),
   zValidator("json", z.object({ name: z.string().min(1), category: z.string().default(""), dietaryType: z.enum(["veg", "non-veg"]).default("veg") })),
   async (c) => {
     if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
+    const { ownerId } = c.get("user")
     const { name, category, dietaryType } = c.req.valid("json")
 
     const response = await client.models.generateContent({
@@ -35,35 +39,23 @@ aiRouter.post(
       },
     })
 
+    // Count usage only after the (billable) call succeeds.
+    await consumeFeature(ownerId, "ai_menu_description")
     return c.json({ description: (response.text ?? "").trim() })
   },
 )
 
 // ── AI3: Natural language report queries ──────────────────────────────────────
-const rateLimitMap = new Map<string, { date: string; count: number }>()
-const DAILY_LIMIT = 20
-
-function checkRateLimit(outletId: string): boolean {
-  const today = new Date().toISOString().split("T")[0]!
-  const entry = rateLimitMap.get(outletId)
-  if (!entry || entry.date !== today) {
-    rateLimitMap.set(outletId, { date: today, count: 1 })
-    return true
-  }
-  if (entry.count >= DAILY_LIMIT) return false
-  entry.count++
-  return true
-}
+// Quota is enforced by the entitlement layer (metered per owner/month on the
+// managed cloud; unlimited when self-hosted). See lib/entitlements.ts.
 
 aiRouter.post(
   "/reports-query",
+  requireFeature("ai_reports"),
   zValidator("json", z.object({ question: z.string().min(1), from: z.string().optional(), to: z.string().optional() })),
   async (c) => {
     if (!config.ai.geminiApiKey) return c.json({ error: "AI features are not configured on this server" }, 503)
-    const { outletId } = c.get("user")
-    if (!checkRateLimit(outletId)) {
-      return c.json({ error: "Daily query limit reached (20/day)" }, 429)
-    }
+    const { outletId, ownerId } = c.get("user")
 
     const { question, from, to } = c.req.valid("json")
     const today = new Date().toISOString().split("T")[0]!
@@ -127,6 +119,7 @@ Menu items available: ${topItems.length}
       },
     })
 
+    await consumeFeature(ownerId, "ai_reports")
     return c.json({ answer: (response.text ?? "").trim() })
   },
 )

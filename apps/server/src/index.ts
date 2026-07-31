@@ -30,6 +30,7 @@ import { publicRouter } from "./routes/public.js"
 import { loyaltyRouter } from "./routes/loyalty.js"
 import { queueRouter } from "./routes/queue.js"
 import { auditRouter } from "./routes/audit.js"
+import { entitlementsRouter } from "./routes/entitlements.js"
 import { runEmbeddedMigrations } from "./db/embedded-migrate.js"
 
 // Run migrations before accepting requests — safe to call on every startup
@@ -74,6 +75,7 @@ api.route("/public", publicRouter)
 api.route("/loyalty", loyaltyRouter)
 api.route("/queue", queueRouter)
 api.route("/audit", auditRouter)
+api.route("/entitlements", entitlementsRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

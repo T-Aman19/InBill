@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { QRCode } from "react-qr-code"
 import { api } from "@/lib/api"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
+import { lineTotal } from "@inbill/shared"
 import { useIsTablet } from "@/hooks/useMediaQuery"
 
 type TaxLine = { name: string; rate: number; amount: number }
@@ -287,7 +288,7 @@ export default function BillingPage() {
                     <span className={`veg-dot ${l.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
                     <span style={{ color: "var(--color-ink)", fontWeight: 500 }}>{l.name}</span>
                     <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
-                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                    <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency(lineTotal(l))}</span>
                   </div>
                   {(l.modifiers ?? []).map((m, mi) => (
                     <div key={mi} style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>
@@ -515,7 +516,7 @@ export default function BillingPage() {
                       <span className={`veg-dot ${l.isVeg ? "veg" : "nonveg"}`} style={{ width: 10, height: 10 }} />
                       <span style={{ color: "var(--color-ink)", fontWeight: 500 }}>{l.name}</span>
                       <span style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--color-ink-2)" }}>{l.quantity}</span>
-                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency((Number(l.unitPrice) + (l.modifiers ?? []).reduce((s, m) => s + Number(m.price), 0)) * l.quantity)}</span>
+                      <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 500 }}>{formatCurrency(lineTotal(l))}</span>
                     </div>
                     {(l.modifiers ?? []).map((m, mi) => (
                       <div key={mi} style={{ display: "grid", gridTemplateColumns: "20px 1fr 52px 100px", fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>

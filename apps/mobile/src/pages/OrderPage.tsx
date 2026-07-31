@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import type { Category, MenuItem, ItemVariant, ModifierGroup, Modifier, ItemModLink, Order, OrderItem } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
+import { lineTotal } from "@inbill/shared"
 
 // ─── KOT status chip ─────────────────────────────────────────────────────────
 function KotChip({ status }: { status?: string | null }) {
@@ -56,7 +57,7 @@ function OrderItemRow({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-ink-2)", textAlign: "right" }}>
-          {formatCurrency(Number(item.unitPrice) * item.quantity)}
+          {formatCurrency(lineTotal(item))}
         </div>
         {canEdit && !isSent && (
           <button
@@ -273,7 +274,7 @@ function OrderSheet({
 }) {
   const activeItems = order.items.filter((i) => !i.isVoided)
   const unsentCount = activeItems.filter((i) => !i.kotId).length
-  const total = activeItems.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0)
+  const total = activeItems.reduce((s, i) => s + lineTotal(i), 0)
   const canKot = unsentCount > 0
 
   return (
@@ -426,7 +427,7 @@ export default function OrderPage() {
 
   const activeItems  = order?.items.filter((i) => !i.isVoided) ?? []
   const unsentCount  = activeItems.filter((i) => !i.kotId).length
-  const orderTotal   = activeItems.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0)
+  const orderTotal   = activeItems.reduce((s, i) => s + lineTotal(i), 0)
 
   const tableName = order?.tableName ?? (tableId ? `Table` : "Order")
 

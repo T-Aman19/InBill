@@ -1,3 +1,5 @@
+import type { EntitlementDecision, GateError } from "@inbill/shared"
+
 // Tauri embedded (tauri: protocol) and Vite dev (port 5173) both need to reach
 // the Bun server explicitly. LAN browsers load from port 3000 so relative URLs work.
 const SERVER_ORIGIN =
@@ -7,7 +9,9 @@ const SERVER_ORIGIN =
 const BASE = `${SERVER_ORIGIN}/api`
 
 class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  // `gate` is present on 402s from the entitlement layer — the UI turns it into
+  // an upgrade prompt (see stores/upgrade.ts).
+  constructor(public status: number, message: string, public gate?: GateError["gate"]) {
     super(message)
   }
 }
@@ -24,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(res.status, body.error ?? res.statusText)
+    throw new ApiError(res.status, body.error ?? res.statusText, body.gate)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -362,6 +366,10 @@ export const api = {
   },
   public: {
     lanUrl: () => get<{ urls: string[]; port: string }>("/public/lan-url"),
+  },
+  entitlements: {
+    get: () => get<{ features: EntitlementDecision[] }>("/entitlements"),
+    startTrial: (feature: string) => post<EntitlementDecision>(`/entitlements/trials/${feature}`, {}),
   },
 }
 

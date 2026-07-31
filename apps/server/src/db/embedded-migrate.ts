@@ -23,6 +23,7 @@ import m0018 from "./migrations/0018_audit_events.sql" with { type: "text" }
 import m0019 from "./migrations/0019_day_closes.sql" with { type: "text" }
 import m0020 from "./migrations/0020_menu_schedules.sql" with { type: "text" }
 import m0021 from "./migrations/0021_charges.sql" with { type: "text" }
+import m0022 from "./migrations/0022_entitlements.sql" with { type: "text" }
 import postgres from "postgres"
 import { config } from "../config.js"
 
@@ -49,6 +50,7 @@ const MIGRATIONS = [
   { name: "0019_day_closes",             sql: m0019 },
   { name: "0020_menu_schedules",         sql: m0020 },
   { name: "0021_charges",                sql: m0021 },
+  { name: "0022_entitlements",           sql: m0022 },
 ]
 
 export async function runEmbeddedMigrations(): Promise<void> {

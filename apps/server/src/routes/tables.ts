@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, inArray } from "drizzle-orm"
-import { createTableSchema, updateTableSchema, createFloorSchema, updateFloorSchema } from "@inbill/shared"
+import { createTableSchema, updateTableSchema, createFloorSchema, updateFloorSchema, lineTotal } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { floors, tables, orders } from "../db/schema/index.js"
@@ -27,7 +27,7 @@ tablesRouter.get("/", async (c) => {
   if (orderIds.length > 0) {
     const activeOrders = await db.query.orders.findMany({
       where: inArray(orders.id, orderIds),
-      with: { items: true },
+      with: { items: { with: { modifiers: true } } },
     })
     for (const order of activeOrders) {
       const active = order.items.filter((i) => !i.isVoided)
@@ -36,7 +36,7 @@ tablesRouter.get("/", async (c) => {
         source: order.source,
         openedAt: order.createdAt.toISOString(),
         items: active.reduce((s, i) => s + i.quantity, 0),
-        total: active.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0),
+        total: active.reduce((s, i) => s + lineTotal(i), 0),
       }
     }
   }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency } from "@/lib/utils"
+import { lineTotal } from "@inbill/shared"
 import { useAuthStore } from "@/stores/auth"
 import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 
@@ -237,7 +238,7 @@ export default function OrderPage() {
   const unsentCount    = unsentItems.reduce((s, i) => s + i.quantity, 0)
   const inKitchenItems = activeItems.filter((i) => i.kotId && i.kotStatus !== "done")
   const doneItems      = activeItems.filter((i) => i.kotId && i.kotStatus === "done")
-  const subtotal       = activeItems.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0)
+  const subtotal       = activeItems.reduce((s, i) => s + lineTotal(i), 0)
   const tax            = subtotal * TAX_RATE
   const total          = subtotal + tax
   const categories     = menu?.categories ?? []
@@ -493,7 +494,7 @@ export default function OrderPage() {
                   <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: "var(--color-ink-3)" }}>
                     <span style={{ minWidth: 22, fontFamily: "var(--font-mono)", flexShrink: 0 }}>{line.quantity}×</span>
                     <span style={{ flex: 1, lineHeight: 1.2 }}>{line.name}{line.variantName ? ` (${line.variantName})` : ""}</span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{formatCurrency(String(Number(line.unitPrice) * line.quantity))}</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{formatCurrency(lineTotal(line))}</span>
                   </div>
                 ))}
               </div>
@@ -512,7 +513,7 @@ export default function OrderPage() {
                   <div key={line.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: "var(--color-ink-2)" }}>
                     <span style={{ minWidth: 22, fontFamily: "var(--font-mono)", flexShrink: 0 }}>{line.quantity}×</span>
                     <span style={{ flex: 1, lineHeight: 1.2 }}>{line.name}{line.variantName ? ` (${line.variantName})` : ""}</span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{formatCurrency(String(Number(line.unitPrice) * line.quantity))}</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{formatCurrency(lineTotal(line))}</span>
                   </div>
                 ))}
               </div>
@@ -551,7 +552,7 @@ export default function OrderPage() {
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/></svg>
                         </button>
                         <span style={{ minWidth: 22, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>{line.quantity}</span>
-                        <button onClick={() => addItemMutation.mutate({ menuItemId: line.menuItemId, variantId: line.variantId ?? undefined })} style={{ width: 28, height: 28, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-ink-2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <button onClick={() => addItemMutation.mutate({ menuItemId: line.menuItemId, variantId: line.variantId ?? undefined, modifiers: line.modifiers?.map((m) => m.modifierId) })} style={{ width: 28, height: 28, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-ink-2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                         </button>
                       </div>

@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { z } from "zod"
 import { eq, and, inArray, isNull, max, gte, lte, count } from "drizzle-orm"
-import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchema, type OutletSettings } from "@inbill/shared"
+import { createBillSchema, addPaymentSchema, applyDiscountSchema, dateRangeSchema, lineTotal, type OutletSettings } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
 import { dayStart, dayEnd } from "../lib/dateRange.js"
@@ -214,15 +214,14 @@ billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("
   let subtotal = 0
 
   for (const item of activeItems) {
-    const modTotal = item.modifiers.reduce((s, m) => s + Number(m.price), 0)
-    const lineTotal = (Number(item.unitPrice) + modTotal) * item.quantity
-    subtotal += lineTotal
+    const lineAmount = lineTotal(item)
+    subtotal += lineAmount
 
     const rates = (item.menuItemId ? menuItemTaxMap.get(item.menuItemId) : null) ?? outletRates
     if (rates && (rates.cgstRate > 0 || rates.sgstRate > 0)) {
       const key = `${rates.cgstRate}:${rates.sgstRate}`
       const bucket = taxBuckets.get(key) ?? { cgstRate: rates.cgstRate, sgstRate: rates.sgstRate, taxableAmount: 0 }
-      bucket.taxableAmount += lineTotal
+      bucket.taxableAmount += lineAmount
       taxBuckets.set(key, bucket)
     }
   }

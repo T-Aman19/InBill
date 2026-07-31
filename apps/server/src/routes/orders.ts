@@ -5,7 +5,7 @@ import { z } from "zod"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills, queueEntries, customers, reservations, categories, menuSchedules } from "../db/schema/index.js"
+import { orders, orderItems, orderItemModifiers, tables, menuItems, itemVariants, kots, voidedItems, bills, queueEntries, customers, reservations, categories, menuSchedules, modifiers, modifierGroups, menuItemModifierGroups } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { logAudit } from "../services/audit.js"
@@ -184,8 +184,13 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
 
   if (percentOff > 0) unitPrice = Number((unitPrice * (1 - percentOff / 100)).toFixed(2))
 
-  // If the same item (same variant, no KOT yet, not voided) already exists, increment quantity
-  const existing = await db.query.orderItems.findFirst({
+  // A line's identity includes its modifier set: "Paneer" and "Paneer + Extra
+  // Cheese" are distinct lines and must never merge — merging silently dropped
+  // the add-on and its price from the KOT and the bill. Dedupe on
+  // menuItem + variant + the sorted modifier-id set, compared in memory because
+  // modifiers live in a sibling table and can't be expressed as one WHERE.
+  const wantModKey = [...new Set(data.modifiers)].sort().join(",")
+  const candidates = await db.query.orderItems.findMany({
     where: and(
       eq(orderItems.orderId, orderId),
       eq(orderItems.menuItemId, data.menuItemId),
@@ -193,10 +198,18 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
       isNull(orderItems.kotId),
       eq(orderItems.isVoided, false),
     ),
+    with: { modifiers: true },
   })
+  const existing = candidates.find(
+    (line) => [...new Set(line.modifiers.map((m) => m.modifierId))].sort().join(",") === wantModKey,
+  )
 
   let orderItem: typeof orderItems.$inferSelect
   if (existing) {
+    // Same item + variant + modifier set already on the order → bump quantity.
+    // The modifiers are already snapshotted on this line (and were validated
+    // when it was first created), so we don't re-resolve them here — that also
+    // lets the quantity "+" button work even if a modifier was later deactivated.
     const newQty = existing.quantity + (data.quantity ?? 1)
     if (newQty > 999) return c.json({ error: "Quantity cannot exceed 999" }, 400)
     const [updated] = await db
@@ -206,16 +219,39 @@ ordersRouter.post("/:id/items", requireRole("owner", "manager", "cashier", "capt
       .returning()
     orderItem = updated!
   } else {
+    // New line. Resolve & validate the submitted modifiers against THIS item's
+    // linked, active groups within this outlet. The old lookup was an unscoped
+    // findMany() filtered client-side, which let a client attach ANY modifier
+    // UUID in the database — cross-tenant, inactive, or from an unrelated item —
+    // at its price. Anything that doesn't resolve to an allowed modifier is
+    // rejected (a well-behaved client never submits one).
+    const selectedMods: { id: string; name: string; price: string }[] = []
+    if (data.modifiers.length > 0) {
+      const allowed = await db
+        .select({ id: modifiers.id, name: modifiers.name, price: modifiers.price })
+        .from(modifiers)
+        .innerJoin(modifierGroups, eq(modifiers.groupId, modifierGroups.id))
+        .innerJoin(menuItemModifierGroups, eq(menuItemModifierGroups.groupId, modifierGroups.id))
+        .where(
+          and(
+            inArray(modifiers.id, data.modifiers),
+            eq(menuItemModifierGroups.itemId, data.menuItemId),
+            eq(modifierGroups.outletId, outletId),
+            eq(modifiers.isActive, true),
+          ),
+        )
+      const byId = new Map(allowed.map((m) => [m.id, m]))
+      for (const id of data.modifiers) {
+        if (!byId.has(id)) return c.json({ error: "Invalid modifier for this item" }, 400)
+      }
+      selectedMods.push(...byId.values())
+    }
+
     const [inserted] = await db
       .insert(orderItems)
       .values({ orderId, menuItemId: data.menuItemId, variantId: data.variantId ?? null, name: item.name, variantName, unitPrice: String(unitPrice), quantity: data.quantity, notes: data.notes })
       .returning()
     orderItem = inserted!
-  }
-
-  if (orderItem && !existing && data.modifiers.length > 0) {
-    const modList = await db.query.modifiers.findMany()
-    const selectedMods = modList.filter((m) => data.modifiers.includes(m.id))
     if (selectedMods.length > 0) {
       await db.insert(orderItemModifiers).values(
         selectedMods.map((m) => ({ orderItemId: orderItem.id, modifierId: m.id, name: m.name, price: m.price })),
