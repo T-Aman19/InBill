@@ -9,12 +9,14 @@ import {
   createModifierGroupSchema, updateModifierGroupSchema,
   createModifierSchema, updateModifierSchema,
   createMenuScheduleSchema, updateMenuScheduleSchema,
+  createStationSchema, updateStationSchema,
   taxConfigSchema,
 } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs, menuSchedules } from "../db/schema/index.js"
+import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs, menuSchedules, stations, kots } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
+import { requireFeature } from "../middleware/entitlement.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { logAudit } from "../services/audit.js"
 import { isScheduleActiveNow } from "../lib/schedule.js"
@@ -45,12 +47,13 @@ async function modifierInOutlet(modifierId: string, outletId: string) {
 menuRouter.get("/", async (c) => {
   const { outletId } = c.get("user")
 
-  const [cats, items, groups, taxList, scheduleList] = await Promise.all([
+  const [cats, items, groups, taxList, scheduleList, stationList] = await Promise.all([
     db.query.categories.findMany({ where: eq(categories.outletId, outletId) }),
     db.query.menuItems.findMany({ where: eq(menuItems.outletId, outletId) }),
     db.query.modifierGroups.findMany({ where: eq(modifierGroups.outletId, outletId) }),
     db.query.taxConfigs.findMany({ where: eq(taxConfigs.outletId, outletId) }),
     db.query.menuSchedules.findMany({ where: eq(menuSchedules.outletId, outletId) }),
+    db.query.stations.findMany({ where: and(eq(stations.outletId, outletId), eq(stations.isActive, true)), orderBy: (s, { asc }) => [asc(s.sortOrder)] }),
   ])
 
   // Variants, modifiers and item↔group links have no outletId of their own — scope them
@@ -67,7 +70,7 @@ menuRouter.get("/", async (c) => {
   // the timezone logic; the server re-checks on add-item regardless.
   const schedules = scheduleList.map((s) => ({ ...s, activeNow: isScheduleActiveNow(s) }))
 
-  return c.json({ categories: cats, items, variants, modifierGroups: groups, modifiers: mods, itemModifierGroups: itemGroupLinks, taxConfigs: taxList, schedules })
+  return c.json({ categories: cats, items, variants, modifierGroups: groups, modifiers: mods, itemModifierGroups: itemGroupLinks, taxConfigs: taxList, schedules, stations: stationList })
 })
 
 // ── Menu schedules (time windows / happy hours) ──────────────────────────────
@@ -103,6 +106,39 @@ menuRouter.delete("/schedules/:id", requireRole("manager", "owner"), async (c) =
   await db.update(menuItems).set({ scheduleId: null }).where(and(eq(menuItems.scheduleId, scheduleId), eq(menuItems.outletId, outletId)))
   await db.update(categories).set({ scheduleId: null }).where(and(eq(categories.scheduleId, scheduleId), eq(categories.outletId, outletId)))
   await db.delete(menuSchedules).where(eq(menuSchedules.id, scheduleId))
+  return c.body(null, 204)
+})
+
+// ── Kitchen stations (paid feature — routes dishes to KDS stations / KOTs) ────
+menuRouter.post("/stations", requireRole("manager", "owner"), requireFeature("kitchen_stations"), zValidator("json", createStationSchema), async (c) => {
+  const { outletId } = c.get("user")
+  const data = c.req.valid("json")
+  const [station] = await db.insert(stations).values({ ...data, outletId }).returning()
+  return c.json(station, 201)
+})
+
+menuRouter.patch("/stations/:id", requireRole("manager", "owner"), requireFeature("kitchen_stations"), zValidator("json", updateStationSchema), async (c) => {
+  const { outletId } = c.get("user")
+  const data = c.req.valid("json")
+  const [station] = await db.update(stations).set(data)
+    .where(and(eq(stations.id, c.req.param("id")), eq(stations.outletId, outletId)))
+    .returning()
+  if (!station) return c.json({ error: "Not found" }, 404)
+  return c.json(station)
+})
+
+menuRouter.delete("/stations/:id", requireRole("manager", "owner"), requireFeature("kitchen_stations"), async (c) => {
+  const { outletId } = c.get("user")
+  const stationId = c.req.param("id")
+  const station = await db.query.stations.findFirst({
+    where: and(eq(stations.id, stationId), eq(stations.outletId, outletId)),
+  })
+  if (!station) return c.json({ error: "Not found" }, 404)
+  // Detach categories / items / active KOTs first so the FK doesn't block deletion
+  await db.update(categories).set({ stationId: null }).where(and(eq(categories.stationId, stationId), eq(categories.outletId, outletId)))
+  await db.update(menuItems).set({ stationId: null }).where(and(eq(menuItems.stationId, stationId), eq(menuItems.outletId, outletId)))
+  await db.update(kots).set({ stationId: null }).where(and(eq(kots.stationId, stationId), eq(kots.outletId, outletId)))
+  await db.delete(stations).where(eq(stations.id, stationId))
   return c.body(null, 204)
 })
 

@@ -1,16 +1,17 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { networkInterfaces } from "os"
-import { eq, and, isNull, max } from "drizzle-orm"
+import { eq, and } from "drizzle-orm"
 import { z } from "zod"
 import { db } from "../db/index.js"
 import { config } from "../config.js"
 import {
   outlets, categories, menuItems,
   modifierGroups, modifiers, menuSchedules,
-  orders, orderItems, orderItemModifiers, tables, kots,
+  orders, orderItems, orderItemModifiers, tables,
 } from "../db/schema/index.js"
 import { broadcastOutlet } from "../services/ws.js"
+import { fireKots } from "../lib/kot.js"
 import { isScheduleActiveNow } from "../lib/schedule.js"
 
 // Effective schedule for an item: its own wins, else its category's.
@@ -192,7 +193,6 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
   }
 
   // Insert order items
-  const newOrderItems: { id: string; name: string; variantName: string | null; unitPrice: string; quantity: number }[] = []
   for (const cartItem of cartItems) {
     const menuItem = menuMap.get(cartItem.menuItemId)!
     const variant = cartItem.variantId ? menuItem.variants.find((v) => v.id === cartItem.variantId) : null
@@ -208,7 +208,6 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
       .returning()
 
     if (orderItem) {
-      newOrderItems.push(orderItem)
       if (cartItem.modifierIds?.length) {
         const modRows = await db.query.modifiers.findMany({
           where: (m, { inArray }) => inArray(m.id, cartItem.modifierIds!),
@@ -222,21 +221,8 @@ publicRouter.post("/orders", zValidator("json", publicOrderSchema), async (c) =>
     }
   }
 
-  // Auto-fire KOT for the newly added items
-  const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
-  const kotNumber = (kotAgg?.maxNum ?? 0) + 1
-  const [kot] = await db.insert(kots).values({ outletId, orderId: order.id, kotNumber }).returning()
-
-  if (kot) {
-    await db.update(orderItems)
-      .set({ kotId: kot.id })
-      .where(and(eq(orderItems.orderId, order.id), isNull(orderItems.kotId), eq(orderItems.isVoided, false)))
-    await db.update(orders)
-      .set({ status: "kot_sent", updatedAt: new Date() })
-      .where(eq(orders.id, order.id))
-
-    broadcastOutlet(outletId, { type: "kot.new", payload: { ...kot, orderSource: "qr", items: newOrderItems } as never })
-  }
+  // Auto-fire KOTs for the newly added items — split one ticket per kitchen station
+  await fireKots({ outletId, orderId: order.id, orderSource: "qr" })
 
   if (isNewOrder) {
     await db.update(tables).set({ status: "occupied", currentOrderId: order.id }).where(eq(tables.id, tableId))

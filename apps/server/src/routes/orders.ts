@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
-import { eq, and, isNull, inArray, gte, max } from "drizzle-orm"
+import { eq, and, isNull, inArray, gte } from "drizzle-orm"
 import { z } from "zod"
 import { createOrderSchema, addOrderItemSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
@@ -11,6 +11,7 @@ import { broadcastOutlet } from "../services/ws.js"
 import { logAudit } from "../services/audit.js"
 import { isScheduleActiveNow } from "../lib/schedule.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
+import { fireKots } from "../lib/kot.js"
 
 export const ordersRouter = new Hono<AppEnv>()
 
@@ -457,7 +458,7 @@ ordersRouter.post("/:id/merge", requireRole("owner", "manager", "cashier"), zVal
   return c.json(await fetchOrderWithKotStatus(targetOrderId))
 })
 
-// Generate a KOT for all unsent items on an order
+// Generate KOTs for all unsent items on an order — split one ticket per kitchen station
 ordersRouter.post("/:id/kot", requireRole("owner", "manager", "cashier", "captain"), async (c) => {
   const { outletId } = c.get("user")
   const orderId = c.req.param("id")
@@ -467,24 +468,8 @@ ordersRouter.post("/:id/kot", requireRole("owner", "manager", "cashier", "captai
   })
   if (!order) return c.json({ error: "Not found" }, 404)
 
-  const unsentItems = await db.query.orderItems.findMany({
-    where: and(eq(orderItems.orderId, orderId), isNull(orderItems.kotId), eq(orderItems.isVoided, false)),
-    with: { modifiers: true },
-  })
+  const createdKots = await fireKots({ outletId, orderId, orderSource: order.source })
+  if (createdKots.length === 0) return c.json({ error: "No new items to send" }, 400)
 
-  if (unsentItems.length === 0) return c.json({ error: "No new items to send" }, 400)
-
-  const [kotAgg] = await db.select({ maxNum: max(kots.kotNumber) }).from(kots).where(eq(kots.outletId, outletId))
-  const kotNumber = (kotAgg?.maxNum ?? 0) + 1
-
-  const [kot] = await db.insert(kots).values({ outletId, orderId, kotNumber }).returning()
-  if (!kot) return c.json({ error: "Failed to create KOT" }, 500)
-
-  await db.update(orderItems).set({ kotId: kot.id }).where(and(eq(orderItems.orderId, orderId), isNull(orderItems.kotId), eq(orderItems.isVoided, false)))
-  await db.update(orders).set({ status: "kot_sent", updatedAt: new Date() }).where(eq(orders.id, orderId))
-
-  const kotWithItems = { ...kot, items: unsentItems }
-
-  broadcastOutlet(outletId, { type: "kot.new", payload: kotWithItems as never })
-  return c.json(kotWithItems, 201)
+  return c.json({ kots: createdKots }, 201)
 })

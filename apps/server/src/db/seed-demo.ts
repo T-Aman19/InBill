@@ -16,7 +16,7 @@ const {
   owners, outlets, users, taxConfigs, categories, menuItems, itemVariants,
   modifierGroups, modifiers, menuItemModifierGroups, floors, tables, customers,
   discounts, charges, ingredients, orders, orderItems, kots, bills, billPayments,
-  billDiscounts,
+  billDiscounts, stations,
 } = schema
 
 const RAW = process.env["SEED_DB_URL"]
@@ -194,14 +194,27 @@ const MENU: Record<string, I[]> = {
   ],
 }
 
-const catRows: { id: string; outletId: string; name: string; sortOrder: number }[] = []
+// ── Kitchen stations — routes each category to a part of the line ─────────────
+const STATION_DEFS: { name: string; color: string; cats: string[] }[] = [
+  { name: "Tandoor",  color: "#ef4444", cats: ["Tandoor", "Indian Breads"] },
+  { name: "Curries",  color: "#f59e0b", cats: ["Soups", "Veg Main Course", "Non-Veg Main Course", "Dal & Rice", "Biryani & Pulao"] },
+  { name: "Starters", color: "#22c55e", cats: ["Veg Starters", "Non-Veg Starters", "Chaat & Street", "Indo-Chinese", "South Indian"] },
+  { name: "Bar",      color: "#3b82f6", cats: ["Beverages & Mocktails"] },
+  { name: "Desserts", color: "#ec4899", cats: ["Desserts"] },
+]
+const stationRows = STATION_DEFS.map((s, i) => ({ id: randomUUID(), outletId, name: s.name, color: s.color, sortOrder: i + 1 }))
+const stationIdByCat = new Map<string, string>()
+STATION_DEFS.forEach((def, i) => { for (const c of def.cats) stationIdByCat.set(c, stationRows[i]!.id) })
+await insertChunked(stations, stationRows)
+
+const catRows: { id: string; outletId: string; name: string; sortOrder: number; stationId: string | null }[] = []
 const itemRows: any[] = []
 type FlatItem = { id: string; name: string; price: number; veg: boolean; cat: string }
 const flat: FlatItem[] = []
 let catSort = 1
 for (const [catName, items] of Object.entries(MENU)) {
   const catId = randomUUID()
-  catRows.push({ id: catId, outletId, name: catName, sortOrder: catSort++ })
+  catRows.push({ id: catId, outletId, name: catName, sortOrder: catSort++, stationId: stationIdByCat.get(catName) ?? null })
   let iSort = 1
   for (const [name, price, veg] of items) {
     const id = randomUUID()
@@ -211,7 +224,7 @@ for (const [catName, items] of Object.entries(MENU)) {
 }
 await insertChunked(categories, catRows)
 await insertChunked(menuItems, itemRows)
-console.log(`Menu: ${itemRows.length} items across ${catRows.length} categories`)
+console.log(`Menu: ${itemRows.length} items across ${catRows.length} categories, ${stationRows.length} stations`)
 
 // A few variants (half/full) + modifier groups
 const biryani = flat.filter((f) => f.cat === "Biryani & Pulao" && f.name.includes("Biryani"))
@@ -377,13 +390,24 @@ const liveOrders: any[] = [], liveItems: any[] = [], liveKots: any[] = [], oBill
 const tableUpdates: { id: string; status: string; orderId: string }[] = []
 
 function liveOrder(tableName: string, source: string, kotStatus: "pending" | "acknowledged", opts: { unsent?: boolean; picks: string[] }) {
-  const orderId = randomUUID(), kotId = randomUUID()
+  const orderId = randomUUID()
   const tId = tableIds[tableName]!
-  liveOrders.push({ id: orderId, outletId, tableId: tId, serverId: pick(servers).id, type: "dine_in", source, status: "kot_sent", guestCount: randInt(2, 5), createdAt: mins(randInt(3, 9)), updatedAt: mins(1) })
-  liveKots.push({ id: kotId, outletId, orderId, kotNumber: ++kotNo, status: kotStatus, createdAt: mins(randInt(3, 9)) })
+  const createdAt = mins(randInt(3, 9))
+  liveOrders.push({ id: orderId, outletId, tableId: tId, serverId: pick(servers).id, type: "dine_in", source, status: "kot_sent", guestCount: randInt(2, 5), createdAt, updatedAt: mins(1) })
+  // Split the order into one KOT per kitchen station — mirrors the real fire flow
+  const byStation = new Map<string, string[]>()
   for (const nm of opts.picks) {
     const it = flat.find((f) => f.name === nm)!
-    liveItems.push({ id: randomUUID(), orderId, kotId, menuItemId: it.id, name: it.name, unitPrice: money(it.price), quantity: randInt(1, 2) })
+    const sid = stationIdByCat.get(it.cat) ?? ""
+    const arr = byStation.get(sid) ?? []; arr.push(nm); byStation.set(sid, arr)
+  }
+  for (const [sid, names] of byStation) {
+    const kotId = randomUUID()
+    liveKots.push({ id: kotId, outletId, orderId, stationId: sid || null, kotNumber: ++kotNo, status: kotStatus, createdAt })
+    for (const nm of names) {
+      const it = flat.find((f) => f.name === nm)!
+      liveItems.push({ id: randomUUID(), orderId, kotId, menuItemId: it.id, name: it.name, unitPrice: money(it.price), quantity: randInt(1, 2) })
+    }
   }
   if (opts.unsent) {
     const it = pick(flat)

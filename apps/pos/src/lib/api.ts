@@ -94,7 +94,7 @@ export const api = {
     resolveSetupCode: (code: string) => get<{ id: string; name: string }>(`/auth/outlet-setup/${encodeURIComponent(code)}`),
   },
   menu: {
-    getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[]; schedules: unknown[] }>("/menu"),
+    getAll: () => get<{ categories: unknown[]; items: unknown[]; variants: unknown[]; modifierGroups: unknown[]; modifiers: unknown[]; itemModifierGroups: unknown[]; taxConfigs: unknown[]; schedules: unknown[]; stations: unknown[] }>("/menu"),
     // Items
     createItem: (body: unknown) => post<unknown>("/menu/items", body),
     updateItem: (id: string, body: unknown) => patch<unknown>(`/menu/items/${id}`, body),
@@ -123,6 +123,10 @@ export const api = {
     // Tax
     getTax: () => get<unknown | null>("/menu/tax"),
     saveTax: (body: unknown) => put<unknown>("/menu/tax", body),
+    // Kitchen stations
+    createStation: (body: unknown) => post<unknown>("/menu/stations", body),
+    updateStation: (id: string, body: unknown) => patch<unknown>(`/menu/stations/${id}`, body),
+    deleteStation: (id: string) => del(`/menu/stations/${id}`),
     // Schedules (time windows / happy hours)
     createSchedule: (body: unknown) => post<unknown>("/menu/schedules", body),
     // Import from image/PDF (Gemini vision extraction)
@@ -156,6 +160,7 @@ export const api = {
   },
   kots: {
     getActive: () => get<unknown[]>("/kots"),
+    getStations: () => get<unknown[]>("/kots/stations"),
     generate: (orderId: string) => post<unknown>(`/orders/${orderId}/kot`, {}),
     acknowledge: (kotId: string) => patch(`/kots/${kotId}/acknowledge`, {}),
     done: (kotId: string) => patch(`/kots/${kotId}/done`, {}),

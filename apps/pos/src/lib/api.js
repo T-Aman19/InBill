@@ -6,9 +6,13 @@ const SERVER_ORIGIN = window.location.protocol === "tauri:" || window.location.p
 const BASE = `${SERVER_ORIGIN}/api`;
 class ApiError extends Error {
     status;
-    constructor(status, message) {
+    gate;
+    // `gate` is present on 402s from the entitlement layer — the UI turns it into
+    // an upgrade prompt (see stores/upgrade.ts).
+    constructor(status, message, gate) {
         super(message);
         this.status = status;
+        this.gate = gate;
     }
 }
 async function request(path, init) {
@@ -23,7 +27,7 @@ async function request(path, init) {
     });
     if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new ApiError(res.status, body.error ?? res.statusText);
+        throw new ApiError(res.status, body.error ?? res.statusText, body.gate);
     }
     if (res.status === 204)
         return undefined;
@@ -362,6 +366,10 @@ export const api = {
     },
     public: {
         lanUrl: () => get("/public/lan-url"),
+    },
+    entitlements: {
+        get: () => get("/entitlements"),
+        startTrial: (feature) => post(`/entitlements/trials/${feature}`, {}),
     },
 };
 export { ApiError };

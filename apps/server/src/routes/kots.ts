@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { eq, and, or, inArray } from "drizzle-orm"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { kots, orderItems, orders, tables } from "../db/schema/index.js"
+import { kots, orderItems, orders, tables, stations } from "../db/schema/index.js"
 import { requireAuth } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fetchOrderWithKotStatus } from "../lib/queries.js"
@@ -10,6 +10,16 @@ import { fetchOrderWithKotStatus } from "../lib/queries.js"
 export const kotsRouter = new Hono<AppEnv>()
 
 kotsRouter.use("*", requireAuth)
+
+// The outlet's configured kitchen stations — drives the KDS station tabs
+kotsRouter.get("/stations", async (c) => {
+  const { outletId } = c.get("user")
+  const rows = await db.query.stations.findMany({
+    where: and(eq(stations.outletId, outletId), eq(stations.isActive, true)),
+    orderBy: (s, { asc }) => [asc(s.sortOrder)],
+  })
+  return c.json(rows)
+})
 
 // Active KOTs (pending + acknowledged) with their items for the KDS
 kotsRouter.get("/", async (c) => {
@@ -46,13 +56,20 @@ kotsRouter.get("/", async (c) => {
   const tableNameById = new Map(tableRows.map((t) => [t.id, t.name]))
   const orderTableMap = new Map(orderRows.map((o) => [o.id, o.tableId]))
 
+  // Resolve station name/colour so each ticket can show which station it routes to
+  const stationRows = await db.query.stations.findMany({ where: eq(stations.outletId, outletId), columns: { id: true, name: true, color: true } })
+  const stationById = new Map(stationRows.map((s) => [s.id, s]))
+
   return c.json(activeKots
     .map((kot) => {
       const tableId = orderTableMap.get(kot.orderId) ?? null
+      const station = kot.stationId ? stationById.get(kot.stationId) : undefined
       return {
         ...kot,
         orderSource: orderSourceMap.get(kot.orderId) ?? "pos",
         tableName: tableId ? (tableNameById.get(tableId) ?? null) : null,
+        stationName: station?.name ?? null,
+        stationColor: station?.color ?? null,
         items: items.filter((i) => i.kotId === kot.id),
       }
     })

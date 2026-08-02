@@ -8,25 +8,17 @@ import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 
 type KotModifier = { name: string; price: string }
 type KotItem = { id: string; name: string; variantName?: string | null; quantity: number; notes?: string | null; modifiers: KotModifier[] }
-type Kot     = { id: string; kotNumber: number; status: string; createdAt: string; orderSource?: string; tableName?: string; items: KotItem[] }
+type Kot     = { id: string; kotNumber: number; status: string; createdAt: string; orderSource?: string; tableName?: string; stationId?: string | null; stationName?: string | null; stationColor?: string | null; items: KotItem[] }
 
-type Station = "all" | "tandoor" | "curries" | "cold" | "starters"
-const STATIONS: { id: Station; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "starters", label: "Starters" },
-  { id: "tandoor", label: "Tandoor" },
-  { id: "curries", label: "Curries" },
-  { id: "cold", label: "Cold" },
-]
+// Kitchen stations are configured by the owner in the Manager app; the KDS reads
+// them and routes each split ticket to its station via kot.stationId.
+type Station = { id: string; name: string; color: string; sortOrder: number }
 
-/** Very rough guess at station from item name — in a real app this comes from the menu item's station field */
-function guessStation(name: string): Station {
-  const n = name.toLowerCase()
-  if (/lassi|ice\s*cream|cold|juice|mocktail|shake/.test(n)) return "cold"
-  if (/biryani|naan|roti|paratha|tandoor|tikka|kebab|kulcha/.test(n)) return "tandoor"
-  if (/paneer|curry|dal|makhani|butter\s*chicken|gravy|korma|masala|soup/.test(n)) return "curries"
-  if (/starter|chaat|bhel|pani\s*puri|samosa|pakora|chilli|gobi|tikki/.test(n)) return "starters"
-  return "tandoor"
+/** Chip showing which kitchen station a ticket routes to. */
+function StationChip({ name, color }: { name: string; color?: string | null }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: color ?? "oklch(40% 0.01 60)", color: "white", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>{name}</span>
+  )
 }
 
 function SourceChip({ src }: { src?: string }) {
@@ -70,8 +62,9 @@ function KotCard({
               <span style={{ color: "oklch(72% 0.012 70)", fontWeight: 500, marginLeft: 8, fontSize: 14 }}>{kot.tableName}</span>
             )}
           </div>
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
             <SourceChip src={kot.orderSource} />
+            {kot.stationName && <StationChip name={kot.stationName} color={kot.stationColor} />}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -189,7 +182,7 @@ export default function KdsPage() {
   const qc       = useQueryClient()
   const logout   = useAuthStore((s) => s.logout)
   const [now, setNow]       = useState(() => Date.now())
-  const [station, setStation] = useState<Station>("all")
+  const [station, setStation] = useState<string>("all") // "all" or a station id
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [mobileStage, setMobileStage] = useState<"new" | "progress">("new")
@@ -205,6 +198,12 @@ export default function KdsPage() {
     queryKey: ["kots"],
     queryFn: () => api.kots.getActive() as Promise<Kot[]>,
     refetchInterval: 15_000,
+  })
+
+  const { data: stations = [] } = useQuery({
+    queryKey: ["kot-stations"],
+    queryFn: () => api.kots.getStations() as Promise<Station[]>,
+    staleTime: 60_000,
   })
 
   useEffect(() => {
@@ -230,10 +229,10 @@ export default function KdsPage() {
   const newKots  = kots.filter((k) => k.status === "pending")
   const progKots = kots.filter((k) => k.status === "acknowledged")
 
-  // Filter by station
+  // Filter by station — tickets are already split per station, so match the whole KOT
   const filterByStation = (list: Kot[]) => {
     if (station === "all") return list
-    return list.filter((k) => k.items.some((it) => guessStation(it.name) === station))
+    return list.filter((k) => k.stationId === station)
   }
 
   const visibleNew  = filterByStation(newKots)
@@ -276,22 +275,26 @@ export default function KdsPage() {
           </div>
         )}
 
-        {/* Station selector — horizontally scrollable so it never breaks the header layout */}
-        <div className="scroll" style={{ marginLeft: isMobile ? 0 : 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8, overflowX: "auto", flexShrink: 1 }}>
-          {STATIONS.map((s) => {
-            const count = s.id === "all" ? kots.length : kots.filter((k) => k.items.some((it) => guessStation(it.name) === s.id)).length
-            return (
-              <button key={s.id} onClick={() => setStation(s.id)} style={{
-                padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap", flexShrink: 0,
-                background: station === s.id ? "oklch(70% 0.17 55)" : "transparent",
-                color: station === s.id ? "oklch(34% 0.08 55)" : "oklch(78% 0.012 70)",
-                border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>
-                {s.label} <span style={{ marginLeft: 4, fontFamily: "var(--font-mono)", opacity: .7, fontSize: 11 }}>{count}</span>
-              </button>
-            )
-          })}
-        </div>
+        {/* Station selector — only shown once the owner has configured stations.
+            Horizontally scrollable so it never breaks the header layout. */}
+        {stations.length > 0 && (
+          <div className="scroll" style={{ marginLeft: isMobile ? 0 : 12, display: "flex", gap: 2, padding: 3, background: "oklch(22% 0.012 60)", borderRadius: 8, overflowX: "auto", flexShrink: 1 }}>
+            {[{ id: "all", label: "All", color: null as string | null }, ...stations.map((s) => ({ id: s.id, label: s.name, color: s.color }))].map((s) => {
+              const count = s.id === "all" ? kots.length : kots.filter((k) => k.stationId === s.id).length
+              const active = station === s.id
+              return (
+                <button key={s.id} onClick={() => setStation(s.id)} style={{
+                  padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap", flexShrink: 0,
+                  background: active ? (s.color ?? "oklch(70% 0.17 55)") : "transparent",
+                  color: active ? "white" : "oklch(78% 0.012 70)",
+                  border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>
+                  {s.label} <span style={{ marginLeft: 4, fontFamily: "var(--font-mono)", opacity: .7, fontSize: 11 }}>{count}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div style={{ flex: 1 }} />
 

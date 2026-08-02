@@ -26,10 +26,24 @@ export const taxConfigs = pgTable("tax_configs", {
   igstRate: numeric("igst_rate", { precision: 5, scale: 2 }).notNull().default("0"),
 })
 
+// Kitchen stations route dishes to the right part of the line (Tandoor, Curries,
+// Bar…). A station is assigned per category (the default) and can be overridden
+// per item; firing an order splits it into one KOT per station.
+export const stations = pgTable("stations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  outletId: uuid("outlet_id").notNull().references(() => outlets.id),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#f97316"), // KDS tab/card accent
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const categories = pgTable("categories", {
   id: uuid("id").primaryKey().defaultRandom(),
   outletId: uuid("outlet_id").notNull().references(() => outlets.id),
   scheduleId: uuid("schedule_id").references(() => menuSchedules.id),
+  stationId: uuid("station_id").references(() => stations.id), // default kitchen station for items in this category
   name: text("name").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
@@ -41,6 +55,7 @@ export const menuItems = pgTable("menu_items", {
   categoryId: uuid("category_id").notNull().references(() => categories.id),
   taxConfigId: uuid("tax_config_id").references(() => taxConfigs.id),
   scheduleId: uuid("schedule_id").references(() => menuSchedules.id),
+  stationId: uuid("station_id").references(() => stations.id), // overrides the category's station when set
   name: text("name").notNull(),
   description: text("description"),
   basePrice: numeric("base_price", { precision: 10, scale: 2 }).notNull(),

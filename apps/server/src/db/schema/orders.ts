@@ -3,6 +3,7 @@ import { numeric } from "drizzle-orm/pg-core"
 import { outlets } from "./owners.js"
 import { tables } from "./tables.js"
 import { users } from "./users.js"
+import { stations } from "./menu.js"
 
 export const orderTypeEnum = pgEnum("order_type", ["dine_in", "takeaway", "delivery"])
 export const orderStatusEnum = pgEnum("order_status", ["open", "kot_sent", "served", "billed", "cancelled"])
@@ -59,6 +60,7 @@ export const kots = pgTable("kots", {
   id: uuid("id").primaryKey().defaultRandom(),
   outletId: uuid("outlet_id").notNull().references(() => outlets.id),
   orderId: uuid("order_id").notNull().references(() => orders.id),
+  stationId: uuid("station_id").references(() => stations.id), // which kitchen station this ticket routes to (null = unassigned)
   kotNumber: integer("kot_number").notNull(),
   status: kotStatusEnum("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

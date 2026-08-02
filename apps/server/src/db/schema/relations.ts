@@ -1,7 +1,7 @@
 import { relations } from "drizzle-orm"
 import { owners, outlets, ownerPasswordResets } from "./owners.js"
 import { users } from "./users.js"
-import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs } from "./menu.js"
+import { categories, menuItems, itemVariants, modifierGroups, modifiers, menuItemModifierGroups, taxConfigs, stations } from "./menu.js"
 import { floors, tables } from "./tables.js"
 import { orders, orderItems, orderItemModifiers, kots, customers } from "./orders.js"
 import { bills, billPayments, billDiscounts, discounts, billCharges, charges } from "./billing.js"
@@ -31,6 +31,7 @@ export const outletsRelations = relations(outlets, ({ one, many }) => ({
   bills: many(bills),
   shifts: many(shifts),
   discounts: many(discounts),
+  stations: many(stations),
   ingredients: many(ingredients),
   stockMovements: many(stockMovements),
   vendors: many(vendors),
@@ -43,8 +44,15 @@ export const usersRelations = relations(users, ({ one }) => ({
   outlet: one(outlets, { fields: [users.outletId], references: [outlets.id] }),
 }))
 
+export const stationsRelations = relations(stations, ({ one, many }) => ({
+  outlet: one(outlets, { fields: [stations.outletId], references: [outlets.id] }),
+  categories: many(categories),
+  items: many(menuItems),
+}))
+
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
   outlet: one(outlets, { fields: [categories.outletId], references: [outlets.id] }),
+  station: one(stations, { fields: [categories.stationId], references: [stations.id] }),
   items: many(menuItems),
 }))
 
@@ -52,6 +60,7 @@ export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
   outlet: one(outlets, { fields: [menuItems.outletId], references: [outlets.id] }),
   category: one(categories, { fields: [menuItems.categoryId], references: [categories.id] }),
   taxConfig: one(taxConfigs, { fields: [menuItems.taxConfigId], references: [taxConfigs.id] }),
+  station: one(stations, { fields: [menuItems.stationId], references: [stations.id] }),
   variants: many(itemVariants),
   modifierGroups: many(menuItemModifierGroups),
   recipe: one(recipes, { fields: [menuItems.id], references: [recipes.menuItemId] }),
@@ -107,6 +116,7 @@ export const orderItemModifiersRelations = relations(orderItemModifiers, ({ one 
 export const kotsRelations = relations(kots, ({ one, many }) => ({
   outlet: one(outlets, { fields: [kots.outletId], references: [outlets.id] }),
   order: one(orders, { fields: [kots.orderId], references: [orders.id] }),
+  station: one(stations, { fields: [kots.stationId], references: [stations.id] }),
   items: many(orderItems, { relationName: "kot_items" }),
 }))
 

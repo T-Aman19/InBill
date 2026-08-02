@@ -5,7 +5,10 @@ import { QRCode } from "react-qr-code"
 import { api, ApiError, type ExtractedMenu, type ExtractedItem, type ExtractedModifierGroup } from "@/lib/api"
 import { ws } from "@/lib/ws"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
-import { lineTotal } from "@inbill/shared"
+import { lineTotal, FEATURES } from "@inbill/shared"
+import { useFeature, isUsable } from "@/hooks/useEntitlement"
+import { LockBadge } from "@/components/Entitlement"
+import { useUpgradeStore } from "@/stores/upgrade"
 import { useAuthStore } from "@/stores/auth"
 import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
 import { LogoMark } from "@/components/ui/LogoMark"
@@ -16,14 +19,15 @@ import { OperationTypeCards, operationTypeFromSettings, operationTypeToSettings,
 type Staff = { id: string; name: string; role: string; isActive: boolean }
 type EditRecord = { _new?: boolean; id?: string; name: string; role: string; pin: string; isActive: boolean }
 
-type Category = { id: string; name: string; sortOrder: number; isActive: boolean; scheduleId?: string | null }
-type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null }
+type Category = { id: string; name: string; sortOrder: number; isActive: boolean; scheduleId?: string | null; stationId?: string | null }
+type MenuItemRow = { id: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; isAvailable: boolean; description?: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null; stationId?: string | null }
+type Station = { id: string; name: string; color: string; sortOrder: number; isActive: boolean }
 type MenuSchedule = { id: string; name: string; days: number[]; startTime: string; endTime: string; percentOff: string; isActive: boolean; activeNow?: boolean }
 type ItemVariant = { id: string; itemId: string; name: string; price: string; isActive: boolean }
 type ModifierGroup = { id: string; name: string; required: boolean; multiSelect: boolean; minSelect: number; maxSelect?: number | null }
 type Modifier = { id: string; groupId: string; name: string; price: string; isActive: boolean }
 type ItemModifierGroupLink = { itemId: string; groupId: string }
-type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null }
+type EditItem = { _new?: boolean; id?: string; categoryId: string; name: string; basePrice: string; isVeg: boolean; description: string; hsnCode?: string; taxConfigId?: string | null; scheduleId?: string | null; stationId?: string | null }
 
 type DiscountRow = { id: string; name: string; type: "percentage" | "flat"; value: string; minOrderValue: string; maxDiscountAmount?: string | null; code?: string | null; validFrom?: string | null; validTo?: string | null; usageLimit?: number | null; usageCount: number; isActive: boolean }
 type ChargeRow = { id: string; name: string; type: "percentage" | "flat"; value: string; isActive: boolean }
@@ -42,7 +46,7 @@ const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green", host: "gray" }
 const WEAK_PINS = new Set(["0000","1111","2222","3333","4444","5555","6666","7777","8888","9999","1234","4321","1212","0101","1122"])
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only", host: "Queue & seating" }
-type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "schedules" | "shifts" | "bills" | "dayclose" | "activity" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
+type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "schedules" | "stations" | "shifts" | "bills" | "dayclose" | "activity" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -248,8 +252,8 @@ function StaffTab() {
 }
 
 // ── Menu tab ─────────────────────────────────────────────────────────────────
-function ItemEditPanel({ item, categories, taxConfigs, schedules, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
-  item: EditItem; categories: Category[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[]
+function ItemEditPanel({ item, categories, taxConfigs, schedules, stations, variants, allModifierGroups, itemModifierGroupLinks, onClose, onSaved }: {
+  item: EditItem; categories: Category[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[]; stations: Station[]
   variants: ItemVariant[]; allModifierGroups: ModifierGroup[]; itemModifierGroupLinks: ItemModifierGroupLink[]
   onClose: () => void; onSaved: () => void
 }) {
@@ -263,6 +267,7 @@ function ItemEditPanel({ item, categories, taxConfigs, schedules, variants, allM
   const [hsnCode, setHsnCode] = useState(item.hsnCode ?? "")
   const [taxConfigId, setTaxConfigId] = useState(item.taxConfigId ?? "")
   const [scheduleId, setScheduleId] = useState(item.scheduleId ?? "")
+  const [stationId, setStationId] = useState(item.stationId ?? "")
   const [newVarName, setNewVarName] = useState("")
   const [newVarPrice, setNewVarPrice] = useState("")
   const [generatingDesc, setGeneratingDesc] = useState(false)
@@ -288,7 +293,7 @@ function ItemEditPanel({ item, categories, taxConfigs, schedules, variants, allM
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["menu"] }); onSaved() }
 
-  const itemPayload = () => ({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined, hsnCode: hsnCode.trim() || undefined, taxConfigId: taxConfigId || null, scheduleId: scheduleId || null })
+  const itemPayload = () => ({ name, basePrice: parseFloat(price), categoryId: catId, isVeg, description: desc || undefined, hsnCode: hsnCode.trim() || undefined, taxConfigId: taxConfigId || null, scheduleId: scheduleId || null, stationId: stationId || null })
   const createMutation = useMutation({ mutationFn: () => api.menu.createItem(itemPayload()), onSuccess: () => { invalidate(); onClose() } })
   const updateMutation = useMutation({ mutationFn: () => api.menu.updateItem(item.id!, itemPayload()), onSuccess: () => { invalidate(); onClose() } })
   const addVariantMutation = useMutation({
@@ -357,6 +362,14 @@ function ItemEditPanel({ item, categories, taxConfigs, schedules, variants, allM
             ))}
           </select>
         ))}
+        {stations.length > 0 && field("Kitchen station (optional)", (
+          <select value={stationId} onChange={(e) => setStationId(e.target.value)} style={{ ...inputStyle(), appearance: "none" }}>
+            <option value="">Inherit from category</option>
+            {stations.filter((s) => s.isActive).map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        ))}
       </form>
 
       {/* Variants — only shown when editing an existing item */}
@@ -417,13 +430,14 @@ function MenuTab() {
   const [hoveredCatId, setHoveredCatId] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
 
-  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[] }> })
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; variants: ItemVariant[]; modifierGroups: ModifierGroup[]; itemModifierGroups: ItemModifierGroupLink[]; taxConfigs: TaxConfig[]; schedules: MenuSchedule[]; stations: Station[] }> })
   const cats = menu?.categories ?? []
   const items = menu?.items ?? []
   const allModifierGroups = menu?.modifierGroups ?? []
   const itemModifierGroupLinks = menu?.itemModifierGroups ?? []
   const taxConfigs = (menu?.taxConfigs ?? []) as TaxConfig[]
   const schedules = menu?.schedules ?? []
+  const stations = menu?.stations ?? []
   const activeCat = selectedCatId ?? cats.find((c) => c.isActive)?.id ?? null
   const visibleItems = items.filter((i) => i.categoryId === activeCat)
 
@@ -538,7 +552,7 @@ function MenuTab() {
                     </button>
                   </span>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
-                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "", hsnCode: item.hsnCode ?? "", taxConfigId: item.taxConfigId ?? null, scheduleId: item.scheduleId ?? null })} title="Edit" />
+                    <ActionBtn onClick={() => setEditingItem({ id: item.id, categoryId: item.categoryId, name: item.name, basePrice: item.basePrice, isVeg: item.isVeg, description: item.description ?? "", hsnCode: item.hsnCode ?? "", taxConfigId: item.taxConfigId ?? null, scheduleId: item.scheduleId ?? null, stationId: item.stationId ?? null })} title="Edit" />
                     <ActionBtn onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteItemMutation.mutate(item.id) }} title="Delete" danger />
                   </div>
                 </div>
@@ -547,7 +561,7 @@ function MenuTab() {
           )}
         </div>
       </div>
-      {editingItem && <ItemEditPanel item={editingItem} categories={cats} taxConfigs={taxConfigs} schedules={schedules} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
+      {editingItem && <ItemEditPanel item={editingItem} categories={cats} taxConfigs={taxConfigs} schedules={schedules} stations={stations} variants={(menu?.variants ?? []).filter((v) => v.itemId === editingItem.id)} allModifierGroups={allModifierGroups} itemModifierGroupLinks={itemModifierGroupLinks} onClose={() => setEditingItem(null)} onSaved={invalidate} />}
       {showImport && <MenuImportModal onClose={() => setShowImport(false)} onImported={invalidate} />}
     </>
   )
@@ -2683,6 +2697,157 @@ function SchedulesTab() {
   )
 }
 
+// ── Kitchen stations tab (paid feature) ──────────────────────────────────────
+const STATION_COLORS = ["#f97316", "#ef4444", "#22c55e", "#3b82f6", "#8b5cf6", "#14b8a6", "#ec4899", "#f59e0b"]
+
+type EditStation = { _new?: boolean; id?: string; name: string; color: string; isActive: boolean }
+
+function capPlan(p?: string) { return p ? p[0]!.toUpperCase() + p.slice(1) : "" }
+
+function StationsTab() {
+  const qc = useQueryClient()
+  const feature = useFeature("kitchen_stations")
+  const openUpgrade = useUpgradeStore((s) => s.open)
+  const [editing, setEditing] = useState<EditStation | null>(null)
+
+  const { data: menu } = useQuery({ queryKey: ["menu"], queryFn: () => api.menu.getAll() as Promise<{ categories: Category[]; items: MenuItemRow[]; stations: Station[] }> })
+  const stations = menu?.stations ?? []
+  const categories = menu?.categories ?? []
+  const items = menu?.items ?? []
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["menu"] })
+  const deleteMutation = useMutation({ mutationFn: (id: string) => api.menu.deleteStation(id), onSuccess: invalidate })
+  const toggleMutation = useMutation({ mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => api.menu.updateStation(id, { isActive }), onSuccess: invalidate })
+
+  const usageFor = (s: Station) => {
+    const cats = categories.filter((c) => c.stationId === s.id).length
+    const its = items.filter((i) => i.stationId === s.id).length
+    const parts: string[] = []
+    if (cats > 0) parts.push(`${cats} categor${cats === 1 ? "y" : "ies"}`)
+    if (its > 0) parts.push(`${its} item${its === 1 ? "" : "s"}`)
+    return parts.length ? parts.join(" · ") : "Not assigned yet"
+  }
+
+  // Gated: the KDS/routing is core, but configuring stations is a paid feature.
+  if (!isUsable(feature)) {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+        <div style={{ maxWidth: 440, textAlign: "center" }}>
+          <div style={{ display: "inline-flex", marginBottom: 12 }}><LockBadge /></div>
+          <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 600 }}>{FEATURES.kitchen_stations.label}</h3>
+          <p style={{ fontSize: 13, color: "var(--color-ink-3)", lineHeight: 1.65, marginBottom: 22 }}>{FEATURES.kitchen_stations.pitch}</p>
+          <button
+            onClick={() => openUpgrade({ feature: "kitchen_stations", reason: feature.reason ?? "plan_required", requiredPlan: feature.requiredPlan })}
+            style={{ padding: "11px 22px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+          >
+            {feature.requiredPlan ? `Upgrade to ${capPlan(feature.requiredPlan)}` : "Upgrade to unlock"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div style={{ padding: "20px 28px 14px", borderBottom: "1px solid var(--color-line)", display: "flex", alignItems: "center" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Kitchen Stations</h3>
+          <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 4 }}>Route dishes to the right part of the line — each station gets its own KOT ticket and KDS tab</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setEditing({ _new: true, name: "", color: STATION_COLORS[0]!, isActive: true })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 10, background: "var(--color-ink)", border: "none", color: "var(--color-bg)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>Add station
+        </button>
+      </div>
+      <div className="scroll" style={{ flex: 1, padding: "20px 28px" }}>
+        {stations.length === 0 ? (
+          <div style={{ padding: 48, textAlign: "center", color: "var(--color-ink-3)" }}>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>No stations yet</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>Add stations like Tandoor, Curries or Bar.<br />Assign categories here, or override individual items from the item editor. Until you add one, orders fire as a single ticket.</div>
+          </div>
+        ) : (
+          <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+            {stations.map((s, i) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: i < stations.length - 1 ? "1px solid var(--color-line)" : "none", gap: 14, opacity: s.isActive ? 1 : .5 }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: s.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</div>
+                  <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 3 }}>{usageFor(s)}</div>
+                </div>
+                <button onClick={() => toggleMutation.mutate({ id: s.id, isActive: !s.isActive })} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-line-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                  {s.isActive ? "Disable" : "Enable"}
+                </button>
+                <ActionBtn onClick={() => setEditing({ id: s.id, name: s.name, color: s.color, isActive: s.isActive })} title="Edit" />
+                <ActionBtn onClick={() => { if (confirm(`Delete "${s.name}"? Items and categories using it become unassigned.`)) deleteMutation.mutate(s.id) }} title="Delete" danger />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {editing && <StationEditPanel station={editing} categories={categories} onClose={() => setEditing(null)} onSaved={invalidate} />}
+    </>
+  )
+}
+
+function StationEditPanel({ station, categories, onClose, onSaved }: { station: EditStation; categories: Category[]; onClose: () => void; onSaved: () => void }) {
+  const isNew = !!station._new
+  const [name, setName] = useState(station.name)
+  const [color, setColor] = useState(station.color)
+  // Categories currently pointing at this station (assignment lives on the category)
+  const [catIds, setCatIds] = useState<Set<string>>(new Set(categories.filter((c) => c.stationId === station.id).map((c) => c.id)))
+
+  const canSave = !!name.trim()
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const body = { name: name.trim(), color }
+      const saved = isNew
+        ? (await api.menu.createStation(body)) as { id: string }
+        : ((await api.menu.updateStation(station.id!, body)) as { id: string })
+      // Sync category assignments to match the checkboxes
+      const stationId = saved.id
+      const wasAssigned = new Set(categories.filter((c) => c.stationId === station.id && station.id).map((c) => c.id))
+      for (const cat of categories) {
+        const nowChecked = catIds.has(cat.id)
+        const wasChecked = wasAssigned.has(cat.id)
+        if (nowChecked && !wasChecked) await api.menu.updateCategory(cat.id, { stationId })
+        if (!nowChecked && wasChecked) await api.menu.updateCategory(cat.id, { stationId: null })
+      }
+    },
+    onSuccess: () => { onSaved(); onClose() },
+    onError: (err: Error) => alert(err.message),
+  })
+
+  return (
+    <SlidePanel title={isNew ? "Add station" : `Edit "${station.name}"`} onClose={onClose}
+      footer={<><CancelBtn onClose={onClose} /><SaveBtn onClick={() => canSave && saveMutation.mutate()} disabled={!canSave || saveMutation.isPending} label={saveMutation.isPending ? "Saving…" : isNew ? "Add station" : "Save"} /></>}>
+      {field("Name", <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tandoor, Curries, Bar" maxLength={60} style={inputStyle()} onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-ink-3)")} onBlur={(e) => (e.currentTarget.style.borderColor = "var(--color-line-strong)")} />)}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 8 }}>Colour <span style={{ color: "var(--color-ink-3)", fontWeight: 400 }}>(shown on the KDS tab &amp; ticket)</span></div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          {STATION_COLORS.map((c) => (
+            <button key={c} type="button" onClick={() => setColor(c)} aria-label={c} style={{ width: 28, height: 28, borderRadius: 8, background: c, border: color.toLowerCase() === c.toLowerCase() ? "2px solid var(--color-ink)" : "2px solid transparent", cursor: "pointer", flexShrink: 0 }} />
+          ))}
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} title="Custom colour" style={{ width: 32, height: 28, padding: 0, border: "1px solid var(--color-line-strong)", borderRadius: 8, background: "var(--color-surface)", cursor: "pointer" }} />
+        </div>
+      </div>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--color-ink-2)", marginBottom: 8 }}>Applies to categories <span style={{ color: "var(--color-ink-3)", fontWeight: 400 }}>(individual items can override from the item editor)</span></div>
+        <div style={{ border: "1px solid var(--color-line)", borderRadius: 10, overflow: "hidden" }}>
+          {categories.filter((c) => c.isActive).map((cat, i, arr) => (
+            <label key={cat.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < arr.length - 1 ? "1px solid var(--color-line)" : "none", cursor: "pointer", fontSize: 13 }}>
+              <input type="checkbox" checked={catIds.has(cat.id)} onChange={(e) => setCatIds((prev) => { const next = new Set(prev); if (e.target.checked) next.add(cat.id); else next.delete(cat.id); return next })} />
+              <span>{cat.name}</span>
+              {cat.stationId && cat.stationId !== station.id && <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>currently on another station</span>}
+            </label>
+          ))}
+          {categories.filter((c) => c.isActive).length === 0 && <div style={{ padding: 16, fontSize: 12, color: "var(--color-ink-3)", textAlign: "center" }}>No categories yet</div>}
+        </div>
+      </div>
+    </SlidePanel>
+  )
+}
+
 // ── Devices tab (placeholder) ────────────────────────────────────────────────
 function DevicesTab() {
   const { data: lanData } = useQuery({
@@ -3465,6 +3630,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "modifiers", label: "Modifiers" },
       { id: "discounts", label: "Discounts" },
       { id: "schedules", label: "Schedules" },
+      { id: "stations",  label: "Kitchen Stations" },
       { id: "taxes",     label: "Tax & Charges" },
     ],
   },
@@ -3511,6 +3677,7 @@ const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
   dayclose:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 15l2 2 4-4"/></svg>,
   activity:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg>,
   schedules: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/><path d="M5 2L2 5M19 2l3 3"/></svg>,
+  stations:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20V10M20 20V10"/><path d="M2 10l10-6 10 6"/><path d="M8 20v-5h8v5"/><path d="M12 4v2"/></svg>,
   customers: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
   loyalty:   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   expenses:  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
@@ -3519,7 +3686,7 @@ const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
   reservations: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>,
 }
 
-const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "schedules", "shifts", "bills", "dayclose", "activity", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
+const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "schedules", "stations", "shifts", "bills", "dayclose", "activity", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ManagerPage() {
@@ -3528,6 +3695,7 @@ export default function ManagerPage() {
   const { outletName } = useAuthStore()
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
+  const stationsLocked = !isUsable(useFeature("kitchen_stations"))
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<NavId>(() => {
     const t = new URLSearchParams(window.location.search).get("tab") as NavId | null
@@ -3598,6 +3766,7 @@ export default function ManagerPage() {
                     onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent" }}>
                     {NAV_ICONS[item.id]}
                     <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.id === "stations" && stationsLocked && <LockBadge />}
                   </div>
                 )
               })}
@@ -3657,6 +3826,7 @@ export default function ManagerPage() {
           {activeTab === "dayclose"  && <DayCloseTab />}
           {activeTab === "activity"  && <ActivityTab />}
           {activeTab === "schedules" && <SchedulesTab />}
+          {activeTab === "stations"  && <StationsTab />}
           {activeTab === "customers" && <CustomersTab />}
           {activeTab === "loyalty"       && <LoyaltyTab />}
           {activeTab === "reservations"  && <ReservationsTab />}

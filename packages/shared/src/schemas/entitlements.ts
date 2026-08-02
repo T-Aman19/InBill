@@ -90,6 +90,12 @@ export const FEATURES = {
     mode: "plan",
     minPlan: "growth",
   },
+  kitchen_stations: {
+    label: "Kitchen stations",
+    pitch: "Route each dish to its own station — separate tickets for tandoor, curries, bar and more.",
+    mode: "plan",
+    minPlan: "growth",
+  },
   hosted_backups: {
     label: "Hosted backups",
     pitch: "Nightly off-site backups and point-in-time restore.",

@@ -59,6 +59,8 @@ export const menuItemSchema = z.object({
   imageUrl: z.string().url().max(2048).optional(),
   sortOrder: z.number().int().min(0).max(9999).default(0),
   scheduleId: z.string().uuid().nullable().default(null),
+  // null = inherit the category's kitchen station; a value overrides it
+  stationId: z.string().uuid().nullable().default(null),
   variants: z.array(itemVariantSchema).default([]),
   modifierGroups: z.array(z.string().uuid()).default([]),
 })
@@ -71,8 +73,20 @@ export const createCategorySchema = z.object({
   name: z.string().min(1).max(100),
   sortOrder: z.number().int().min(0).max(9999).default(0),
   scheduleId: z.string().uuid().nullable().optional(),
+  stationId: z.string().uuid().nullable().optional(),
 })
 export const updateCategorySchema = createCategorySchema.partial()
+
+// ── Kitchen stations ────────────────────────────────────────────────────────
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Colour must be a hex value like #f97316")
+
+export const createStationSchema = z.object({
+  name: z.string().min(1).max(60),
+  color: hexColorSchema.default("#f97316"),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  isActive: z.boolean().default(true),
+})
+export const updateStationSchema = createStationSchema.partial()
 
 // ── Menu schedules (time windows / happy hours) ─────────────────────────────
 const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be HH:MM (24h)")
