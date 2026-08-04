@@ -38,7 +38,7 @@ ownerRouter.get("/me", async (c) => {
   const { ownerId } = c.get("user")
   const owner = await db.query.owners.findFirst({ where: eq(owners.id, ownerId) })
   if (!owner) return c.json({ error: "Owner not found" }, 404)
-  return c.json({ id: owner.id, name: owner.name, email: owner.email, phone: owner.phone })
+  return c.json({ id: owner.id, name: owner.name, email: owner.email, phone: owner.phone, isCloud: config.isCloud })
 })
 
 ownerRouter.get("/outlets", async (c) => {

@@ -55,6 +55,7 @@ export default function OwnerDashboardPage() {
   const [changePwForm, setChangePwForm] = useState({ currentPassword: "", newPassword: "", confirm: "" })
   const [changePwErr, setChangePwErr] = useState("")
   const [changePwOk, setChangePwOk] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
 
   useEffect(() => {
     if (!localStorage.getItem("inbill_owner_token")) navigate({ to: "/owner/login" })
@@ -67,6 +68,8 @@ export default function OwnerDashboardPage() {
     queryFn: () => api.owner.outlets(dates?.from, dates?.to),
     refetchInterval: 30_000,
   })
+
+  const { data: me } = useQuery({ queryKey: ["owner-me"], queryFn: api.owner.me })
 
   const createMutation = useMutation({
     mutationFn: (body: unknown) => api.owner.createOutlet(body),
@@ -116,6 +119,13 @@ export default function OwnerDashboardPage() {
     onError: (e: Error) => setChangePwErr(e.message),
   })
 
+  // Cloud: email the owner a reset link instead of an inline current-password change.
+  const sendResetMutation = useMutation({
+    mutationFn: api.owner.sendResetLink,
+    onSuccess: () => { setResetSent(true) },
+    onError: (e: Error) => setChangePwErr(e.message),
+  })
+
   function handleChangePw(e: React.FormEvent) {
     e.preventDefault()
     setChangePwErr("")
@@ -129,6 +139,7 @@ export default function OwnerDashboardPage() {
     setChangePwForm({ currentPassword: "", newPassword: "", confirm: "" })
     setChangePwErr("")
     setChangePwOk(false)
+    setResetSent(false)
   }
 
   function handleCreate(e: React.FormEvent) {
@@ -636,7 +647,34 @@ export default function OwnerDashboardPage() {
       {showChangePw && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
           <div style={{ background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", width: "100%", maxWidth: 400, padding: 28 }}>
-            {changePwOk ? (
+            {me?.isCloud ? (
+              resetSent ? (
+                <div style={{ textAlign: "center", padding: "8px 0" }}>
+                  <div style={{ width: 44, height: 44, background: "var(--color-surface-2)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink)", marginBottom: 6 }}>Check your inbox</div>
+                  <p style={{ fontSize: 13, color: "var(--color-ink-3)", margin: "0 0 20px", lineHeight: 1.5 }}>
+                    We sent a password reset link to <strong>{me?.email}</strong>. It expires in 1 hour.
+                  </p>
+                  <button className="btn primary" onClick={closeChangePw} style={{ width: "100%", height: 40, justifyContent: "center" }}>Done</button>
+                </div>
+              ) : (
+                <>
+                  <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: "0 0 8px" }}>Reset password</h2>
+                  <p style={{ fontSize: 13, color: "var(--color-ink-3)", margin: "0 0 20px", lineHeight: 1.5 }}>
+                    We&apos;ll email a secure reset link to <strong>{me?.email ?? "your account email"}</strong> — click it to set a new password (no current password needed). The link expires in 1 hour.
+                  </p>
+                  {changePwErr && <p style={{ fontSize: 13, color: "var(--color-red)", margin: "0 0 12px" }}>{changePwErr}</p>}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" className="btn ghost" onClick={closeChangePw} style={{ flex: 1, justifyContent: "center", height: 40 }}>Cancel</button>
+                    <button type="button" className="btn primary" disabled={sendResetMutation.isPending} onClick={() => { setChangePwErr(""); sendResetMutation.mutate() }} style={{ flex: 1, justifyContent: "center", height: 40 }}>
+                      {sendResetMutation.isPending ? "Sending…" : "Email reset link"}
+                    </button>
+                  </div>
+                </>
+              )
+            ) : changePwOk ? (
               <div style={{ textAlign: "center", padding: "8px 0" }}>
                 <div style={{ width: 44, height: 44, background: "var(--color-surface-2)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

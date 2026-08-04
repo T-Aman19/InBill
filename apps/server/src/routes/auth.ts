@@ -110,6 +110,16 @@ function checkForgotLimit(email: string): boolean {
   return true
 }
 
+// Generate a reset token, store only its SHA-256 hash (1-hour expiry), return the raw token.
+async function createResetToken(ownerId: string): Promise<string> {
+  const rawBytes = crypto.getRandomValues(new Uint8Array(32))
+  const rawToken = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0")).join("")
+  const tokenHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawToken))
+  const tokenHash = Array.from(new Uint8Array(tokenHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("")
+  await db.insert(ownerPasswordResets).values({ ownerId, tokenHash, expiresAt: new Date(Date.now() + 60 * 60_000) })
+  return rawToken
+}
+
 authRouter.post("/owner/forgot-password", zValidator("json", forgotPasswordSchema), async (c) => {
   if (!config.isCloud) {
     return c.json({ error: "Password reset via email is not available in local mode. Run: bun run src/scripts/reset-owner-password.ts" }, 400)
@@ -123,14 +133,7 @@ authRouter.post("/owner/forgot-password", zValidator("json", forgotPasswordSchem
   const owner = await db.query.owners.findFirst({ where: eq(owners.email, email) })
   if (!owner) return c.json({ ok: true })
 
-  // Generate a 32-byte random token; store only its SHA-256 hash
-  const rawBytes = crypto.getRandomValues(new Uint8Array(32))
-  const rawToken = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0")).join("")
-  const tokenHashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawToken))
-  const tokenHash = Array.from(new Uint8Array(tokenHashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("")
-
-  const expiresAt = new Date(Date.now() + 60 * 60_000) // 1 hour
-  await db.insert(ownerPasswordResets).values({ ownerId: owner.id, tokenHash, expiresAt })
+  const rawToken = await createResetToken(owner.id)
 
   // A send failure (e.g. missing/invalid RESEND_API_KEY) must not turn into a
   // 500 — that both breaks the flow and leaks which emails have accounts.
@@ -187,4 +190,28 @@ authRouter.patch("/owner/change-password", requireAuth, zValidator("json", chang
   await db.update(owners).set({ passwordHash }).where(eq(owners.id, ownerId))
 
   return c.json({ ok: true })
+})
+
+// ── Email a reset link to the signed-in owner (cloud only) ────────────────────
+// The Owner Dashboard's "change password" flow in cloud mode: no current-password
+// entry — the owner authenticates by clicking the link we email them.
+authRouter.post("/owner/send-reset", requireAuth, async (c) => {
+  const user = c.get("user")
+  if (user.role !== "owner") return c.json({ error: "Forbidden" }, 403)
+  if (!config.isCloud) {
+    return c.json({ error: "Email reset isn't available in self-hosted mode" }, 400)
+  }
+
+  const owner = await db.query.owners.findFirst({ where: eq(owners.id, user.ownerId) })
+  if (!owner) return c.json({ error: "Owner not found" }, 404)
+  if (!checkForgotLimit(owner.email)) return c.json({ ok: true, email: owner.email }) // rate-limited
+
+  const rawToken = await createResetToken(owner.id)
+  try {
+    await sendPasswordResetEmail(owner.email, rawToken)
+  } catch (e) {
+    console.error("[auth] send-reset email failed:", e)
+    return c.json({ error: "Couldn't send the reset email. Please try again shortly." }, 502)
+  }
+  return c.json({ ok: true, email: owner.email })
 })

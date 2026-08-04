@@ -359,7 +359,8 @@ export const api = {
     forgotPassword: (email: string) => post<{ ok: boolean }>("/auth/owner/forgot-password", { email }),
     resetPassword: (token: string, newPassword: string) => post<{ ok: boolean }>("/auth/owner/reset-password", { token, newPassword }),
     changePassword: (currentPassword: string, newPassword: string) => ownerRequest<{ ok: boolean }>("/auth/owner/change-password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }),
-    me: () => oget<{ id: string; name: string; email: string; phone: string }>("/owner/me"),
+    sendResetLink: () => opost<{ ok: boolean; email?: string }>("/auth/owner/send-reset", {}),
+    me: () => oget<{ id: string; name: string; email: string; phone: string; isCloud: boolean }>("/owner/me"),
     outlets: (from?: string, to?: string) => {
       const q = from && to ? `?from=${from}&to=${to}` : ""
       return oget<{ id: string; name: string; address: string; gstin?: string; revenue: number; billCount: number; byPaymentMode: Record<string, number>; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string; tableCount: number; menuItemCount: number; staffCount: number; settings?: { hasTables?: boolean; hasKitchenWorkflow?: boolean } }[]>(`/owner/outlets${q}`)
