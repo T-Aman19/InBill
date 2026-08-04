@@ -26,6 +26,21 @@ export const config = {
     syncIntervalMs: 10_000,
   },
 
+  // Razorpay Subscriptions — managed cloud only. Plan ids come from the Razorpay
+  // dashboard (one Plan per tier × cycle). Empty in local mode / when unset.
+  razorpay: {
+    keyId: process.env["RAZORPAY_KEY_ID"] ?? "",
+    keySecret: process.env["RAZORPAY_KEY_SECRET"] ?? "",
+    webhookSecret: process.env["RAZORPAY_WEBHOOK_SECRET"] ?? "",
+    // (plan, cycle) → Razorpay plan_id. Key format: `${plan}_${cycle}`.
+    planIds: {
+      starter_monthly: process.env["RAZORPAY_PLAN_STARTER_MONTHLY"] ?? "",
+      starter_annual: process.env["RAZORPAY_PLAN_STARTER_ANNUAL"] ?? "",
+      growth_monthly: process.env["RAZORPAY_PLAN_GROWTH_MONTHLY"] ?? "",
+      growth_annual: process.env["RAZORPAY_PLAN_GROWTH_ANNUAL"] ?? "",
+    } as Record<string, string>,
+  },
+
   ai: {
     geminiApiKey: process.env["GEMINI_API_KEY"] ?? "",
     // Fast/cheap tier — menu descriptions, menu-import vision extraction
