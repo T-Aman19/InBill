@@ -57,11 +57,21 @@ export type RzpSubscription = {
 
 // ── operations ───────────────────────────────────────────────────────────────
 
+// Razorpay rejects names that are too short or contain disallowed characters
+// ("The name format is invalid."). Reduce to a safe subset with a sane length,
+// falling back to the email local-part, then a constant.
+export function razorpaySafeName(raw: string, email: string): string {
+  const clean = (s: string) => s.replace(/[^\p{L}\p{N} .,'&()\/\-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 50)
+  let name = clean(raw || "")
+  if (name.length < 3) name = clean(email.split("@")[0] ?? "")
+  return name.length >= 3 ? name : "InBill Customer"
+}
+
 /** Create (or reuse, via fail_existing:0) a Razorpay customer for an owner. */
 export function createCustomer(input: { name: string; email: string; contact?: string }): Promise<RzpCustomer> {
   return rzp<RzpCustomer>("/customers", {
     method: "POST",
-    body: { name: input.name, email: input.email, contact: input.contact, fail_existing: 0 },
+    body: { name: razorpaySafeName(input.name, input.email), email: input.email, contact: input.contact, fail_existing: 0 },
   })
 }
 
