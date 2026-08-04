@@ -87,6 +87,19 @@ export function fetchSubscription(id: string): Promise<RzpSubscription> {
   return rzp<RzpSubscription>(`/subscriptions/${id}`)
 }
 
+export type RzpPlan = {
+  id: string
+  period: string // daily | weekly | monthly | yearly
+  interval: number
+  item: { name: string; amount: number; currency: string; description: string | null }
+  notes?: Record<string, string>
+}
+
+/** Fetch a Razorpay Plan (name, amount, notes) — used to render the pricing catalog. */
+export function fetchPlan(id: string): Promise<RzpPlan> {
+  return rzp<RzpPlan>(`/plans/${id}`)
+}
+
 export function cancelSubscription(id: string, atCycleEnd: boolean): Promise<RzpSubscription> {
   return rzp<RzpSubscription>(`/subscriptions/${id}/cancel`, {
     method: "POST",

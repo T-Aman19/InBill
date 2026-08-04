@@ -32,13 +32,18 @@ export const config = {
     keyId: process.env["RAZORPAY_KEY_ID"] ?? "",
     keySecret: process.env["RAZORPAY_KEY_SECRET"] ?? "",
     webhookSecret: process.env["RAZORPAY_WEBHOOK_SECRET"] ?? "",
-    // (plan, cycle) → Razorpay plan_id. Key format: `${plan}_${cycle}`.
-    planIds: {
-      starter_monthly: process.env["RAZORPAY_PLAN_STARTER_MONTHLY"] ?? "",
-      starter_annual: process.env["RAZORPAY_PLAN_STARTER_ANNUAL"] ?? "",
-      growth_monthly: process.env["RAZORPAY_PLAN_GROWTH_MONTHLY"] ?? "",
-      growth_annual: process.env["RAZORPAY_PLAN_GROWTH_ANNUAL"] ?? "",
-    } as Record<string, string>,
+    // (tier, cycle) → Razorpay plan_id, built from every
+    // RAZORPAY_PLAN_<TIER>_<MONTHLY|ANNUAL> env var — so adding a tier/cycle is
+    // just an env var, no code change. Key format: `${tier}_${cycle}` (lowercased).
+    // Tier names must be a single token (letters/digits, no underscore).
+    planIds: Object.fromEntries(
+      Object.entries(process.env).flatMap(([k, v]) => {
+        const m = /^RAZORPAY_PLAN_([A-Z0-9]+)_(MONTHLY|ANNUAL)$/.exec(k)
+        const tier = m?.[1]
+        const cyc = m?.[2]
+        return tier && cyc && v ? [[`${tier.toLowerCase()}_${cyc.toLowerCase()}`, v] as [string, string]] : []
+      }),
+    ) as Record<string, string>,
   },
 
   ai: {

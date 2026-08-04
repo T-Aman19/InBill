@@ -163,8 +163,9 @@ export type EntitlementDecision = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Subscription billing (managed cloud). Checkout is website-hosted; these types
-// are shared so the site, the server route, and the POS agree on plans/cycles.
+// Subscription billing (managed cloud). Checkout is native — built into the
+// Owner Dashboard (apps/pos) via Razorpay Checkout.js. These types are shared
+// so the server route and the POS agree on plans/cycles/catalog shape.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const BILLING_CYCLES = ["monthly", "annual"] as const
@@ -176,19 +177,31 @@ export type PurchasablePlan = (typeof PURCHASABLE_PLANS)[number]
 
 /**
  * Display pricing, in paise (₹1 = 100 paise), matching the Razorpay Plans in the
- * dashboard. The actual charge is driven by the Razorpay Plan id, NOT this table —
- * keep the two in sync. Annual = ~2 months free.
+ * dashboard. Superseded as the live pricing source by GET /billing/plans (which
+ * reads name/price straight from Razorpay) — kept only as a static fallback.
  */
 export const PLAN_PRICING: Record<PurchasablePlan, Record<BillingCycle, number>> = {
   starter: { monthly: 69_900, annual: 699_000 },
   growth: { monthly: 179_900, annual: 1_799_000 },
 }
 
-/** Config/plan-map key for a (plan, cycle) pair, e.g. "growth_annual". */
-export const planCycleKey = (plan: PurchasablePlan, cycle: BillingCycle) => `${plan}_${cycle}` as const
+/** Config/plan-map key for a (tier, cycle) pair, e.g. "growth_annual". */
+export const planCycleKey = (plan: string, cycle: BillingCycle) => `${plan}_${cycle}` as const
 
+/** Live pricing/marketing catalog for a plan tier, served by GET /billing/plans. */
+export type CatalogPlan = {
+  id: string // tier key
+  name: string
+  tag: string
+  featured: boolean
+  bullets: string[]
+  prices: Partial<Record<BillingCycle, number>> // rupees, ex-GST
+}
+
+// `plan` is any configured tier string — the server validates it against the
+// Razorpay plan-id map (unknown/unconfigured tiers are rejected there).
 export const subscribeSchema = z.object({
-  plan: z.enum(PURCHASABLE_PLANS),
+  plan: z.string().min(1),
   cycle: z.enum(BILLING_CYCLES),
 })
 export type SubscribeInput = z.infer<typeof subscribeSchema>

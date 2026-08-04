@@ -1,4 +1,4 @@
-import type { EntitlementDecision, GateError } from "@inbill/shared"
+import type { EntitlementDecision, GateError, CatalogPlan, BillingCycle } from "@inbill/shared"
 
 // Tauri embedded (tauri: protocol) and Vite dev (port 5173) both need to reach
 // the Bun server explicitly. LAN browsers load from port 3000 so relative URLs work.
@@ -381,6 +381,10 @@ export const api = {
       oget<{ plan: string; subscribedPlan?: string; cycle?: string | null; status?: string; currentPeriodEnd?: string | null; cancelAtPeriodEnd?: boolean; selfHosted?: boolean }>(
         "/billing/subscription",
       ),
+    getPlans: () => get<{ plans: CatalogPlan[] }>("/billing/plans"),
+    subscribe: (plan: string, cycle: BillingCycle) =>
+      opost<{ subscriptionId: string; shortUrl: string | null; razorpayKeyId: string }>("/billing/subscribe", { plan, cycle }),
+    cancel: () => opost<{ ok: boolean; cancelAtPeriodEnd: boolean }>("/billing/cancel", {}),
   },
 }
 

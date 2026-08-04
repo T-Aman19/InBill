@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, redirect, Outlet } from "@tanstack/react-router"
+import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
 import LoginPage from "@/pages/LoginPage"
 import FloorPage from "@/pages/FloorPage"
 import OrderPage from "@/pages/OrderPage"
@@ -9,12 +9,14 @@ import InventoryPage from "@/pages/InventoryPage"
 import PODetailPage from "@/pages/PODetailPage"
 import OwnerLoginPage from "@/pages/OwnerLoginPage"
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
+import OwnerBillingPage from "@/pages/OwnerBillingPage"
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
 import QrMenuPage from "@/pages/QrMenuPage"
+import RootLayout from "@/RootLayout"
 import { useAuthStore } from "@/stores/auth"
 
-const rootRoute = createRootRoute({ component: Outlet })
+const rootRoute = createRootRoute({ component: RootLayout })
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -140,6 +142,15 @@ const ownerDashboardRoute = createRoute({
   component: OwnerDashboardPage,
 })
 
+const ownerBillingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/billing",
+  beforeLoad: () => {
+    if (!localStorage.getItem("inbill_owner_token")) throw redirect({ to: "/owner/login" })
+  },
+  component: OwnerBillingPage,
+})
+
 const forgotPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/owner/forgot-password",
@@ -167,6 +178,7 @@ const routeTree = rootRoute.addChildren([
   poDetailRoute,
   ownerLoginRoute,
   ownerDashboardRoute,
+  ownerBillingRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
   qrMenuRoute,

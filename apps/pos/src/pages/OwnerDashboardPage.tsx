@@ -248,6 +248,15 @@ export default function OwnerDashboardPage() {
           + Add outlet
         </button>
 
+        <button
+          className="btn ghost"
+          onClick={() => navigate({ to: "/owner/billing" })}
+          title="Billing & plan"
+          style={{ padding: "0 8px", height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        </button>
+
         <div style={{ width: 1, height: 22, background: "var(--color-line)", margin: "0 4px" }} />
 
         <button

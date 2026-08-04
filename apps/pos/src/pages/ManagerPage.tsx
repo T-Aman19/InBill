@@ -7,7 +7,7 @@ import { ws } from "@/lib/ws"
 import { formatCurrency, triggerPrint } from "@/lib/utils"
 import { lineTotal, FEATURES } from "@inbill/shared"
 import { useFeature, isUsable } from "@/hooks/useEntitlement"
-import { LockBadge, billingUrl } from "@/components/Entitlement"
+import { LockBadge } from "@/components/Entitlement"
 import { useUpgradeStore } from "@/stores/upgrade"
 import { useAuthStore } from "@/stores/auth"
 import { useIsTablet, useIsMobile } from "@/hooks/useMediaQuery"
@@ -46,7 +46,7 @@ const ROLES = ["manager", "cashier", "captain", "kitchen", "host"] as const
 const ROLE_COLOR: Record<string, string> = { manager: "red", cashier: "blue", captain: "amber", kitchen: "green", host: "gray" }
 const WEAK_PINS = new Set(["0000","1111","2222","3333","4444","5555","6666","7777","8888","9999","1234","4321","1212","0101","1122"])
 const ROLE_DESCRIPTION: Record<string, string> = { manager: "All access", cashier: "POS & billing", captain: "Take orders", kitchen: "KDS only", host: "Queue & seating" }
-type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "schedules" | "stations" | "shifts" | "bills" | "dayclose" | "activity" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations" | "billing"
+type NavId = "home" | "staff" | "menu" | "tables" | "taxes" | "modifiers" | "discounts" | "schedules" | "stations" | "shifts" | "bills" | "dayclose" | "activity" | "customers" | "loyalty" | "expenses" | "outlet" | "devices" | "reservations"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -3619,75 +3619,6 @@ function HomeTab({ navigate }: { navigate: (tab: NavId) => void }) {
   )
 }
 
-// ── Billing & plan ────────────────────────────────────────────────────────────
-function BillingTab() {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["billing", "subscription"],
-    queryFn: api.billing.getSubscription,
-    retry: false,
-  })
-
-  const plan = data?.plan ?? "free"
-  const isPaid = plan !== "free" && plan !== "self_hosted"
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-
-  return (
-    <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
-      <div style={{ maxWidth: 560, border: "1px solid var(--color-line)", borderRadius: 14, background: "var(--color-surface)", padding: 24 }}>
-        <div style={{ fontSize: 12, color: "var(--color-ink-3)", fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>Current plan</div>
-
-        {isLoading ? (
-          <div style={{ color: "var(--color-ink-3)", fontSize: 14, marginTop: 12 }}>Loading…</div>
-        ) : data?.selfHosted ? (
-          <>
-            <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6, color: "var(--color-ink)" }}>Self-hosted</div>
-            <p style={{ fontSize: 14, color: "var(--color-ink-2)", marginTop: 10, lineHeight: 1.5 }}>
-              You&apos;re running the open-source build — every feature is unlocked and there&apos;s nothing to pay.
-            </p>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6, color: "var(--color-ink)" }}>
-              {cap(plan)}
-              {data?.cycle ? <span style={{ fontSize: 14, fontWeight: 500, color: "var(--color-ink-3)" }}> · {data.cycle}</span> : null}
-            </div>
-            {isPaid && data?.status && data.status !== "active" && (
-              <div style={{ fontSize: 13, color: "#b45309", marginTop: 6, textTransform: "capitalize" }}>Status: {data.status}</div>
-            )}
-            {data?.currentPeriodEnd && (
-              <div style={{ fontSize: 13, color: "var(--color-ink-3)", marginTop: 6 }}>
-                {data.cancelAtPeriodEnd ? "Access ends" : "Renews"} on {fmtDate(data.currentPeriodEnd)}
-              </div>
-            )}
-            <p style={{ fontSize: 14, color: "var(--color-ink-2)", marginTop: 12, lineHeight: 1.5 }}>
-              {isPaid
-                ? "Manage your subscription, switch plans or cancel on the InBill site."
-                : "You're on the free plan. Upgrade to unlock hosted backups, aggregator sync, kitchen stations, multi-outlet and more."}
-            </p>
-            {isError && (
-              <p style={{ fontSize: 12.5, color: "var(--color-ink-3)", marginTop: 8 }}>
-                Sign in as the account owner to see live plan details.
-              </p>
-            )}
-          </>
-        )}
-
-        {!data?.selfHosted && (
-          <a
-            href={billingUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-block", marginTop: 18, padding: "10px 18px", borderRadius: 10, background: "var(--color-ink)", color: "var(--color-surface)", fontSize: 13, fontWeight: 600, textDecoration: "none" }}
-          >
-            {isPaid ? "Manage plan →" : "Upgrade →"}
-          </a>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Nav sidebar ──────────────────────────────────────────────────────────────
 type NavGroup = { label: string; ownerOnly?: boolean; items: { id: NavId; label: string }[] }
 
@@ -3729,7 +3660,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "tables",       label: "Tables" },
       { id: "devices",      label: "Devices" },
       { id: "reservations", label: "Reservations" },
-      { id: "billing",      label: "Billing & Plan" },
     ],
   },
 ]
@@ -3754,10 +3684,9 @@ const NAV_ICONS: Partial<Record<NavId, React.ReactElement>> = {
   outlet:    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   devices:      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0114 0M8 16a6 6 0 018 0"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>,
   reservations: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>,
-  billing:      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>,
 }
 
-const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "schedules", "stations", "shifts", "bills", "dayclose", "activity", "customers", "loyalty", "reservations", "expenses", "outlet", "devices", "billing"])
+const VALID_TABS = new Set<NavId>(["home", "staff", "menu", "tables", "taxes", "modifiers", "discounts", "schedules", "stations", "shifts", "bills", "dayclose", "activity", "customers", "loyalty", "reservations", "expenses", "outlet", "devices"])
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ManagerPage() {
@@ -3904,7 +3833,6 @@ export default function ManagerPage() {
           {activeTab === "expenses"      && <ExpensesTab />}
           {activeTab === "outlet"    && <OutletTab />}
           {activeTab === "devices"   && <DevicesTab />}
-          {activeTab === "billing"   && <BillingTab />}
         </div>
       </div>
     </div>

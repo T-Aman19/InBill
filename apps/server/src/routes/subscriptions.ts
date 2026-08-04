@@ -4,9 +4,10 @@ import { eq } from "drizzle-orm"
 import {
   subscribeSchema,
   planCycleKey,
+  PLAN_ORDER,
   type BillingCycle,
   type PlanId,
-  type PurchasablePlan,
+  type CatalogPlan,
 } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
@@ -17,8 +18,10 @@ import {
   createCustomer,
   createSubscription,
   cancelSubscription,
+  fetchPlan,
   verifyWebhookSignature,
   RazorpayError,
+  type RzpPlan,
 } from "../lib/razorpay.js"
 
 export const subscriptionsRouter = new Hono<AppEnv>()
@@ -45,15 +48,96 @@ function mapStatus(rzpStatus: string): SubStatus {
   }
 }
 
-// Reverse the config plan-id map: Razorpay plan_id → our (plan, cycle).
-function lookupPlan(rzpPlanId: string): { plan: PurchasablePlan; cycle: BillingCycle } | null {
+// Reverse the config plan-id map: Razorpay plan_id → our (tier, cycle).
+function lookupPlan(rzpPlanId: string): { plan: string; cycle: BillingCycle } | null {
   for (const [key, id] of Object.entries(config.razorpay.planIds)) {
     if (id && id === rzpPlanId) {
-      const [plan, cycle] = key.split("_") as [PurchasablePlan, BillingCycle]
+      const [plan, cycle] = key.split("_") as [string, BillingCycle]
       return { plan, cycle }
     }
   }
   return null
+}
+
+// ── Plan catalog (Razorpay is the source of truth for name + price) ───────────
+// Marketing metadata Razorpay doesn't store natively. A plan's Razorpay `notes`
+// win when present (notes.name / notes.tag / notes.featured / notes.features —
+// newline-separated), else this code fallback (by tier), else bare defaults.
+const PLAN_META: Record<string, { tag: string; featured?: boolean; order: number; bullets: string[] }> = {
+  starter: {
+    order: 1,
+    tag: "For a single busy outlet",
+    bullets: [
+      "Everything in Free, hosted for you",
+      "Nightly off-site backups & restore",
+      "AI menu import & descriptions — higher limits",
+      "WhatsApp receipts — 500 / month",
+      "Email support",
+    ],
+  },
+  growth: {
+    order: 2,
+    featured: true,
+    tag: "For growing, multi-outlet brands",
+    bullets: [
+      "Everything in Starter",
+      "Aggregator sync — Swiggy, Zomato, ONDC",
+      "Kitchen stations & multi-outlet cloud",
+      "Advanced analytics & AI upsell",
+      "WhatsApp campaigns & unlimited AI",
+      "Priority support",
+    ],
+  },
+  enterprise: {
+    order: 3,
+    tag: "For chains & franchises",
+    bullets: ["Everything in Growth", "SSO & compliance-grade audit export", "Dedicated onboarding & SLA"],
+  },
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+// Razorpay Plans are immutable and rarely change → cache the merged catalog.
+let catalogCache: { at: number; data: CatalogPlan[] } | null = null
+const CATALOG_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+async function getPlanCatalog(): Promise<CatalogPlan[]> {
+  if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache.data
+
+  const byTier = new Map<string, CatalogPlan>()
+  for (const [key, planId] of Object.entries(config.razorpay.planIds)) {
+    if (!planId) continue
+    const [tier, cycle] = key.split("_") as [string, BillingCycle]
+
+    let plan: RzpPlan
+    try {
+      plan = await fetchPlan(planId)
+    } catch {
+      continue // skip a mis-typed / deleted plan id rather than failing the whole catalog
+    }
+
+    const notes = plan.notes ?? {}
+    const meta = PLAN_META[tier]
+    let entry = byTier.get(tier)
+    if (!entry) {
+      entry = {
+        id: tier,
+        name: notes.name || plan.item.name || cap(tier),
+        tag: notes.tag || meta?.tag || plan.item.description || "",
+        featured: notes.featured != null ? notes.featured === "true" : meta?.featured ?? false,
+        bullets: notes.features
+          ? notes.features.split("\n").map((s) => s.trim()).filter(Boolean)
+          : meta?.bullets ?? [],
+        prices: {},
+      }
+      byTier.set(tier, entry)
+    }
+    entry.prices[cycle] = Math.round(plan.item.amount / 100) // paise → rupees
+  }
+
+  const data = [...byTier.values()].sort((a, b) => (PLAN_META[a.id]?.order ?? 99) - (PLAN_META[b.id]?.order ?? 99))
+  catalogCache = { at: Date.now(), data }
+  return data
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,6 +212,12 @@ subscriptionsRouter.post("/webhook", async (c) => {
   return c.json({ ok: true })
 })
 
+// Public pricing catalog — Razorpay is the source of truth for name + price, so
+// the website (and anyone) renders plan cards from this. Registered before auth.
+subscriptionsRouter.get("/plans", async (c) => {
+  return c.json({ plans: await getPlanCatalog() })
+})
+
 // ── owner-authenticated below ────────────────────────────────────────────────
 subscriptionsRouter.use("*", requireAuth, requireRole("owner"))
 
@@ -158,6 +248,11 @@ subscriptionsRouter.post("/subscribe", zValidator("json", subscribeSchema), asyn
 
   const planId = config.razorpay.planIds[planCycleKey(plan, cycle)]
   if (!planId) return c.json({ error: "This plan isn't available for purchase yet" }, 400)
+  // The tier must be a real gating plan, else the webhook can't write it (pgEnum)
+  // and entitlements wouldn't know what it unlocks. New tiers need a migration.
+  if (plan === "free" || !(PLAN_ORDER as readonly string[]).includes(plan)) {
+    return c.json({ error: "This plan can't be purchased here." }, 400)
+  }
 
   const owner = await db.query.owners.findFirst({ where: eq(owners.id, ownerId) })
   if (!owner) return c.json({ error: "Owner not found" }, 404)
@@ -184,7 +279,7 @@ subscriptionsRouter.post("/subscribe", zValidator("json", subscribeSchema), asyn
     // so features don't unlock before the mandate is charged.
     const values = {
       ownerId,
-      plan,
+      plan: plan as PlanId, // runtime-guarded above to be a real plan tier
       cycle,
       status: "past_due" as const, // = "awaiting first charge"; treated as free by gating
       cancelAtPeriodEnd: false,
