@@ -26,6 +26,7 @@ import m0021 from "./migrations/0021_charges.sql" with { type: "text" }
 import m0022 from "./migrations/0022_entitlements.sql" with { type: "text" }
 import m0023 from "./migrations/0023_kitchen_stations.sql" with { type: "text" }
 import m0024 from "./migrations/0024_subscription_billing.sql" with { type: "text" }
+import m0025 from "./migrations/0025_subscription_history.sql" with { type: "text" }
 import postgres from "postgres"
 import { config } from "../config.js"
 
@@ -55,6 +56,7 @@ const MIGRATIONS = [
   { name: "0022_entitlements",           sql: m0022 },
   { name: "0023_kitchen_stations",       sql: m0023 },
   { name: "0024_subscription_billing",   sql: m0024 },
+  { name: "0025_subscription_history",   sql: m0025 },
 ]
 
 export async function runEmbeddedMigrations(): Promise<void> {

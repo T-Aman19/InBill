@@ -25,6 +25,23 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Snapshot of a subscriptions row taken right before /subscribe overwrites it
+// (subscriptions.ownerId is unique — there's only ever one live row per owner).
+// Without this, resubscribing after a cancel silently loses the trail back to
+// the previous Razorpay subscription id. Insert-only, never updated.
+export const subscriptionHistory = pgTable("subscription_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
+  plan: planEnum("plan").notNull(),
+  status: subscriptionStatusEnum("status").notNull(),
+  cycle: text("cycle"),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  razorpayCustomerId: text("razorpay_customer_id"),
+  razorpaySubscriptionId: text("razorpay_subscription_id"),
+  replacedAt: timestamp("replaced_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 // Idempotency ledger for Razorpay webhooks — Razorpay retries delivery, so every
 // event id is recorded here and re-deliveries are ignored. PK is Razorpay's
 // x-razorpay-event-id header.

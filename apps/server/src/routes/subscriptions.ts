@@ -11,7 +11,7 @@ import {
 } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { owners, subscriptions, billingWebhookEvents } from "../db/schema/index.js"
+import { owners, subscriptions, subscriptionHistory, billingWebhookEvents } from "../db/schema/index.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { config } from "../config.js"
 import {
@@ -274,6 +274,22 @@ subscriptionsRouter.post("/subscribe", zValidator("json", subscribeSchema), asyn
     // effectively runs until cancelled.
     const totalCount = cycle === "annual" ? 10 : 120
     const sub = await createSubscription({ planId, customerId, totalCount, notes: { ownerId } })
+
+    // subscriptions.ownerId is unique — the upsert below overwrites the only row
+    // this owner has, including its razorpaySubscriptionId. Snapshot it first so
+    // a resubscribe-after-cancel doesn't lose the trail back to the old one.
+    if (existing) {
+      await db.insert(subscriptionHistory).values({
+        ownerId: existing.ownerId,
+        plan: existing.plan,
+        status: existing.status,
+        cycle: existing.cycle,
+        currentPeriodEnd: existing.currentPeriodEnd,
+        cancelAtPeriodEnd: existing.cancelAtPeriodEnd,
+        razorpayCustomerId: existing.razorpayCustomerId,
+        razorpaySubscriptionId: existing.razorpaySubscriptionId,
+      })
+    }
 
     // Persist intent. Status stays non-active until the webhook confirms payment,
     // so features don't unlock before the mandate is charged.
