@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Stray compiled JS emitted next to TS/TSX sources — never commit these.
+# Vite resolves .js before .tsx, so a committed twin silently shadows the source.
+src/**/*.js
+src/**/*.js.map
+/vite.config.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -31,6 +31,7 @@ import { loyaltyRouter } from "./routes/loyalty.js"
 import { queueRouter } from "./routes/queue.js"
 import { auditRouter } from "./routes/audit.js"
 import { entitlementsRouter } from "./routes/entitlements.js"
+import { subscriptionsRouter } from "./routes/subscriptions.js"
 import { runEmbeddedMigrations } from "./db/embedded-migrate.js"
 
 // Run migrations before accepting requests — safe to call on every startup
@@ -45,7 +46,9 @@ app.use("*", logger())
 app.use(
   "/api/*",
   cors({
-    origin: config.isLocal ? "*" : ["https://inbill.app", "https://pos.inbill.app", "capacitor://localhost"],
+    origin: config.isLocal
+      ? "*"
+      : ["https://inbill.app", "https://pos.inbill.app", "https://inbill.tresiphi.com", "capacitor://localhost"],
     allowHeaders: ["Authorization", "Content-Type"],
   }),
 )
@@ -76,6 +79,7 @@ api.route("/loyalty", loyaltyRouter)
 api.route("/queue", queueRouter)
 api.route("/audit", auditRouter)
 api.route("/entitlements", entitlementsRouter)
+api.route("/billing", subscriptionsRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))

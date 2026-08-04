@@ -5,6 +5,24 @@ import { api } from "@/lib/api"
 import { useFeature, isUsable } from "@/hooks/useEntitlement"
 import { useUpgradeStore } from "@/stores/upgrade"
 
+// Subscription checkout lives on the marketing site. Deep-link there with the
+// owner's token so they arrive already authenticated (the site falls back to a
+// login form when there's no token).
+function billingBase(): string {
+  const override = (import.meta.env as unknown as Record<string, string | undefined>).VITE_BILLING_URL
+  if (override) return override
+  // Dev heuristic (mirrors lib/api's SERVER_ORIGIN): Vite dev / desktop → local site.
+  if (window.location.port === "5173" || window.location.protocol === "tauri:") {
+    return "http://localhost:3001/billing"
+  }
+  return "https://inbill.tresiphi.com/billing"
+}
+export function billingUrl(): string {
+  const token = localStorage.getItem("inbill_owner_token")
+  const base = billingBase()
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
 // ── inline badges ────────────────────────────────────────────────────────────
 
 export function LockBadge() {
@@ -111,7 +129,9 @@ export function UpgradeSheet() {
         <div className="mt-5 flex flex-col gap-2">
           {gate.requiredPlan && (
             <a
-              href="/manager/billing"
+              href={billingUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
               className="rounded-xl bg-amber-500 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-amber-600"
             >
               Upgrade to {gate.requiredPlan[0]!.toUpperCase() + gate.requiredPlan.slice(1)}

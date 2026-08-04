@@ -162,6 +162,37 @@ export type EntitlementDecision = {
   byok?: boolean | undefined
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Subscription billing (managed cloud). Checkout is website-hosted; these types
+// are shared so the site, the server route, and the POS agree on plans/cycles.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const BILLING_CYCLES = ["monthly", "annual"] as const
+export type BillingCycle = (typeof BILLING_CYCLES)[number]
+
+/** Plans a customer can self-serve purchase. free = default, enterprise = sales-led. */
+export const PURCHASABLE_PLANS = ["starter", "growth"] as const
+export type PurchasablePlan = (typeof PURCHASABLE_PLANS)[number]
+
+/**
+ * Display pricing, in paise (₹1 = 100 paise), matching the Razorpay Plans in the
+ * dashboard. The actual charge is driven by the Razorpay Plan id, NOT this table —
+ * keep the two in sync. Annual = ~2 months free.
+ */
+export const PLAN_PRICING: Record<PurchasablePlan, Record<BillingCycle, number>> = {
+  starter: { monthly: 69_900, annual: 699_000 },
+  growth: { monthly: 179_900, annual: 1_799_000 },
+}
+
+/** Config/plan-map key for a (plan, cycle) pair, e.g. "growth_annual". */
+export const planCycleKey = (plan: PurchasablePlan, cycle: BillingCycle) => `${plan}_${cycle}` as const
+
+export const subscribeSchema = z.object({
+  plan: z.enum(PURCHASABLE_PLANS),
+  cycle: z.enum(BILLING_CYCLES),
+})
+export type SubscribeInput = z.infer<typeof subscribeSchema>
+
 /** Body returned with HTTP 402 when a gated route is denied. */
 export const gateErrorSchema = z.object({
   error: z.string(),
