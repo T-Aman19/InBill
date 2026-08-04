@@ -7,6 +7,11 @@ function getResend() {
   return (_resend ??= new Resend(config.email.resendApiKey))
 }
 
+// Hosted PNG logo — email clients strip inline SVG and block data: URIs, so the
+// mark must be a real image at a stable public URL. Paired with the "InBill"
+// wordmark below so branding still shows when a client blocks remote images.
+const LOGO_URL = "https://tresiphi.com/icons/apple-touch-icon.png"
+
 export async function sendPasswordResetEmail(toEmail: string, rawToken: string) {
   const link = `${config.email.appUrl}/owner/reset-password?token=${rawToken}`
 
@@ -14,29 +19,58 @@ export async function sendPasswordResetEmail(toEmail: string, rawToken: string) 
     from: config.email.fromEmail,
     to: toEmail,
     subject: "Reset your InBill password",
+    text: [
+      "Reset your InBill password",
+      "",
+      "We received a request to reset the password for your InBill owner account.",
+      "Open this link to choose a new password (expires in 1 hour):",
+      "",
+      link,
+      "",
+      "If you didn't request this, you can safely ignore this email — your password won't change.",
+      "",
+      "— InBill, a Tresiphi product",
+    ].join("\n"),
     html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px">
-          <div style="width:28px;height:28px;background:#1a1a1a;border-radius:7px;display:flex;align-items:center;justify-content:center">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-              <path d="M6 2h12a1 1 0 011 1v18l-3-2-2 2-2-2-2 2-2-2-3 2V3a1 1 0 011-1zm2 5v2h8V7H8zm0 4v2h8v-2H8zm0 4v2h5v-2H8z"/>
-            </svg>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">Reset your InBill password — this link expires in 1 hour.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f2ec;padding:32px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border:1px solid #ece7dd;border-radius:16px;overflow:hidden">
+        <tr><td style="height:4px;background:#e0972e;font-size:0;line-height:0">&nbsp;</td></tr>
+        <tr><td style="padding:30px 32px 0">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align:middle">
+              <img src="${LOGO_URL}" width="38" height="38" alt="InBill" style="display:block;border:0;border-radius:9px" />
+            </td>
+            <td style="vertical-align:middle;padding-left:11px;font-size:17px;font-weight:700;color:#1a1a1a;letter-spacing:-0.01em">InBill</td>
+          </tr></table>
+          <h1 style="margin:26px 0 10px;font-size:22px;font-weight:700;color:#1a1a1a">Reset your password</h1>
+          <p style="margin:0 0 26px;font-size:15px;line-height:1.6;color:#5c574e">
+            We received a request to reset the password for your InBill owner account. Click the button below to choose a new password. This link expires in <strong style="color:#1a1a1a">1 hour</strong>.
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="border-radius:10px;background:#1a1a1a">
+              <a href="${link}" style="display:inline-block;padding:13px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Reset password</a>
+            </td>
+          </tr></table>
+          <p style="margin:26px 0 0;font-size:13px;line-height:1.6;color:#8a8578">
+            Or paste this link into your browser:<br>
+            <a href="${link}" style="color:#b06f16;word-break:break-all">${link}</a>
+          </p>
+        </td></tr>
+        <tr><td style="padding:26px 32px 30px">
+          <div style="border-top:1px solid #f0ebe2;padding-top:18px">
+            <p style="margin:0;font-size:12px;line-height:1.6;color:#a8a29a">
+              If you didn't request this, you can safely ignore this email — your password won't change.
+            </p>
           </div>
-          <span style="font-size:16px;font-weight:600;color:#1a1a1a">InBill</span>
-        </div>
-        <h2 style="margin:0 0 8px;font-size:20px;color:#1a1a1a">Reset your password</h2>
-        <p style="margin:0 0 24px;font-size:14px;color:#666;line-height:1.5">
-          We received a request to reset the password for your InBill owner account.
-          Click the button below to choose a new password. This link expires in 1 hour.
-        </p>
-        <a href="${link}" style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600">
-          Reset password
-        </a>
-        <p style="margin:24px 0 0;font-size:12px;color:#999;line-height:1.5">
-          If you didn't request this, you can safely ignore this email.<br>
-          This link will expire in 1 hour.
-        </p>
-      </div>
+        </td></tr>
+      </table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px"><tr>
+        <td style="padding:18px 8px 0;text-align:center;font-size:11px;color:#b3ada3">InBill — a Tresiphi product</td>
+      </tr></table>
+    </td></tr>
+  </table>
     `,
   })
 }
