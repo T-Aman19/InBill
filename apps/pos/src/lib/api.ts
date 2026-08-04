@@ -376,6 +376,12 @@ export const api = {
     get: () => get<{ features: EntitlementDecision[] }>("/entitlements"),
     startTrial: (feature: string) => post<EntitlementDecision>(`/entitlements/trials/${feature}`, {}),
   },
+  billing: {
+    getSubscription: () =>
+      oget<{ plan: string; subscribedPlan?: string; cycle?: string | null; status?: string; currentPeriodEnd?: string | null; cancelAtPeriodEnd?: boolean; selfHosted?: boolean }>(
+        "/billing/subscription",
+      ),
+  },
 }
 
 export { ApiError }
