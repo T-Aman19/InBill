@@ -15,7 +15,7 @@ function billingBase(): string {
   if (window.location.port === "5173" || window.location.protocol === "tauri:") {
     return "http://localhost:3001/billing"
   }
-  return "https://inbill.tresiphi.com/billing"
+  return "https://tresiphi.com/billing"
 }
 export function billingUrl(): string {
   const token = localStorage.getItem("inbill_owner_token")

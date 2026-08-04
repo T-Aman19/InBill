@@ -48,7 +48,7 @@ app.use(
   cors({
     origin: config.isLocal
       ? "*"
-      : ["https://inbill.app", "https://pos.inbill.app", "https://inbill.tresiphi.com", "capacitor://localhost"],
+      : ["https://inbill.app", "https://pos.inbill.app", "https://tresiphi.com", "capacitor://localhost"],
     allowHeaders: ["Authorization", "Content-Type"],
   }),
 )
