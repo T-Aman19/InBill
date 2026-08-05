@@ -343,7 +343,7 @@ export default function OwnerDashboardPage() {
   const jumpTarget = rows[0]!
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "var(--font-sans)", display: "flex" }}>
+    <div style={{ height: "100dvh", overflow: "hidden", fontFamily: "var(--font-sans)", display: "flex" }}>
       {/* Sidebar */}
       <aside style={{ width: 224, flexShrink: 0, background: "var(--color-surface)", borderRight: "1px solid var(--color-line)", display: "flex", flexDirection: "column", padding: "18px 14px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px 20px" }}>
@@ -377,8 +377,8 @@ export default function OwnerDashboardPage() {
       </aside>
 
       {/* Main */}
-      <div style={{ flex: 1, minWidth: 0, background: "var(--color-bg)" }}>
-        <div style={{ height: 62, borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", alignItems: "center", gap: 12, padding: "0 26px", position: "sticky", top: 0, zIndex: 2 }}>
+      <div style={{ flex: 1, minWidth: 0, background: "var(--color-bg)", display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ height: 62, flexShrink: 0, borderBottom: "1px solid var(--color-line)", background: "var(--color-surface)", display: "flex", alignItems: "center", gap: 12, padding: "0 26px" }}>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: 16.5, fontWeight: 700 }}>Overview</h1>
           <span style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{dateStr}</span>
           <div style={{ flex: 1 }} />
@@ -397,7 +397,7 @@ export default function OwnerDashboardPage() {
           </div>
         </div>
 
-        <div style={{ padding: "24px 26px 60px", display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 18, alignItems: "start" }}>
+        <div className="owner-content-grid scroll">
           <div>
             {/* Stat row */}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
@@ -449,7 +449,7 @@ export default function OwnerDashboardPage() {
           </div>
 
           {/* Right rail */}
-          <div>
+          <div className="owner-rail">
             <div className="card" style={{ background: "var(--color-surface)", border: "1px solid var(--color-line)", borderRadius: 14, boxShadow: "var(--shadow-1)", padding: "16px 18px", marginBottom: 18 }}>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: 15.5, marginBottom: 14 }}>Needs attention</h2>
               {alerts.length === 0 ? (

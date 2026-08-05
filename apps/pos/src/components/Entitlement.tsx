@@ -9,22 +9,14 @@ import { useUpgradeStore } from "@/stores/upgrade"
 // ── inline badges ────────────────────────────────────────────────────────────
 
 export function LockBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-      Pro
-    </span>
-  )
+  return <span className="badge amber">Pro</span>
 }
 
 /** "8 left" pill for metered features; renders nothing unless metered. */
 export function MeterBadge({ feature }: { feature: FeatureKey }) {
   const d = useFeature(feature)
   if (d.state !== "metered") return null
-  return (
-    <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
-      {d.remaining} of {d.limit} left
-    </span>
-  )
+  return <span className="badge">{d.remaining} of {d.limit} left</span>
 }
 
 // ── gate wrapper ─────────────────────────────────────────────────────────────
@@ -97,32 +89,39 @@ export function UpgradeSheet() {
         : `${def.label} is a paid feature`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={close}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 flex items-center gap-2">
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", padding: 16 }}
+      onClick={close}
+    >
+      <div
+        style={{ width: "100%", maxWidth: 400, background: "var(--color-surface)", borderRadius: 18, boxShadow: "var(--shadow-3)", padding: 28 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <LockBadge />
-          <h2 className="text-lg font-semibold text-neutral-900">{def.label}</h2>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "var(--color-ink)", margin: 0 }}>{def.label}</h2>
         </div>
-        <p className="text-sm leading-relaxed text-neutral-600">{def.pitch}</p>
+        <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--color-ink-3)", margin: 0 }}>{def.pitch}</p>
 
         {gate.reason === "quota_exhausted" && gate.resetsAt && (
-          <p className="mt-3 text-xs text-neutral-500">
+          <p style={{ fontSize: 12, color: "var(--color-ink-3)", marginTop: 12 }}>
             Resets on {new Date(gate.resetsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}.
           </p>
         )}
 
-        <div className="mt-5 flex flex-col gap-2">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 20 }}>
           {gate.requiredPlan && (
             isOwner ? (
               <button
                 type="button"
+                className="btn primary"
                 onClick={() => { close(); navigate({ to: "/owner/billing" }) }}
-                className="rounded-xl bg-amber-500 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-amber-600"
+                style={{ height: 44, justifyContent: "center", fontSize: 14 }}
               >
                 Upgrade to {gate.requiredPlan[0]!.toUpperCase() + gate.requiredPlan.slice(1)}
               </button>
             ) : (
-              <p className="rounded-xl bg-neutral-50 px-4 py-3 text-center text-sm text-neutral-600">
+              <p style={{ background: "var(--color-surface-2)", borderRadius: 10, padding: "12px 16px", textAlign: "center", fontSize: 13, color: "var(--color-ink-2)", margin: 0 }}>
                 Ask your account owner to upgrade the InBill plan from the Owner Dashboard.
               </p>
             )
@@ -131,9 +130,10 @@ export function UpgradeSheet() {
           {gate.trialAvailable && gate.trialDays && (
             <button
               type="button"
+              className="btn ghost"
               disabled={trial.isPending}
               onClick={() => trial.mutate(gate.feature)}
-              className="rounded-xl border border-neutral-300 px-4 py-3 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+              style={{ height: 44, justifyContent: "center", fontSize: 14, fontWeight: 600 }}
             >
               {trial.isPending ? "Starting…" : `Start ${gate.trialDays}-day free trial`}
             </button>
@@ -142,13 +142,14 @@ export function UpgradeSheet() {
           {gate.byok && (
             <a
               href="/manager/settings#api-keys"
-              className="rounded-xl border border-neutral-300 px-4 py-3 text-center text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+              className="btn ghost"
+              style={{ height: 44, justifyContent: "center", fontSize: 13, textDecoration: "none" }}
             >
               Use your own API key — free & unlimited
             </a>
           )}
 
-          <button type="button" onClick={close} className="mt-1 py-2 text-sm text-neutral-500 hover:text-neutral-700">
+          <button type="button" onClick={close} style={{ marginTop: 2, padding: "8px 0", background: "none", border: "none", fontSize: 13, color: "var(--color-ink-3)", cursor: "pointer" }}>
             Not now
           </button>
         </div>

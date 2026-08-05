@@ -221,6 +221,24 @@ input  { font-family: inherit; }
 .display { font-family: var(--font-display); letter-spacing: -.02em; }
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--color-ink-3); }
 
+/* ─── Owner dashboard: content layout (scrolls internally — body itself is
+   overflow:hidden/100dvh for the rest of the app's single-screen views) ──── */
+.owner-content-grid {
+  flex: 1;
+  padding: 24px 26px 60px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  /* minmax(0, 1fr), not bare 1fr — a plain 1fr track still has an implicit
+     min-content-based minimum width, which forces the column (and everything
+     in it, e.g. the hero chart) wider than the viewport instead of shrinking. */
+  .owner-content-grid { grid-template-columns: minmax(0, 1fr); }
+  .owner-content-grid .owner-rail { order: -1; }
+}
+
 /* ─── Owner dashboard: leaderboard row + settings drawer rule rows ──── */
 .owner-lb-row { transition: background .12s; }
 .owner-lb-row:hover { background: var(--color-surface-2); }
