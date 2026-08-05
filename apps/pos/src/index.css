@@ -37,6 +37,17 @@
   --color-blue:        oklch(60%  0.13  245);
   --color-blue-soft:   oklch(94%  0.04  245);
 
+  /* Categorical (outlet identity in dashboard charts) — fixed order, never
+     cycled/reassigned by rank. Validated colorblind-safe as a 4-color set. */
+  --color-cat-1:      #de6f00;
+  --color-cat-1-soft: #fbe8d1;
+  --color-cat-2:      #007a3a;
+  --color-cat-2-soft: #d9f0e2;
+  --color-cat-3:      #007ac5;
+  --color-cat-3-soft: #d9ecf9;
+  --color-cat-4:      #c82d40;
+  --color-cat-4-soft: #f9dcdf;
+
   /* KDS dark palette (kitchen screen) */
   --color-kds-bg:      oklch(14%  0.010 60);
   --color-kds-surface: oklch(20%  0.012 60);
@@ -128,6 +139,10 @@ input  { font-family: inherit; }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+@keyframes chart-pulse {
+  0%   { opacity: .55; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
 
 .animate-shake          { animation: shake .42s cubic-bezier(.36,.07,.19,.97) both; }
 .animate-pulse-red      { animation: pulse-red 1.6s ease-out infinite; }
@@ -138,6 +153,7 @@ input  { font-family: inherit; }
 .animate-slide-left     { animation: slide-in-left .25s cubic-bezier(.2,1,.4,1) forwards; }
 .animate-overlay-in     { animation: overlay-in .2s ease forwards; }
 .animate-spin           { animation: spin 1s linear infinite; }
+.animate-chart-pulse    { animation: chart-pulse 2.2s ease-out infinite; transform-origin: center; transform-box: fill-box; }
 
 /* ─── Veg/Non-veg indicator ──────────────────────────────────── */
 .veg-dot {
@@ -204,6 +220,19 @@ input  { font-family: inherit; }
 /* ─── Display / brand helpers ───────────────────────────────── */
 .display { font-family: var(--font-display); letter-spacing: -.02em; }
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--color-ink-3); }
+
+/* ─── Owner dashboard: leaderboard row + settings drawer rule rows ──── */
+.owner-lb-row { transition: background .12s; }
+.owner-lb-row:hover { background: var(--color-surface-2); }
+.owner-lb-row .owner-lb-open { opacity: 0; transition: opacity .12s; }
+.owner-lb-row:hover .owner-lb-open { opacity: 1; }
+
+.owner-rule-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--color-line); }
+.owner-rule-row:last-child { border-bottom: none; }
+.owner-rule-row .owner-rule-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+.owner-rule-row:hover .owner-rule-actions { opacity: 1; }
+.owner-day-pill { width: 19px; height: 19px; border-radius: 5px; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; background: var(--color-surface-3, var(--color-surface-2)); color: var(--color-ink-4); }
+.owner-day-pill.on { background: var(--color-accent); color: var(--color-accent-ink); }
 
 /* ─── Print receipt ──────────────────────────────────────────── */
 @media print {

@@ -14,6 +14,14 @@ export function formatCurrencyInt(amount: number | string): string {
   return '₹' + Math.round(Number(amount)).toLocaleString('en-IN')
 }
 
+// Compact form for chart axis labels — ₹1.2L, ₹850, never fractional at small values.
+export function formatCurrencyCompact(amount: number | string): string {
+  const n = Number(amount)
+  if (n >= 100000) return '₹' + (n / 100000).toFixed(1).replace(/\.0$/, '') + 'L'
+  if (n >= 1000) return '₹' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return '₹' + Math.round(n)
+}
+
 // In Tauri's WKWebView, window.print() is swallowed without reaching the OS
 // print dialog. Use Tauri's invoke API when available, fall back to the
 // browser API everywhere else (LAN browsers, dev server).

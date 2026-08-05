@@ -1,4 +1,13 @@
-import type { EntitlementDecision, GateError, CatalogPlan, BillingCycle } from "@inbill/shared"
+import type { EntitlementDecision, GateError, CatalogPlan, BillingCycle, TaxConfig } from "@inbill/shared"
+
+export type MenuSchedule = { id: string; name: string; days: number[]; startTime: string; endTime: string; percentOff: string; isActive: boolean }
+export type OwnerOutlet = {
+  id: string; name: string; address: string; phone: string; gstin?: string; setupCode?: string
+  revenue: number; billCount: number; byPaymentMode: Record<string, number>
+  openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string
+  tableCount: number; menuItemCount: number; staffCount: number
+  settings?: { hasTables?: boolean; hasKitchenWorkflow?: boolean }
+}
 
 // Tauri embedded (tauri: protocol) and Vite dev (port 5173) both need to reach
 // the Bun server explicitly. LAN browsers load from port 3000 so relative URLs work.
@@ -77,7 +86,7 @@ async function ownerRequest<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new ApiError(res.status, body.error ?? res.statusText)
+    throw new ApiError(res.status, body.error ?? res.statusText, body.gate)
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -86,6 +95,8 @@ async function ownerRequest<T>(path: string, init?: RequestInit): Promise<T> {
 const oget  = <T>(path: string) => ownerRequest<T>(path, { method: "GET" })
 const opost = <T>(path: string, body: unknown) => ownerRequest<T>(path, { method: "POST", body: JSON.stringify(body) })
 const opatch = <T>(path: string, body: unknown) => ownerRequest<T>(path, { method: "PATCH", body: JSON.stringify(body) })
+const oput  = <T>(path: string, body: unknown) => ownerRequest<T>(path, { method: "PUT", body: JSON.stringify(body) })
+const odel  = <T>(path: string) => ownerRequest<T>(path, { method: "DELETE" })
 
 export const api = {
   auth: {
@@ -360,15 +371,22 @@ export const api = {
     resetPassword: (token: string, newPassword: string) => post<{ ok: boolean }>("/auth/owner/reset-password", { token, newPassword }),
     changePassword: (currentPassword: string, newPassword: string) => ownerRequest<{ ok: boolean }>("/auth/owner/change-password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }),
     sendResetLink: () => opost<{ ok: boolean; email?: string }>("/auth/owner/send-reset", {}),
-    me: () => oget<{ id: string; name: string; email: string; phone: string; isCloud: boolean }>("/owner/me"),
+    me: () => oget<{ id: string; name: string; email: string; phone: string; isCloud: boolean; plan: string }>("/owner/me"),
     outlets: (from?: string, to?: string) => {
       const q = from && to ? `?from=${from}&to=${to}` : ""
-      return oget<{ id: string; name: string; address: string; gstin?: string; revenue: number; billCount: number; byPaymentMode: Record<string, number>; openOrderCount: number; razorpayConfigured: boolean; upiVpa?: string; tableCount: number; menuItemCount: number; staffCount: number; settings?: { hasTables?: boolean; hasKitchenWorkflow?: boolean } }[]>(`/owner/outlets${q}`)
+      return oget<OwnerOutlet[]>(`/owner/outlets${q}`)
     },
     createOutlet: (body: unknown) => opost<unknown>("/owner/outlets", body),
     updateOutlet: (id: string, body: unknown) => opatch<unknown>(`/owner/outlets/${id}`, body),
     outletSummary: (id: string, from: string, to: string) => oget<unknown>(`/owner/outlets/${id}/summary?from=${from}&to=${to}`),
+    trend: (id: string, from: string, to: string) => oget<{ points: { date: string; revenue: number; billCount: number }[] }>(`/owner/outlets/${id}/trend?from=${from}&to=${to}`),
     switchOutlet: (id: string) => opost<{ token: string; user: { id: string; name: string; role: string }; outlet: { id: string; name: string } }>(`/owner/outlets/${id}/switch`, {}),
+    outletTax: (id: string) => oget<TaxConfig | null>(`/owner/outlets/${id}/tax`),
+    saveOutletTax: (id: string, body: unknown) => oput<TaxConfig>(`/owner/outlets/${id}/tax`, body),
+    outletSchedules: (id: string) => oget<MenuSchedule[]>(`/owner/outlets/${id}/schedules`),
+    createOutletSchedule: (id: string, body: unknown) => opost<MenuSchedule>(`/owner/outlets/${id}/schedules`, body),
+    updateOutletSchedule: (id: string, scheduleId: string, body: unknown) => opatch<MenuSchedule>(`/owner/outlets/${id}/schedules/${scheduleId}`, body),
+    deleteOutletSchedule: (id: string, scheduleId: string) => odel<void>(`/owner/outlets/${id}/schedules/${scheduleId}`),
   },
   public: {
     lanUrl: () => get<{ urls: string[]; port: string }>("/public/lan-url"),
