@@ -45,7 +45,7 @@ ownerRouter.get("/me", async (c) => {
   // Any feature key works here — decide() always stamps the caller's current
   // effective plan onto the decision, regardless of which feature was asked about.
   const { plan } = await resolveFeature(ownerId, "multi_outlet")
-  return c.json({ id: owner.id, name: owner.name, email: owner.email, phone: owner.phone, isCloud: config.isCloud, plan })
+  return c.json({ id: owner.id, name: owner.name, email: owner.email, phone: owner.phone, isCloud: config.isCloud, plan, emailVerified: owner.emailVerified })
 })
 
 ownerRouter.get("/outlets", async (c) => {
@@ -123,6 +123,15 @@ ownerRouter.get("/outlets", async (c) => {
 ownerRouter.post("/outlets", zValidator("json", createOutletSchema), async (c) => {
   const { ownerId } = c.get("user")
   const data = c.req.valid("json")
+
+  // Unverified owners can't add any outlet, including the first — local/self-hosted
+  // is exempt (same "local = trusted" reasoning as the multi_outlet plan gate below).
+  if (config.isCloud) {
+    const owner = await db.query.owners.findFirst({ where: eq(owners.id, ownerId), columns: { emailVerified: true } })
+    if (!owner?.emailVerified) {
+      return c.json({ error: "Verify your email before adding an outlet", code: "email_not_verified" }, 403)
+    }
+  }
 
   // First outlet is always free (new owners start on "free" and must be able to
   // onboard). Only a 2nd+ outlet requires the multi_outlet plan gate.

@@ -104,6 +104,7 @@ export default function OwnerDashboardPage() {
   const [changePwOk, setChangePwOk] = useState(false)
   const [resetSent, setResetSent] = useState(false)
   const [settingsOutletId, setSettingsOutletId] = useState<string | null>(null)
+  const [verificationSent, setVerificationSent] = useState(false)
 
   useEffect(() => {
     if (!localStorage.getItem("inbill_owner_token")) navigate({ to: "/owner/login" })
@@ -112,7 +113,13 @@ export default function OwnerDashboardPage() {
   const dates = getRangeDates(range)
   const priorDates = getPriorRangeDates(range)
 
-  const { data: me } = useQuery({ queryKey: ["owner-me"], queryFn: api.owner.me })
+  const { data: me } = useQuery({
+    queryKey: ["owner-me"],
+    queryFn: api.owner.me,
+    // Poll while unverified so the gate lifts on its own once the owner clicks
+    // the emailed link in another tab, instead of requiring a manual refresh.
+    refetchInterval: (query) => (query.state.data?.isCloud && !query.state.data?.emailVerified ? 15_000 : false),
+  })
 
   const { data: outlets = [], isLoading, error } = useQuery({
     queryKey: ["owner-outlets", range],
@@ -189,16 +196,15 @@ export default function OwnerDashboardPage() {
     onSuccess: (res, outletId) => {
       localStorage.setItem("inbill_outlet_id", res.outlet.id)
       localStorage.setItem("inbill_outlet_name", res.outlet.name)
+      // login() writes the outlet-session token to its own localStorage key
+      // (separate from inbill_owner_token), so this doesn't touch the owner's
+      // session — the new tab picks it up on load while this tab stays put.
       useAuthStore.getState().login(res.token, res.user, res.outlet.id, res.outlet.name)
       const outlet = outlets.find((o) => o.id === outletId)
       const needsTables = outlet?.settings?.hasTables !== false
       const needsSetup = (needsTables && !outlet?.tableCount) || !outlet?.menuItemCount
-      if (needsSetup) {
-        localStorage.removeItem("inbill_setup_dismissed")
-        navigate({ to: "/manager" })
-      } else {
-        navigate({ to: "/floor" })
-      }
+      if (needsSetup) localStorage.removeItem("inbill_setup_dismissed")
+      window.open(`${window.location.origin}${needsSetup ? "/manager" : "/floor"}`, "_blank")
     },
   })
 
@@ -222,6 +228,10 @@ export default function OwnerDashboardPage() {
     mutationFn: api.owner.sendResetLink,
     onSuccess: () => { setResetSent(true) },
     onError: (e: Error) => setChangePwErr(e.message),
+  })
+  const resendVerificationMutation = useMutation({
+    mutationFn: api.owner.resendVerification,
+    onSuccess: () => { setVerificationSent(true) },
   })
 
   function handleChangePw(e: React.FormEvent) {
@@ -328,9 +338,38 @@ export default function OwnerDashboardPage() {
                 </div>
               ))}
             </div>
-            <button className="btn primary" onClick={() => setShowCreate(true)} style={{ width: "100%", height: 46, fontSize: 15, justifyContent: "center" }}>
-              Create your first outlet →
-            </button>
+            {me?.isCloud && !me?.emailVerified ? (
+              <div style={{ border: "1px solid var(--color-amber-soft, #ffe082)", background: "var(--color-amber-soft, #fff8e1)", borderRadius: 12, padding: "18px 20px" }}>
+                <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                    <rect x="2" y="5" width="20" height="14" rx="2" /><polyline points="2 7 12 13 22 7" />
+                  </svg>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: "var(--color-ink)", marginBottom: 2 }}>Verify your email to continue</div>
+                    <div style={{ fontSize: 13, color: "var(--color-ink-3)", lineHeight: 1.5 }}>
+                      We sent a verification link to <strong>{me?.email}</strong>. Click it, then come back here — you'll need to verify before you can add an outlet.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  className="btn ghost"
+                  disabled={resendVerificationMutation.isPending}
+                  onClick={() => { setVerificationSent(false); resendVerificationMutation.mutate() }}
+                  style={{ width: "100%", height: 40, justifyContent: "center" }}
+                >
+                  {resendVerificationMutation.isPending ? "Sending…" : verificationSent ? "Sent — check your inbox" : "Resend verification email"}
+                </button>
+                {resendVerificationMutation.isError && (
+                  <p style={{ fontSize: 12, color: "var(--color-red)", margin: "10px 0 0" }}>
+                    {(resendVerificationMutation.error as Error).message}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <button className="btn primary" onClick={() => setShowCreate(true)} style={{ width: "100%", height: 46, fontSize: 15, justifyContent: "center" }}>
+                Create your first outlet →
+              </button>
+            )}
           </div>
         </main>
         {showCreate && (

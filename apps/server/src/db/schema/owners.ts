@@ -6,6 +6,7 @@ export const owners = pgTable("owners", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   phone: text("phone").notNull(),
+  emailVerified: boolean("email_verified").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -18,6 +19,15 @@ export const ownerPasswordResets = pgTable("owner_password_resets", {
   usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("idx_opr_token_hash").on(t.tokenHash)])
+
+export const ownerEmailVerifications = pgTable("owner_email_verifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").notNull().references(() => owners.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("idx_oev_token_hash").on(t.tokenHash)])
 
 export const outlets = pgTable("outlets", {
   id: uuid("id").primaryKey().defaultRandom(),

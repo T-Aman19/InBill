@@ -369,9 +369,11 @@ export const api = {
     login: (email: string, password: string) => post<{ token: string; owner: { id: string; name: string; email: string } }>("/auth/owner/login", { email, password }),
     forgotPassword: (email: string) => post<{ ok: boolean }>("/auth/owner/forgot-password", { email }),
     resetPassword: (token: string, newPassword: string) => post<{ ok: boolean }>("/auth/owner/reset-password", { token, newPassword }),
+    verifyEmail: (token: string) => post<{ ok: boolean }>("/auth/owner/verify-email", { token }),
+    resendVerification: () => opost<{ ok: boolean; alreadyVerified?: boolean }>("/auth/owner/resend-verification", {}),
     changePassword: (currentPassword: string, newPassword: string) => ownerRequest<{ ok: boolean }>("/auth/owner/change-password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }),
     sendResetLink: () => opost<{ ok: boolean; email?: string }>("/auth/owner/send-reset", {}),
-    me: () => oget<{ id: string; name: string; email: string; phone: string; isCloud: boolean; plan: string }>("/owner/me"),
+    me: () => oget<{ id: string; name: string; email: string; phone: string; isCloud: boolean; plan: string; emailVerified: boolean }>("/owner/me"),
     outlets: (from?: string, to?: string) => {
       const q = from && to ? `?from=${from}&to=${to}` : ""
       return oget<OwnerOutlet[]>(`/owner/outlets${q}`)

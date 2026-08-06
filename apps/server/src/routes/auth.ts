@@ -1,13 +1,13 @@
 import { Hono } from "hono"
 import { zValidator } from "@hono/zod-validator"
 import { eq, and, gt, isNull } from "drizzle-orm"
-import { loginSchema, ownerLoginSchema, ownerRegisterSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from "@inbill/shared"
+import { loginSchema, ownerLoginSchema, ownerRegisterSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, verifyEmailSchema } from "@inbill/shared"
 import type { AppEnv } from "../lib/types.js"
 import { db } from "../db/index.js"
-import { users, owners, outlets, ownerPasswordResets } from "../db/schema/index.js"
+import { users, owners, outlets, ownerPasswordResets, ownerEmailVerifications } from "../db/schema/index.js"
 import { signToken, requireAuth } from "../middleware/auth.js"
 import { config } from "../config.js"
-import { sendPasswordResetEmail } from "../lib/email.js"
+import { sendPasswordResetEmail, sendVerificationEmail } from "../lib/email.js"
 import { verifyPin, hashPin, isHashed } from "../lib/pin.js"
 
 export const authRouter = new Hono<AppEnv>()
@@ -67,6 +67,18 @@ authRouter.post("/owner/register", zValidator("json", ownerRegisterSchema), asyn
   const rows = await db.insert(owners).values({ name, email, passwordHash, phone }).returning()
   const owner = rows[0]
   if (!owner) return c.json({ error: "Failed to create account" }, 500)
+
+  // Local/self-hosted owners are trusted by default (same reasoning as the
+  // entitlements local=unlimited short-circuit) — only cloud accounts need to
+  // prove they own the address before they can add an outlet.
+  if (config.isCloud) {
+    const rawToken = await createVerificationToken(owner.id)
+    try {
+      await sendVerificationEmail(email, rawToken)
+    } catch (e) {
+      console.error("[auth] verification email failed:", e)
+    }
+  }
 
   const token = await signToken({ userId: owner.id, outletId: "", ownerId: owner.id, role: "owner" })
   return c.json({ token, owner: { id: owner.id, name: owner.name, email: owner.email } }, 201)
@@ -171,6 +183,81 @@ authRouter.post("/owner/reset-password", zValidator("json", resetPasswordSchema)
     db.update(ownerPasswordResets).set({ usedAt: new Date() }).where(eq(ownerPasswordResets.id, reset.id)),
   ])
 
+  return c.json({ ok: true })
+})
+
+// ── Email verification (cloud only) ────────────────────────────────────────────
+// Owners must verify before they can add an outlet — enforced in owner.ts's
+// POST /outlets, not here. This section only issues/consumes the token.
+
+async function hashToken(rawToken: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawToken))
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
+// Store only the SHA-256 hash (24-hour expiry), return the raw token to email out.
+async function createVerificationToken(ownerId: string): Promise<string> {
+  const rawBytes = crypto.getRandomValues(new Uint8Array(32))
+  const rawToken = Array.from(rawBytes).map((b) => b.toString(16).padStart(2, "0")).join("")
+  const tokenHash = await hashToken(rawToken)
+  await db.insert(ownerEmailVerifications).values({ ownerId, tokenHash, expiresAt: new Date(Date.now() + 24 * 60 * 60_000) })
+  return rawToken
+}
+
+// Separate bucket from the password-reset limiter — a burst of one shouldn't
+// throttle the other since they're different intents.
+const verifyRateLimit = new Map<string, { count: number; resetAt: number }>()
+function checkVerifyResendLimit(email: string): boolean {
+  const now = Date.now()
+  const entry = verifyRateLimit.get(email)
+  if (!entry || entry.resetAt < now) {
+    verifyRateLimit.set(email, { count: 1, resetAt: now + 15 * 60_000 })
+    return true
+  }
+  if (entry.count >= 3) return false
+  entry.count++
+  return true
+}
+
+authRouter.post("/owner/verify-email", zValidator("json", verifyEmailSchema), async (c) => {
+  const { token } = c.req.valid("json")
+  const tokenHash = await hashToken(token)
+
+  const verification = await db.query.ownerEmailVerifications.findFirst({
+    where: and(
+      eq(ownerEmailVerifications.tokenHash, tokenHash),
+      isNull(ownerEmailVerifications.usedAt),
+      gt(ownerEmailVerifications.expiresAt, new Date()),
+    ),
+  })
+  if (!verification) return c.json({ error: "Invalid or expired verification link" }, 400)
+
+  await Promise.all([
+    db.update(owners).set({ emailVerified: true }).where(eq(owners.id, verification.ownerId)),
+    db.update(ownerEmailVerifications).set({ usedAt: new Date() }).where(eq(ownerEmailVerifications.id, verification.id)),
+  ])
+
+  return c.json({ ok: true })
+})
+
+// Re-send the verification link to the signed-in owner (cloud only).
+authRouter.post("/owner/resend-verification", requireAuth, async (c) => {
+  const user = c.get("user")
+  if (user.role !== "owner") return c.json({ error: "Forbidden" }, 403)
+  if (!config.isCloud) return c.json({ error: "Not available in local mode" }, 400)
+
+  const owner = await db.query.owners.findFirst({ where: eq(owners.id, user.ownerId) })
+  if (!owner) return c.json({ error: "Owner not found" }, 404)
+  if (owner.emailVerified) return c.json({ ok: true, alreadyVerified: true })
+  if (!checkVerifyResendLimit(owner.email)) return c.json({ ok: true }) // rate-limited, same silent-success shape as send-reset
+
+  const rawToken = await createVerificationToken(owner.id)
+  try {
+    await sendVerificationEmail(owner.email, rawToken)
+  } catch (e) {
+    console.error("[auth] resend-verification email failed:", e)
+    return c.json({ error: "Couldn't send the verification email. Please try again shortly." }, 502)
+  }
   return c.json({ ok: true })
 })
 

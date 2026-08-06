@@ -12,6 +12,7 @@ import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
 import OwnerBillingPage from "@/pages/OwnerBillingPage"
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
+import VerifyEmailPage from "@/pages/VerifyEmailPage"
 import QrMenuPage from "@/pages/QrMenuPage"
 import RootLayout from "@/RootLayout"
 import { useAuthStore } from "@/stores/auth"
@@ -166,6 +167,15 @@ const resetPasswordRoute = createRoute({
   component: ResetPasswordPage,
 })
 
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/verify-email",
+  validateSearch: (search: Record<string, unknown>) => ({
+    token: search.token as string | undefined,
+  }),
+  component: VerifyEmailPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -181,6 +191,7 @@ const routeTree = rootRoute.addChildren([
   ownerBillingRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
+  verifyEmailRoute,
   qrMenuRoute,
 ])
 
