@@ -11,6 +11,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { logAudit } from "../services/audit.js"
 import { isDayClosed, DAY_CLOSED_ERROR } from "../services/dayClose.js"
+import { createPaymentLink, fetchPaymentLink, cancelPaymentLink, PAYMENT_LINK_EXPIRY_MS } from "../lib/razorpay.js"
 
 export const billingRouter = new Hono<AppEnv>()
 
@@ -136,6 +137,41 @@ async function deductInventoryForPaidBill(outletId: string, billId: string, orde
   if (!order) return
   const activeItems = order.items.filter((i) => !i.isVoided).map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
   await deductInventoryForBill(outletId, billId, activeItems, recordedById)
+}
+
+// Shared by manual "simulate" confirmation and the live Razorpay poll — marks
+// one gateway payment as settled, and closes out the bill once fully paid.
+async function settlePayment(outletId: string, billId: string, paymentId: string, recordedById: string): Promise<{ isPaid: boolean }> {
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill || bill.isPaid || bill.isVoided) return { isPaid: bill?.isPaid ?? false }
+
+  const payment = bill.payments.find((p) => p.id === paymentId)
+  if (!payment || payment.gatewayStatus === "success") return { isPaid: bill.isPaid }
+
+  await db.update(billPayments).set({ gatewayStatus: "success" }).where(eq(billPayments.id, paymentId))
+
+  // Count settled payments plus the one we just marked successful (still "pending" in the pre-update snapshot)
+  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" && p.id !== paymentId ? 0 : Number(p.amount)), 0)
+  const isPaid = paidSoFar >= Number(bill.total)
+  if (isPaid) {
+    await db.update(bills).set({ isPaid: true }).where(eq(bills.id, billId))
+    const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })
+    if (order?.tableId) {
+      await db.update(tables).set({ status: "available", currentOrderId: null }).where(eq(tables.id, order.tableId))
+      broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
+    }
+    broadcastOutlet(outletId, { type: "payment.confirmed", payload: { billId, paymentId } })
+    awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
+      console.error("[loyalty] award failed for bill", billId, err),
+    )
+    deductInventoryForPaidBill(outletId, billId, bill.orderId, recordedById).catch((err) =>
+      console.error("[inventory] auto-deduct failed for bill", billId, err),
+    )
+  }
+  return { isPaid }
 }
 
 billingRouter.post("/", requireRole("owner", "manager", "cashier"), zValidator("json", createBillSchema), async (c) => {
@@ -736,7 +772,10 @@ billingRouter.post("/:id/payments", zValidator("json", addPaymentSchema), async 
   return c.json(payment, 201)
 })
 
-// Initiate UPI payment — returns a UPI deeplink (rendered as QR on client) or Razorpay order
+// Initiate UPI payment — a real Razorpay payment link (rendered as a QR the
+// customer scans) when the outlet has its own keys configured (BYOK, live
+// status checked by the /status poll below), else a raw upi:// deeplink off
+// the outlet's VPA, else a stub.
 billingRouter.post("/:id/payments/upi", requireRole("owner", "manager", "cashier"), async (c) => {
   const { outletId } = c.get("user")
   const billId = c.req.param("id")
@@ -756,17 +795,26 @@ billingRouter.post("/:id/payments/upi", requireRole("owner", "manager", "cashier
   const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
   if (!outlet) return c.json({ error: "Outlet not found" }, 404)
 
-  const gatewayOrderId = `upi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  let gatewayOrderId = `upi_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   let qrData: string
   let mode: "razorpay" | "upi_direct" | "stub" = "stub"
 
   if (outlet.razorpayKeyId && outlet.razorpayKeySecret) {
-    // TODO: call Razorpay Payment Links API here when account is ready
-    // For now, fall through to UPI direct if VPA is available, otherwise stub
-    mode = "razorpay"
-    qrData = outlet.upiVpa
-      ? `upi://pay?pa=${outlet.upiVpa}&pn=${encodeURIComponent(outlet.name)}&am=${amountDue.toFixed(2)}&cu=INR&tr=${gatewayOrderId}`
-      : `RAZORPAY_STUB:${gatewayOrderId}:${amountDue}`
+    try {
+      const link = await createPaymentLink(
+        { keyId: outlet.razorpayKeyId, keySecret: outlet.razorpayKeySecret },
+        { amountPaise: Math.round(amountDue * 100), referenceId: billId, description: `${outlet.name} — Bill #${bill.billNumber}` },
+      )
+      gatewayOrderId = link.id
+      qrData = link.short_url
+      mode = "razorpay"
+    } catch (err) {
+      console.error("[billing] razorpay payment link create failed, falling back:", err)
+      qrData = outlet.upiVpa
+        ? `upi://pay?pa=${outlet.upiVpa}&pn=${encodeURIComponent(outlet.name)}&am=${amountDue.toFixed(2)}&cu=INR&tr=${gatewayOrderId}`
+        : `STUB:${gatewayOrderId}:${amountDue}`
+      mode = outlet.upiVpa ? "upi_direct" : "stub"
+    }
   } else if (outlet.upiVpa) {
     mode = "upi_direct"
     qrData = `upi://pay?pa=${outlet.upiVpa}&pn=${encodeURIComponent(outlet.name)}&am=${amountDue.toFixed(2)}&cu=INR&tr=${gatewayOrderId}`
@@ -783,12 +831,14 @@ billingRouter.post("/:id/payments/upi", requireRole("owner", "manager", "cashier
   const payment = payments[0]
   if (!payment) return c.json({ error: "Failed to create payment record" }, 500)
 
-  return c.json({ paymentId: payment.id, qrData, amountDue, mode, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() })
+  return c.json({ paymentId: payment.id, qrData, amountDue, mode, expiresAt: new Date(Date.now() + PAYMENT_LINK_EXPIRY_MS).toISOString() })
 })
 
-// Poll payment status
+// Poll payment status — for a real Razorpay payment link this is the ONLY
+// thing that advances it past "pending" short of a staff override; there's no
+// webhook (see razorpay.ts), so the client's poll loop is what drives confirmation.
 billingRouter.get("/:id/payments/:paymentId/status", async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, userId } = c.get("user")
   const billId = c.req.param("id")
   const paymentId = c.req.param("paymentId")
 
@@ -797,6 +847,23 @@ billingRouter.get("/:id/payments/:paymentId/status", async (c) => {
 
   const payment = await db.query.billPayments.findFirst({ where: and(eq(billPayments.id, paymentId), eq(billPayments.billId, billId)) })
   if (!payment) return c.json({ error: "Payment not found" }, 404)
+
+  if (payment.gatewayStatus === "pending" && payment.gatewayOrderId?.startsWith("plink_")) {
+    const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+    if (outlet?.razorpayKeyId && outlet.razorpayKeySecret) {
+      try {
+        const link = await fetchPaymentLink({ keyId: outlet.razorpayKeyId, keySecret: outlet.razorpayKeySecret }, payment.gatewayOrderId)
+        if (link.status === "paid" || link.amount_paid >= link.amount) {
+          const { isPaid } = await settlePayment(outletId, billId, paymentId, userId)
+          return c.json({ status: "success", isPaid })
+        }
+      } catch (err) {
+        console.error("[billing] razorpay payment link status check failed:", err)
+        // Fall through and report current DB state — a transient API hiccup
+        // shouldn't break the poll loop; the next tick tries again.
+      }
+    }
+  }
 
   return c.json({ status: payment.gatewayStatus ?? "pending", isPaid: bill.isPaid })
 })
@@ -821,20 +888,29 @@ billingRouter.delete("/:id/payments/:paymentId", requireRole("owner", "manager",
   if (payment.mode !== "upi" || payment.gatewayStatus !== "pending")
     return c.json({ error: "Can only cancel pending UPI payments" }, 400)
 
+  // Best-effort: cancel the link on Razorpay's side too, so it can't still be
+  // paid after staff has dismissed the modal locally.
+  if (payment.gatewayOrderId?.startsWith("plink_")) {
+    const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+    if (outlet?.razorpayKeyId && outlet.razorpayKeySecret) {
+      cancelPaymentLink({ keyId: outlet.razorpayKeyId, keySecret: outlet.razorpayKeySecret }, payment.gatewayOrderId).catch((err) =>
+        console.error("[billing] failed to cancel razorpay payment link", err),
+      )
+    }
+  }
+
   await db.delete(billPayments).where(eq(billPayments.id, paymentId))
   return c.json({ ok: true })
 })
 
-// Simulate payment success (testing / stub mode)
+// Manually mark a pending payment received (staff override — always available
+// as a fallback regardless of gateway; the only path at all for stub/upi_direct mode)
 billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "manager", "cashier"), async (c) => {
-  const { outletId } = c.get("user")
+  const { outletId, userId } = c.get("user")
   const billId = c.req.param("id")
   const paymentId = c.req.param("paymentId")
 
-  const bill = await db.query.bills.findFirst({
-    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
-    with: { payments: true },
-  })
+  const bill = await db.query.bills.findFirst({ where: and(eq(bills.id, billId), eq(bills.outletId, outletId)) })
   if (!bill) return c.json({ error: "Not found" }, 404)
   if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
   if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
@@ -843,26 +919,7 @@ billingRouter.patch("/:id/payments/:paymentId/simulate", requireRole("owner", "m
   if (!payment) return c.json({ error: "Payment not found" }, 404)
   if (payment.gatewayStatus === "success") return c.json({ error: "Already confirmed" }, 400)
 
-  await db.update(billPayments).set({ gatewayStatus: "success" }).where(eq(billPayments.id, paymentId))
-
-  // Count settled payments plus the one we just marked successful (still "pending" in the pre-update snapshot)
-  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" && p.id !== paymentId ? 0 : Number(p.amount)), 0)
-  if (paidSoFar >= Number(bill.total)) {
-    await db.update(bills).set({ isPaid: true }).where(eq(bills.id, billId))
-    const order = await db.query.orders.findFirst({ where: eq(orders.id, bill.orderId) })
-    if (order?.tableId) {
-      await db.update(tables).set({ status: "available", currentOrderId: null }).where(eq(tables.id, order.tableId))
-      broadcastOutlet(outletId, { type: "table.status", payload: { id: order.tableId, status: "available", currentOrderId: null } })
-    }
-    broadcastOutlet(outletId, { type: "payment.confirmed", payload: { billId, paymentId } })
-    awardLoyaltyPoints(outletId, billId, Number(bill.total), bill.orderId).catch((err) =>
-      console.error("[loyalty] award failed for bill", billId, err),
-    )
-    deductInventoryForPaidBill(outletId, billId, bill.orderId, c.get("user").userId).catch((err) =>
-      console.error("[inventory] auto-deduct failed for bill", billId, err),
-    )
-  }
-
-  return c.json({ ok: true, isPaid: paidSoFar >= Number(bill.total) })
+  const { isPaid } = await settlePayment(outletId, billId, paymentId, userId)
+  return c.json({ ok: true, isPaid })
 })
 

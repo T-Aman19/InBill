@@ -17,18 +17,18 @@ export class RazorpayError extends Error {
   }
 }
 
-function authHeader(): string {
-  const token = Buffer.from(`${config.razorpay.keyId}:${config.razorpay.keySecret}`).toString("base64")
-  return `Basic ${token}`
-}
-
-async function rzp<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-    throw new RazorpayError("Razorpay is not configured on this server", 500, null)
+// Per-outlet BYOK calls (bill payments) pass their own keyId/keySecret; calls
+// with none fall back to InBill's own platform keys (subscription billing).
+async function rzp<T>(path: string, init?: { method?: string; body?: unknown; keyId?: string; keySecret?: string }): Promise<T> {
+  const keyId = init?.keyId ?? config.razorpay.keyId
+  const keySecret = init?.keySecret ?? config.razorpay.keySecret
+  if (!keyId || !keySecret) {
+    throw new RazorpayError("Razorpay is not configured", 500, null)
   }
+  const token = Buffer.from(`${keyId}:${keySecret}`).toString("base64")
   const res = await fetch(`${BASE}${path}`, {
     method: init?.method ?? "GET",
-    headers: { Authorization: authHeader(), "Content-Type": "application/json" },
+    headers: { Authorization: `Basic ${token}`, "Content-Type": "application/json" },
     body: init?.body ? JSON.stringify(init.body) : undefined,
   })
   const text = await res.text()
@@ -115,6 +115,68 @@ export function cancelSubscription(id: string, atCycleEnd: boolean): Promise<Rzp
     method: "POST",
     body: { cancel_at_cycle_end: atCycleEnd ? 1 : 0 },
   })
+}
+
+// ── Payment Links (outlet BYOK — bill payment collection) ────────────────────
+// Each outlet authenticates with its own Razorpay keys, never InBill's platform
+// keys. Deliberately NOT using the QR Codes product: live-tested against a real
+// test-mode account and it 400s ("requested URL not found") — that product
+// needs a separate account-level activation Razorpay doesn't grant by default,
+// which most small outlets won't have. Payment Links works out of the box on
+// every account (verified live: create/fetch/cancel all 200 on a stock test key).
+// There's no webhook here: registering one programmatically requires Razorpay's
+// Partner/OAuth program, out of reach for a plain merchant key pair. Instead the
+// billing screen's existing 3s poll loop checks status live (see fetchPaymentLink).
+//
+// `upi_link: true` (a more UPI-native, one-tap experience) is a documented
+// option but Razorpay itself rejects it outright in Test Mode ("not supported
+// in Test Mode, experience in Live Mode") — enabling it unconditionally would
+// break every test-mode account. Left off for now; worth an opt-in once an
+// outlet is confirmed live-mode, but that path is unverified from here.
+
+export type RzpPaymentLink = {
+  id: string
+  status: "created" | "launched" | "attempted" | "paid" | "partially_paid" | "expired" | "cancelled"
+  short_url: string
+  amount: number
+  amount_paid: number
+}
+
+type OutletCreds = { keyId: string; keySecret: string }
+
+// Razorpay rejects anything under 15 minutes ("timestamp must be atleast 15
+// minutes in future") — verified live; the QR Codes product allowed 10. Exactly
+// 15 still 400s (request latency eats into the window before Razorpay checks
+// it), so pad to 16 for a safety margin.
+export const PAYMENT_LINK_EXPIRY_MS = 16 * 60 * 1000
+
+/** Create a fixed-amount payment link for one bill payment. Expires in 15 min. */
+export function createPaymentLink(
+  creds: OutletCreds,
+  input: { amountPaise: number; referenceId: string; description: string },
+): Promise<RzpPaymentLink> {
+  return rzp<RzpPaymentLink>("/payment_links", {
+    method: "POST",
+    keyId: creds.keyId,
+    keySecret: creds.keySecret,
+    body: {
+      amount: input.amountPaise,
+      currency: "INR",
+      description: input.description.slice(0, 255),
+      reference_id: input.referenceId,
+      accept_partial: false,
+      expire_by: Math.floor((Date.now() + PAYMENT_LINK_EXPIRY_MS) / 1000),
+    },
+  })
+}
+
+export function fetchPaymentLink(creds: OutletCreds, id: string): Promise<RzpPaymentLink> {
+  return rzp<RzpPaymentLink>(`/payment_links/${id}`, { keyId: creds.keyId, keySecret: creds.keySecret })
+}
+
+/** Best-effort cancel — called when staff cancels the modal so a stale link can't be paid later. */
+export function cancelPaymentLink(creds: OutletCreds, id: string): Promise<RzpPaymentLink> {
+  return rzp<RzpPaymentLink>(`/payment_links/${id}/cancel`, { method: "POST", keyId: creds.keyId, keySecret: creds.keySecret })
 }
 
 /** Constant-time verify of the `x-razorpay-signature` header against the raw body. */

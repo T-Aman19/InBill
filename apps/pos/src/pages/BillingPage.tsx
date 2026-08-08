@@ -911,7 +911,7 @@ export default function BillingPage() {
             <div style={{ position: "relative", padding: 14, background: "#fafaf7", borderRadius: 14, border: "1px solid var(--color-line)" }}>
               {/* Pulsing ring */}
               <div style={{ position: "absolute", inset: -3, borderRadius: 16, border: "2px solid var(--color-accent)", opacity: 0.35, animation: "pulse-qr 1.8s ease-out infinite" }} />
-              {upiPayment.qrData.startsWith("upi://") ? (
+              {upiPayment.mode !== "stub" ? (
                 <QRCode value={upiPayment.qrData} size={192} />
               ) : (
                 <div style={{ width: 192, height: 192, background: "var(--color-surface-2)", borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed var(--color-line-strong)" }}>
