@@ -150,10 +150,13 @@ type OutletCreds = { keyId: string; keySecret: string }
 // it), so pad to 16 for a safety margin.
 export const PAYMENT_LINK_EXPIRY_MS = 16 * 60 * 1000
 
-/** Create a fixed-amount payment link for one bill payment. Expires in 15 min. */
+/** Create a fixed-amount payment link for one bill payment. Expires in 15 min.
+ * `callbackUrl` (guest self-checkout only) brings the customer back to the QR
+ * menu page after paying — not used for staff-initiated payments, where the
+ * QR is scanned by the customer's own separate device. */
 export function createPaymentLink(
   creds: OutletCreds,
-  input: { amountPaise: number; referenceId: string; description: string },
+  input: { amountPaise: number; referenceId: string; description: string; callbackUrl?: string },
 ): Promise<RzpPaymentLink> {
   return rzp<RzpPaymentLink>("/payment_links", {
     method: "POST",
@@ -166,6 +169,7 @@ export function createPaymentLink(
       reference_id: input.referenceId,
       accept_partial: false,
       expire_by: Math.floor((Date.now() + PAYMENT_LINK_EXPIRY_MS) / 1000),
+      ...(input.callbackUrl ? { callback_url: input.callbackUrl, callback_method: "get" } : {}),
     },
   })
 }

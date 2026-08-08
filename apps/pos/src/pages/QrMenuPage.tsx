@@ -12,7 +12,8 @@ type ModGroup    = { id: string; name: string; required: boolean; multiSelect: b
 type Variant     = { id: string; name: string; price: string }
 type MenuItem    = { id: string; categoryId: string; name: string; description?: string | null; basePrice: string; isVeg: boolean; imageUrl?: string | null; variants: Variant[]; modifierGroups: ModGroup[] }
 type Category    = { id: string; name: string }
-type OutletInfo  = { id: string; name: string; address?: string }
+type OutletInfo  = { id: string; name: string; address?: string; onlinePaymentEnabled: boolean }
+type Bill        = { id: string; total: string; isPaid: boolean }
 type CartEntry   = { menuItemId: string; name: string; variantId?: string; variantName?: string; unitPrice: number; quantity: number; modifierIds: string[]; modifierNames: string[]; notes?: string }
 type SentItem    = { id: string; name: string; variantName: string | null; quantity: number; unitPrice: string; modifiers?: { name: string; price: string }[] }
 
@@ -137,6 +138,9 @@ export default function QrMenuPage() {
   const [sentItems, setSentItems] = useState<SentItem[]>([])
   const [showSentItems, setShowSentItems] = useState(false)
   const [orderStatus, setOrderStatus] = useState<string | null>(null)
+  const [bill, setBill] = useState<Bill | null>(null)
+  const [paying, setPaying] = useState(false)
+  const [payErr, setPayErr] = useState("")
 
   // Success toast
   const [toast, setToast] = useState<string | null>(null)
@@ -170,7 +174,9 @@ export default function QrMenuPage() {
   }, [tableId, outletId])
 
   // Poll the order status so the guest sees "cooking → served" without asking
-  // staff. Stops on terminal states (billed/cancelled) to save battery.
+  // staff. Also carries bill info once staff raise it, so a paid-by-any-method
+  // bill (cash, staff simulate, or this guest's own online payment) always
+  // eventually reflects here even if the faster pay-status poll below misses it.
   useEffect(() => {
     if (!orderId) return
     let stopped = false
@@ -178,8 +184,11 @@ export default function QrMenuPage() {
       try {
         const r = await fetch(`${PUBLIC_BASE}/orders/${orderId}/status?outletId=${outletId}`)
         if (!r.ok) return
-        const data = (await r.json()) as { status: string }
-        if (!stopped) setOrderStatus(data.status)
+        const data = (await r.json()) as { status: string; bill: Bill | null }
+        if (!stopped) {
+          setOrderStatus(data.status)
+          setBill(data.bill)
+        }
       } catch { /* transient network error — keep last known status */ }
     }
     void poll()
@@ -189,11 +198,62 @@ export default function QrMenuPage() {
     return () => { stopped = true; clearInterval(t) }
   }, [orderId, outletId])
 
+  // If we've just come back from the Razorpay checkout redirect, poll the
+  // payment status tightly for a bit so "Paid — thank you!" appears within a
+  // couple seconds instead of waiting for the next 12s order-status tick.
+  useEffect(() => {
+    if (!bill || bill.isPaid) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("paid") !== "1") return
+
+    let stopped = false
+    let attempts = 0
+    async function poll() {
+      if (stopped || attempts >= 15) return
+      attempts++
+      try {
+        const r = await fetch(`${PUBLIC_BASE}/bills/${bill!.id}/pay-status?outletId=${outletId}`)
+        if (r.ok) {
+          const data = (await r.json()) as { isPaid: boolean }
+          if (data.isPaid) {
+            setBill((b) => (b ? { ...b, isPaid: true } : b))
+            stopped = true
+            return
+          }
+        }
+      } catch { /* transient — retry */ }
+      setTimeout(() => void poll(), 2000)
+    }
+    void poll()
+    // Strip ?paid=1 so a manual refresh doesn't re-trigger the tight poll forever
+    window.history.replaceState({}, "", window.location.pathname)
+    return () => { stopped = true }
+  }, [bill, outletId])
+
+  async function payNow() {
+    if (!bill || paying) return
+    setPaying(true)
+    setPayErr("")
+    try {
+      const callbackUrl = `${window.location.origin}${window.location.pathname}?paid=1`
+      const res = await fetch(`${PUBLIC_BASE}/bills/${bill.id}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outletId, callbackUrl }),
+      })
+      const data = await res.json() as { shortUrl?: string; error?: string }
+      if (!res.ok || !data.shortUrl) throw new Error(data.error ?? "Could not start payment")
+      window.location.href = data.shortUrl
+    } catch (e) {
+      setPayErr(e instanceof Error ? e.message : "Could not start payment")
+      setPaying(false)
+    }
+  }
+
   const STATUS_BANNER: Record<string, { label: string; bg: string; fg: string }> = {
     open:     { label: "Order received",                    bg: "#eef2ff", fg: "#3730a3" },
     kot_sent: { label: "In the kitchen — being prepared",   bg: "#fff7ed", fg: "#9a3412" },
     served:   { label: "Served — enjoy your meal!",         bg: "#f0fdf4", fg: "#166534" },
-    billed:   { label: "Bill raised — please pay at the counter or ask your server", bg: "#fafaf9", fg: "#44403c" },
     cancelled:{ label: "Order cancelled — please ask your server", bg: "#fef2f2", fg: "#991b1b" },
   }
 
@@ -313,12 +373,32 @@ export default function QrMenuPage() {
       </div>
 
       {/* Live order status — the guest sees cooking → served without asking staff */}
-      {orderId && orderStatus && STATUS_BANNER[orderStatus] && (
+      {orderId && orderStatus && orderStatus !== "billed" && STATUS_BANNER[orderStatus] && (
         <div style={{ background: STATUS_BANNER[orderStatus]!.bg, color: STATUS_BANNER[orderStatus]!.fg, padding: "10px 16px", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #f0f0f0" }}>
           {orderStatus === "kot_sent" && (
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block", animation: "pulse 1.5s ease-in-out infinite" }} />
           )}
           {STATUS_BANNER[orderStatus]!.label}
+        </div>
+      )}
+
+      {/* Bill raised — self-checkout when the outlet has Razorpay connected,
+          otherwise fall back to today's "pay at counter" message. */}
+      {orderId && orderStatus === "billed" && (
+        <div style={{ background: bill?.isPaid ? "#f0fdf4" : "#fafaf9", borderBottom: "1px solid #f0f0f0", padding: "14px 16px" }}>
+          {bill?.isPaid ? (
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>✓ Paid — thank you!</div>
+          ) : bill && outlet?.onlinePaymentEnabled ? (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#44403c", marginBottom: 10 }}>Bill raised · {fmt(bill.total)}</div>
+              <button onClick={() => void payNow()} disabled={paying} style={{ width: "100%", padding: "14px", background: "#111", color: "#fff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: paying ? .6 : 1 }}>
+                {paying ? "Redirecting to payment…" : `Pay ${fmt(bill.total)} now`}
+              </button>
+              {payErr && <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 8 }}>{payErr}</div>}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#44403c" }}>Bill raised — please pay at the counter or ask your server</div>
+          )}
         </div>
       )}
 

@@ -68,7 +68,7 @@ async function deductInventoryForBill(
   outletId: string,
   billId: string,
   activeItems: { menuItemId: string | null; quantity: number }[],
-  recordedById: string,
+  recordedById: string | null,
 ) {
   const menuItemIds = [...new Set(activeItems.map((i) => i.menuItemId).filter(Boolean) as string[])]
   if (menuItemIds.length === 0) return
@@ -132,16 +132,19 @@ async function deductInventoryForBill(
 // Deduct recipe inventory for a bill once it's actually paid (fetches the order's
 // active items). Kept off the bill-creation path so abandoned/unpaid bills don't
 // wrongly consume stock.
-async function deductInventoryForPaidBill(outletId: string, billId: string, orderId: string, recordedById: string) {
+async function deductInventoryForPaidBill(outletId: string, billId: string, orderId: string, recordedById: string | null) {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId), with: { items: true } })
   if (!order) return
   const activeItems = order.items.filter((i) => !i.isVoided).map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity }))
   await deductInventoryForBill(outletId, billId, activeItems, recordedById)
 }
 
-// Shared by manual "simulate" confirmation and the live Razorpay poll — marks
-// one gateway payment as settled, and closes out the bill once fully paid.
-async function settlePayment(outletId: string, billId: string, paymentId: string, recordedById: string): Promise<{ isPaid: boolean }> {
+// Shared by manual "simulate" confirmation, the staff-side live Razorpay poll,
+// and the public guest self-checkout poll (public.ts) — marks one gateway
+// payment as settled, and closes out the bill once fully paid. `recordedById`
+// is null for guest-settled payments (no staff user to attribute stock
+// deduction to).
+export async function settlePayment(outletId: string, billId: string, paymentId: string, recordedById: string | null): Promise<{ isPaid: boolean }> {
   const bill = await db.query.bills.findFirst({
     where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
     with: { payments: true },

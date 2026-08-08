@@ -8,11 +8,13 @@ import { config } from "../config.js"
 import {
   outlets, categories, menuItems,
   modifierGroups, modifiers, menuSchedules,
-  orders, orderItems, orderItemModifiers, tables,
+  orders, orderItems, orderItemModifiers, tables, bills, billPayments,
 } from "../db/schema/index.js"
 import { broadcastOutlet } from "../services/ws.js"
 import { fireKots } from "../lib/kot.js"
 import { isScheduleActiveNow } from "../lib/schedule.js"
+import { createPaymentLink, fetchPaymentLink } from "../lib/razorpay.js"
+import { settlePayment } from "./billing.js"
 
 // Effective schedule for an item: its own wins, else its category's.
 // Returns null when the item has no (active) schedule attached.
@@ -61,9 +63,12 @@ publicRouter.get("/menu/:outletId", async (c) => {
 
   const outlet = await db.query.outlets.findFirst({
     where: and(eq(outlets.id, outletId), eq(outlets.isActive, true)),
-    columns: { id: true, name: true, address: true },
+    columns: { id: true, name: true, address: true, razorpayKeyId: true, razorpayKeySecret: true },
   })
   if (!outlet) return c.json({ error: "Not found" }, 404)
+
+  // Never leak the keys themselves — just whether self-checkout is possible.
+  const onlinePaymentEnabled = !!(outlet.razorpayKeyId && outlet.razorpayKeySecret)
 
   const [cats, items, links, groups, mods] = await Promise.all([
     db.query.categories.findMany({
@@ -113,7 +118,11 @@ publicRouter.get("/menu/:outletId", async (c) => {
       }
     })
 
-  return c.json({ outlet, categories: cats, items: enrichedItems })
+  return c.json({
+    outlet: { id: outlet.id, name: outlet.name, address: outlet.address, onlinePaymentEnabled },
+    categories: cats,
+    items: enrichedItems,
+  })
 })
 
 const publicOrderSchema = z.object({
@@ -247,7 +256,10 @@ publicRouter.get("/table/:tableId", async (c) => {
   })
   if (!table) return c.json({ error: "Table not found" }, 404)
 
-  if (table.currentOrderId && table.status === "occupied") {
+  // "billed" (not just "occupied") too — otherwise a guest who reloads the
+  // page after staff raise the bill loses track of their order/bill entirely,
+  // and the self-checkout Pay button can never appear.
+  if (table.currentOrderId && (table.status === "occupied" || table.status === "billed")) {
     const existingItems = await db.query.orderItems.findMany({
       where: and(eq(orderItems.orderId, table.currentOrderId), eq(orderItems.isVoided, false)),
       with: { modifiers: true },
@@ -269,7 +281,111 @@ publicRouter.get("/orders/:id/status", async (c) => {
     columns: { id: true, status: true },
   })
   if (!order) return c.json({ error: "Not found" }, 404)
-  return c.json({ status: order.status })
+
+  // Once staff raise the bill, surface it so the guest can pay from their phone.
+  let bill: { id: string; total: string; isPaid: boolean } | null = null
+  if (order.status === "billed") {
+    const row = await db.query.bills.findFirst({
+      where: and(eq(bills.orderId, id), eq(bills.isVoided, false)),
+      columns: { id: true, total: true, isPaid: true },
+      orderBy: (b, { desc }) => [desc(b.createdAt)],
+    })
+    if (row) bill = row
+  }
+
+  return c.json({ status: order.status, bill })
+})
+
+// POST /api/public/bills/:billId/pay — guest self-checkout. Creates (or reuses,
+// if one's already pending) a real Razorpay payment link on the OUTLET's own
+// account (BYOK — see lib/razorpay.ts), scoped to the exact remaining balance.
+// Only reachable when the outlet has connected its own Razorpay keys; there's
+// no manual "simulate" fallback here since no staff is watching.
+const payBillSchema = z.object({ outletId: z.string().uuid(), callbackUrl: z.string().url().optional() })
+
+publicRouter.post("/bills/:billId/pay", zValidator("json", payBillSchema), async (c) => {
+  const { billId } = c.req.param()
+  const { outletId, callbackUrl } = c.req.valid("json")
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isVoided) return c.json({ error: "Bill has been voided" }, 400)
+  if (bill.isPaid) return c.json({ error: "Already paid" }, 400)
+
+  const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+  if (!outlet?.razorpayKeyId || !outlet.razorpayKeySecret) {
+    return c.json({ error: "Online payment isn't available for this outlet — please pay at the counter" }, 400)
+  }
+
+  const paidSoFar = bill.payments.reduce((s, p) => s + (p.gatewayStatus === "pending" ? 0 : Number(p.amount)), 0)
+  const amountDue = Math.max(0, Number(bill.total) - paidSoFar)
+  if (amountDue <= 0) return c.json({ error: "Nothing due" }, 400)
+
+  const creds = { keyId: outlet.razorpayKeyId, keySecret: outlet.razorpayKeySecret }
+
+  // Reuse an existing pending link rather than minting a new one on every tap
+  // (double-tap, guest reopening the page, etc.)
+  const existingPending = bill.payments.find((p) => p.gatewayStatus === "pending" && p.gatewayOrderId?.startsWith("plink_"))
+  if (existingPending?.gatewayOrderId) {
+    try {
+      const link = await fetchPaymentLink(creds, existingPending.gatewayOrderId)
+      if (link.status !== "cancelled" && link.status !== "expired") {
+        return c.json({ shortUrl: link.short_url, amountDue, expiresAt: null })
+      }
+    } catch (err) {
+      console.error("[public] failed to refetch existing payment link, creating a new one:", err)
+    }
+  }
+
+  try {
+    const link = await createPaymentLink(creds, {
+      amountPaise: Math.round(amountDue * 100),
+      referenceId: billId,
+      description: `${outlet.name} — Bill #${bill.billNumber}`,
+      ...(callbackUrl ? { callbackUrl } : {}),
+    })
+    await db.insert(billPayments).values({ billId, mode: "upi", amount: String(amountDue.toFixed(2)), gatewayOrderId: link.id, gatewayStatus: "pending" })
+    return c.json({ shortUrl: link.short_url, amountDue, expiresAt: new Date(Date.now() + 16 * 60 * 1000).toISOString() })
+  } catch (err) {
+    console.error("[public] razorpay payment link create failed:", err)
+    return c.json({ error: "Couldn't start payment — please pay at the counter" }, 502)
+  }
+})
+
+// GET /api/public/bills/:billId/pay-status?outletId= — guest-side poll. Looks
+// up the bill's own latest pending link (no paymentId needed from the client,
+// so this survives a full page reload after the Razorpay redirect-back).
+publicRouter.get("/bills/:billId/pay-status", async (c) => {
+  const { billId } = c.req.param()
+  const outletId = c.req.query("outletId")
+  if (!outletId) return c.json({ error: "outletId required" }, 400)
+
+  const bill = await db.query.bills.findFirst({
+    where: and(eq(bills.id, billId), eq(bills.outletId, outletId)),
+    with: { payments: true },
+  })
+  if (!bill) return c.json({ error: "Not found" }, 404)
+  if (bill.isPaid) return c.json({ isPaid: true })
+
+  const pending = bill.payments.find((p) => p.gatewayStatus === "pending" && p.gatewayOrderId?.startsWith("plink_"))
+  if (!pending) return c.json({ isPaid: false })
+
+  const outlet = await db.query.outlets.findFirst({ where: eq(outlets.id, outletId) })
+  if (!outlet?.razorpayKeyId || !outlet.razorpayKeySecret) return c.json({ isPaid: false })
+
+  try {
+    const link = await fetchPaymentLink({ keyId: outlet.razorpayKeyId, keySecret: outlet.razorpayKeySecret }, pending.gatewayOrderId!)
+    if (link.status === "paid" || link.amount_paid >= link.amount) {
+      const { isPaid } = await settlePayment(outletId, billId, pending.id, null)
+      return c.json({ isPaid })
+    }
+  } catch (err) {
+    console.error("[public] razorpay payment link status check failed:", err)
+  }
+  return c.json({ isPaid: false })
 })
 
 // GET /api/public/lan-url — returns the server's LAN base URL so the QR modal
