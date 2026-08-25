@@ -32,6 +32,9 @@ import { queueRouter } from "./routes/queue.js"
 import { auditRouter } from "./routes/audit.js"
 import { entitlementsRouter } from "./routes/entitlements.js"
 import { subscriptionsRouter } from "./routes/subscriptions.js"
+import { mcpRouter } from "./routes/mcp.js"
+import { mcpKeysRouter } from "./routes/mcpKeys.js"
+import { oauthRouter, oauthApproveRouter } from "./routes/oauth.js"
 import { runEmbeddedMigrations } from "./db/embedded-migrate.js"
 
 // Run migrations before accepting requests — safe to call on every startup
@@ -80,9 +83,17 @@ api.route("/queue", queueRouter)
 api.route("/audit", auditRouter)
 api.route("/entitlements", entitlementsRouter)
 api.route("/billing", subscriptionsRouter)
+api.route("/mcp-keys", mcpKeysRouter)
+api.route("/oauth", oauthApproveRouter)
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", mode: config.mode, ts: new Date().toISOString() }))
+
+// MCP endpoint + OAuth 2.1 authorization server (cloud only — see routes/oauth.ts).
+// Mounted at root: MCP's Streamable HTTP convention is a plain /mcp path, and the
+// RFC 9728/8414 well-known discovery paths are spec-fixed and can't live under /api.
+app.route("/", mcpRouter)
+app.route("/", oauthRouter)
 
 // Serve captain mobile app at /mobile
 // rewriteRequestPath strips the /mobile prefix so serveStatic looks up

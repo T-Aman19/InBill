@@ -28,6 +28,8 @@ import m0023 from "./migrations/0023_kitchen_stations.sql" with { type: "text" }
 import m0024 from "./migrations/0024_subscription_billing.sql" with { type: "text" }
 import m0025 from "./migrations/0025_subscription_history.sql" with { type: "text" }
 import m0026 from "./migrations/0026_owner_email_verification.sql" with { type: "text" }
+import m0027 from "./migrations/0027_mcp_api_keys.sql" with { type: "text" }
+import m0028 from "./migrations/0028_mcp_oauth.sql" with { type: "text" }
 import postgres from "postgres"
 import { config } from "../config.js"
 
@@ -59,6 +61,8 @@ const MIGRATIONS = [
   { name: "0024_subscription_billing",   sql: m0024 },
   { name: "0025_subscription_history",   sql: m0025 },
   { name: "0026_owner_email_verification", sql: m0026 },
+  { name: "0027_mcp_api_keys",             sql: m0027 },
+  { name: "0028_mcp_oauth",                sql: m0028 },
 ]
 
 export async function runEmbeddedMigrations(): Promise<void> {

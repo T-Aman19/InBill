@@ -400,6 +400,10 @@ export default function OwnerDashboardPage() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>
             Billing
           </button>
+          <button type="button" onClick={() => navigate({ to: "/owner/integrations" })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9, fontSize: 13, fontWeight: 500, background: "none", color: "var(--color-ink-3)", border: "none", textAlign: "left", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 11-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></svg>
+            Integrations
+          </button>
         </nav>
         <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 12, display: "flex", alignItems: "center", gap: 9 }}>
           <button type="button" onClick={() => setShowChangePw(true)} title="Change password" style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", flexShrink: 0 }}>

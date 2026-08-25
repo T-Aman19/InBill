@@ -1,6 +1,8 @@
 import type { EntitlementDecision, GateError, CatalogPlan, BillingCycle, TaxConfig } from "@inbill/shared"
 
 export type MenuSchedule = { id: string; name: string; days: number[]; startTime: string; endTime: string; percentOff: string; isActive: boolean }
+export type McpApiKey = { id: string; label: string; outletId: string | null; keyPrefix: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string }
+export type OAuthGrant = { clientId: string; clientName: string; grantedAt: string | null }
 export type OwnerOutlet = {
   id: string; name: string; address: string; phone: string; gstin?: string; setupCode?: string
   revenue: number; billCount: number; byPaymentMode: Record<string, number>
@@ -11,7 +13,7 @@ export type OwnerOutlet = {
 
 // Tauri embedded (tauri: protocol) and Vite dev (port 5173) both need to reach
 // the Bun server explicitly. LAN browsers load from port 3000 so relative URLs work.
-const SERVER_ORIGIN =
+export const SERVER_ORIGIN =
   window.location.protocol === "tauri:" || window.location.port === "5173"
     ? "http://localhost:3000"
     : ""
@@ -389,6 +391,17 @@ export const api = {
     createOutletSchedule: (id: string, body: unknown) => opost<MenuSchedule>(`/owner/outlets/${id}/schedules`, body),
     updateOutletSchedule: (id: string, scheduleId: string, body: unknown) => opatch<MenuSchedule>(`/owner/outlets/${id}/schedules/${scheduleId}`, body),
     deleteOutletSchedule: (id: string, scheduleId: string) => odel<void>(`/owner/outlets/${id}/schedules/${scheduleId}`),
+    mcpKeys: {
+      list: () => oget<McpApiKey[]>("/mcp-keys"),
+      create: (label: string, outletId?: string) => opost<{ id: string; key: string }>("/mcp-keys", { label, outletId }),
+      revoke: (id: string) => odel<void>(`/mcp-keys/${id}`),
+    },
+    oauth: {
+      grants: () => oget<OAuthGrant[]>("/oauth/grants"),
+      revokeGrant: (clientId: string) => odel<void>(`/oauth/grants/${clientId}`),
+      approve: (body: { clientId: string; redirectUri: string; codeChallenge: string; state?: string; outletIds: string[] | null }) =>
+        opost<{ redirectUrl: string }>("/oauth/authorize/approve", body),
+    },
   },
   public: {
     lanUrl: () => get<{ urls: string[]; port: string }>("/public/lan-url"),

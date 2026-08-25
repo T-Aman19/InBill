@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { api } from "@/lib/api"
 import { LogoMark } from "@/components/ui/LogoMark"
 
 export default function OwnerLoginPage() {
   const navigate = useNavigate()
+  const { redirect: redirectTo } = useSearch({ from: "/owner/login" })
   const [tab, setTab] = useState<"login" | "register">("login")
   const [form, setForm] = useState({ name: "", email: "", password: "", phone: "" })
   const [err, setErr] = useState("")
@@ -37,7 +38,8 @@ export default function OwnerLoginPage() {
           ? await api.owner.login(form.email, form.password)
           : await api.owner.register({ ...form, name: form.name.trim() })
       localStorage.setItem("inbill_owner_token", res.token)
-      navigate({ to: "/owner/dashboard" })
+      if (redirectTo) window.location.href = redirectTo
+      else navigate({ to: "/owner/dashboard" })
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Something went wrong")
     } finally {

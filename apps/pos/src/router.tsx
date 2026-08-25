@@ -10,6 +10,8 @@ import PODetailPage from "@/pages/PODetailPage"
 import OwnerLoginPage from "@/pages/OwnerLoginPage"
 import OwnerDashboardPage from "@/pages/OwnerDashboardPage"
 import OwnerBillingPage from "@/pages/OwnerBillingPage"
+import OwnerIntegrationsPage from "@/pages/OwnerIntegrationsPage"
+import OAuthConsentPage from "@/pages/owner/OAuthConsentPage"
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
 import VerifyEmailPage from "@/pages/VerifyEmailPage"
@@ -131,6 +133,13 @@ const qrMenuRoute = createRoute({
 const ownerLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/owner/login",
+  // `redirect?:` (optional key), not `redirect: string | undefined` (required
+  // key, possibly-undefined value) — the latter would force every existing
+  // `navigate({ to: "/owner/login" })` call site across the app to start
+  // passing a `search` object.
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: search.redirect as string | undefined,
+  }),
   component: OwnerLoginPage,
 })
 
@@ -150,6 +159,33 @@ const ownerBillingRoute = createRoute({
     if (!localStorage.getItem("inbill_owner_token")) throw redirect({ to: "/owner/login" })
   },
   component: OwnerBillingPage,
+})
+
+const ownerIntegrationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/integrations",
+  beforeLoad: () => {
+    if (!localStorage.getItem("inbill_owner_token")) throw redirect({ to: "/owner/login" })
+  },
+  component: OwnerIntegrationsPage,
+})
+
+const ownerOauthConsentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/owner/oauth-consent",
+  validateSearch: (search: Record<string, unknown>) => ({
+    client_id: search.client_id as string | undefined,
+    client_name: search.client_name as string | undefined,
+    redirect_uri: search.redirect_uri as string | undefined,
+    code_challenge: search.code_challenge as string | undefined,
+    state: search.state as string | undefined,
+  }),
+  beforeLoad: ({ location }) => {
+    if (!localStorage.getItem("inbill_owner_token")) {
+      throw redirect({ to: "/owner/login", search: { redirect: location.href } })
+    }
+  },
+  component: OAuthConsentPage,
 })
 
 const forgotPasswordRoute = createRoute({
@@ -189,6 +225,8 @@ const routeTree = rootRoute.addChildren([
   ownerLoginRoute,
   ownerDashboardRoute,
   ownerBillingRoute,
+  ownerIntegrationsRoute,
+  ownerOauthConsentRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
   verifyEmailRoute,
